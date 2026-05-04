@@ -1,0 +1,43 @@
+body {
+    margin: 0;
+    padding: 0;
+    background-color: #0d1117;
+    overflow: hidden;
+}
+
+/* Dropdown dark theme */
+.Select-control {
+    background-color: #1c2128 !important;
+    border-color: #30363d !important;
+    color: #c9d1d9 !important;
+}
+.Select-placeholder,
+.Select-value-label {
+    color: #c9d1d9 !important;
+}
+.Select-arrow {
+    border-top-color: #8b949e !important;
+}
+.Select-menu-outer {
+    background-color: #1c2128 !important;
+    border-color: #30363d !important;
+    z-index: 9999 !important;
+}
+.Select-option {
+    background-color: #1c2128 !important;
+    color: #c9d1d9 !important;
+}
+.Select-option:hover,
+.Select-option.is-focused {
+    background-color: #2d333b !important;
+    color: #fff !important;
+}
+.Select-option.is-selected {
+    background-color: #1f3a5f !important;
+}
+.Select--single > .Select-control .Select-value {
+    color: #c9d1d9 !important;
+}
+.VirtualizedSelectFocusedOption {
+    background-color: #2d333b !important;
+}

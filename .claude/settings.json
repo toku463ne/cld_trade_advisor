@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv:*)",
+      "Bash(python:*)",
+      "Bash(pytest:*)",
+      "Bash(alembic:*)",
+      "Bash(psql:* -d stock_trader*)",
+      "Bash(git:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(ls:*)",
+      "Bash(echo:*)",
+      "Bash(grep:*)",
+      "Bash(sed:*)",
+      "Bash(mypy:*)",
+      "Bash(ruff:*)",
+      "Read(devenv)",
+      "Read(backtestenv)",
+      "Bash(uv run python *:*)"
+    ],
+    "deny": [
+      "Bash(pip:*)",
+      "Bash(rm -rf /*)",
+      "Bash(curl:* *sbi-securities*)",
+      "Bash(curl:* *rakuten-sec*)"
+    ]
+  }
+}

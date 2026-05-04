@@ -1,0 +1,2 @@
+DATABASE_URL=postgresql://stockbtuser:stockbtpass@localhost:5432/stock_trader_bt
+DATA_SOURCE=yfinance

@@ -1,0 +1,641 @@
+"""Interactive OHLCV + strategy chart viewer.
+
+Launch:
+    uv run --env-file devenv python -m src.viz.app
+    # then open http://localhost:8050
+
+Design principles
+-----------------
+- No strategy names are hardcoded in this file.
+- Strategy list is loaded from the DB on page load.
+- Params-table columns are generated from params_json keys of the selected run.
+- Extra indicators / chart traces are registered in _EXTRA_INDICATOR_LOADERS
+  and _EXTRA_TRACES, keyed by the *param name* that triggers them — so adding
+  a new strategy never requires touching this file.
+"""
+
+from __future__ import annotations
+
+import datetime
+from pathlib import Path
+from typing import Any, Callable
+
+import dash
+from dash import Input, Output, State, callback, dash_table, dcc, html
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+from sqlalchemy import select
+
+from src.backtest.train_models import TrainBestResult, TrainRun
+from src.data.db import get_session
+from src.simulator.cache import DataCache
+from src.simulator.bar import BarData
+
+# ── App ───────────────────────────────────────────────────────────────────────
+
+_ASSETS = Path(__file__).parent / "assets"
+app = dash.Dash(
+    __name__,
+    title="Trade Advisor",
+    assets_folder=str(_ASSETS),
+    suppress_callback_exceptions=True,
+)
+
+# ── Palette ───────────────────────────────────────────────────────────────────
+
+_BG         = "#0d1117"
+_SIDEBAR_BG = "#161b22"
+_CARD_BG    = "#1c2128"
+_BORDER     = "#30363d"
+_TEXT       = "#c9d1d9"
+_MUTED      = "#8b949e"
+_ACCENT     = "#58a6ff"
+_GREEN      = "#3fb950"
+_RED        = "#f85149"
+
+# ── Param display config (keyed by param name, NOT strategy name) ─────────────
+
+# Human-readable label for each known param key
+_PARAM_DISPLAY: dict[str, str] = {
+    "sma_period":  "SMA",
+    "sigma_mult":  "σ",
+    "n_days":      "N",
+    "m_days":      "M",
+    "tp":          "TP%",
+    "sl":          "SL%",
+    "take_profit": "TP%",   # backward compat with old DB rows
+    "stop_loss":   "SL%",   # backward compat with old DB rows
+}
+
+# Params that are constant within a grid search — hide from table
+_SKIP_PARAMS: frozenset[str] = frozenset({"units"})
+
+# Preferred column order; any unknown params are appended alphabetically
+_PARAM_ORDER: list[str] = [
+    "sma_period", "sigma_mult", "n_days", "m_days",
+    "tp", "take_profit", "sl", "stop_loss",
+]
+
+# Percentage-valued params (displayed as "10%" not "0.1")
+_PCT_PARAMS: frozenset[str] = frozenset({"tp", "take_profit", "sl", "stop_loss"})
+
+
+# ── Extra indicator loaders (keyed by triggering param name) ──────────────────
+#
+# When a result's params_json contains the key, the loader is called.
+# Signature: loader(cache, sma_period)
+
+def _load_rolling_std(cache: DataCache, sma_period: int) -> None:
+    cache.add_rolling_std(sma_period)
+
+_EXTRA_INDICATOR_LOADERS: dict[str, Callable[[DataCache, int], None]] = {
+    "sigma_mult": _load_rolling_std,
+}
+
+
+# ── Extra chart traces (keyed by triggering param name) ───────────────────────
+#
+# When params_json contains the key, the trace function is called and the
+# returned trace is added to row=1 of the figure.
+# Signature: fn(params_json, dates, bars) -> go.BaseTraceType
+
+def _bollinger_upper_band(
+    params_json: dict, dates: list[str], bars: list[BarData],
+) -> go.Scatter:
+    period = params_json["sma_period"]
+    sigma  = params_json["sigma_mult"]
+    sma_v  = [b.indicators.get(f"SMA{period}") for b in bars]
+    std_v  = [b.indicators.get(f"RSTD{period}") for b in bars]
+    upper  = [
+        s + sigma * d if (s is not None and d is not None and d > 0) else None
+        for s, d in zip(sma_v, std_v)
+    ]
+    return go.Scatter(
+        x=dates, y=upper,
+        mode="lines",
+        name=f"BB upper ({sigma}σ)",
+        line=dict(color="#ab47bc", width=1.2, dash="dot"),
+        hovertemplate="BB upper: %{y:,.0f}<extra></extra>",
+    )
+
+_EXTRA_TRACES: dict[str, Callable] = {
+    "sigma_mult": _bollinger_upper_band,
+}
+
+
+# ── Column generation from params_json ────────────────────────────────────────
+
+def _columns_from_params(params_json: dict) -> list[dict]:
+    """Build DataTable column definitions from the keys of a params_json dict."""
+    keys = set(params_json.keys()) - _SKIP_PARAMS
+    ordered   = [k for k in _PARAM_ORDER if k in keys]
+    remaining = sorted(keys - set(ordered))
+    cols = [{"name": "#", "id": "rank"}]
+    for k in ordered + remaining:
+        cols.append({"name": _PARAM_DISPLAY.get(k, k), "id": k})
+    cols.append({"name": "Score", "id": "score"})
+    return cols
+
+
+def _result_to_row(r: TrainBestResult) -> dict[str, Any]:
+    """Flatten a TrainBestResult into a DataTable row dict."""
+    row: dict[str, Any] = {"rank": r.rank, "score": f"{r.score:.3f}", "result_id": r.id}
+    for key, val in r.params_json.items():
+        if key in _SKIP_PARAMS:
+            continue
+        row[key] = f"{val:.0%}" if key in _PCT_PARAMS else val
+    return row
+
+
+_EMPTY_COLS = [{"name": "#", "id": "rank"}, {"name": "Score", "id": "score"}]
+
+# ── Layout helpers ────────────────────────────────────────────────────────────
+
+_S_SIDEBAR: dict[str, Any] = {
+    "width": "320px", "minWidth": "320px",
+    "height": "100vh", "overflowY": "auto",
+    "background": _SIDEBAR_BG,
+    "borderRight": f"1px solid {_BORDER}",
+    "padding": "16px", "boxSizing": "border-box",
+}
+_S_MAIN: dict[str, Any] = {
+    "flex": "1", "height": "100vh", "overflow": "hidden", "background": _BG,
+}
+_S_LABEL: dict[str, Any] = {
+    "color": _MUTED, "fontSize": "11px",
+    "textTransform": "uppercase", "letterSpacing": "0.5px",
+    "marginTop": "14px", "marginBottom": "4px", "display": "block",
+}
+_S_CARD: dict[str, Any] = {
+    "background": _CARD_BG, "border": f"1px solid {_BORDER}",
+    "borderRadius": "6px", "padding": "12px", "marginTop": "12px",
+    "color": _TEXT, "fontSize": "13px", "lineHeight": "1.8",
+}
+_S_METRIC_ROW: dict[str, Any] = {
+    "display": "flex", "justifyContent": "space-between",
+    "borderBottom": f"1px solid {_BORDER}", "padding": "2px 0",
+}
+
+# ── Layout ────────────────────────────────────────────────────────────────────
+
+app.layout = html.Div(
+    style={"display": "flex", "fontFamily": "'Segoe UI', Arial, sans-serif", "background": _BG},
+    children=[
+        # Triggers initial DB load on page render (fires once, immediately)
+        dcc.Store(id="_init", data=True),
+
+        # ── Sidebar ───────────────────────────────────────────────────────────
+        html.Div(style=_S_SIDEBAR, children=[
+            html.H4("Trade Advisor",
+                    style={"color": _ACCENT, "margin": "0 0 10px 0", "fontSize": "16px"}),
+
+            html.Span("Strategy", style=_S_LABEL),
+            dcc.Dropdown(id="strategy-dd", options=[], value=None, clearable=False),
+
+            html.Span("Training Run", style=_S_LABEL),
+            dcc.Dropdown(id="run-dd", placeholder="Select run…", clearable=False),
+
+            html.Span("Parameter Set", style=_S_LABEL),
+            dash_table.DataTable(
+                id="params-tbl",
+                columns=_EMPTY_COLS,
+                data=[],
+                row_selectable="single",
+                selected_rows=[0],
+                style_table={"overflowX": "auto", "marginTop": "4px"},
+                style_cell={
+                    "backgroundColor": _CARD_BG, "color": _TEXT,
+                    "fontSize": "12px", "padding": "4px 6px",
+                    "border": f"1px solid {_BORDER}",
+                    "textAlign": "center", "minWidth": "28px",
+                },
+                style_header={
+                    "backgroundColor": _SIDEBAR_BG, "color": _MUTED,
+                    "fontWeight": "600", "border": f"1px solid {_BORDER}",
+                    "fontSize": "11px", "textAlign": "center",
+                },
+                style_data_conditional=[{
+                    "if": {"state": "selected"},
+                    "backgroundColor": "#1f3a5f",
+                    "border": f"1px solid {_ACCENT}",
+                }],
+                page_size=30,
+            ),
+
+            html.Div(id="metrics-panel", style=_S_CARD),
+        ]),
+
+        # ── Main chart ────────────────────────────────────────────────────────
+        html.Div(style=_S_MAIN, children=[
+            dcc.Graph(
+                id="main-chart",
+                style={"height": "100vh"},
+                config={
+                    "scrollZoom": True,
+                    "displayModeBar": True,
+                    "modeBarButtonsToRemove": ["autoScale2d", "lasso2d", "select2d"],
+                    "toImageButtonOptions": {
+                        "format": "png", "width": 1920, "height": 1080,
+                        "filename": "trade_advisor_chart",
+                    },
+                },
+            ),
+        ]),
+
+        dcc.Store(id="run-store"),
+    ],
+)
+
+# ── Callbacks ─────────────────────────────────────────────────────────────────
+
+
+@callback(
+    Output("strategy-dd", "options"),
+    Output("strategy-dd", "value"),
+    Input("_init", "data"),
+)
+def _init_strategies(_: Any) -> tuple[list[dict], Any]:
+    """Populate strategy dropdown from distinct strategy_names in train_runs."""
+    with get_session() as session:
+        names: list[str] = session.execute(
+            select(TrainRun.strategy_name).distinct().order_by(TrainRun.strategy_name)
+        ).scalars().all()
+    if not names:
+        return [], None
+    options = [{"label": n, "value": n} for n in names]
+    return options, options[0]["value"]
+
+
+@callback(
+    Output("run-dd", "options"),
+    Output("run-dd", "value"),
+    Input("strategy-dd", "value"),
+)
+def _load_runs(strategy: str | None) -> tuple[list[dict], Any]:
+    """Populate training-run dropdown for the selected strategy."""
+    if not strategy:
+        return [], None
+    with get_session() as session:
+        stmt = (
+            select(TrainRun)
+            .where(TrainRun.strategy_name == strategy)
+            .order_by(TrainRun.created_at.desc())
+        )
+        runs = session.execute(stmt).scalars().all()
+        options = [
+            {
+                "label": (
+                    f"{r.created_at.strftime('%Y-%m-%d %H:%M')}  |  "
+                    f"{r.stock_code} {r.granularity}  |  "
+                    f"{r.total_combinations} combos"
+                ),
+                "value": r.id,
+            }
+            for r in runs
+        ]
+    return options, (options[0]["value"] if options else None)
+
+
+@callback(
+    Output("params-tbl", "data"),
+    Output("params-tbl", "columns"),
+    Output("params-tbl", "selected_rows"),
+    Output("run-store", "data"),
+    Input("run-dd", "value"),
+)
+def _load_params(run_id: int | None) -> tuple[list[dict], list[dict], list[int], dict | None]:
+    """Populate params table (data + columns) when the selected run changes."""
+    if run_id is None:
+        return [], _EMPTY_COLS, [0], None
+
+    with get_session() as session:
+        run = session.get(TrainRun, run_id)
+        if run is None:
+            return [], _EMPTY_COLS, [0], None
+
+        stmt = (
+            select(TrainBestResult)
+            .where(TrainBestResult.train_run_id == run_id)
+            .order_by(TrainBestResult.rank)
+        )
+        results_db = session.execute(stmt).scalars().all()
+        if not results_db:
+            return [], _EMPTY_COLS, [0], None
+
+        # Derive columns from the first result's params_json
+        columns = _columns_from_params(results_db[0].params_json)
+        rows    = [_result_to_row(r) for r in results_db]
+
+        run_meta: dict[str, Any] = {
+            "run_id":          run_id,
+            "strategy_name":   run.strategy_name,   # for display only
+            "stock_code":      run.stock_code,
+            "granularity":     run.granularity,
+            "start_dt":        run.start_dt.isoformat(),
+            "end_dt":          run.end_dt.isoformat(),
+            "initial_capital": run.initial_capital,
+        }
+    return rows, columns, [0], run_meta
+
+
+@callback(
+    Output("main-chart", "figure"),
+    Output("metrics-panel", "children"),
+    Input("params-tbl", "selected_rows"),
+    State("params-tbl", "data"),
+    State("run-store", "data"),
+)
+def _update_chart(
+    selected_rows: list[int],
+    table_data: list[dict],
+    run_data: dict | None,
+) -> tuple[go.Figure, list]:
+    if not selected_rows or not table_data or run_data is None:
+        return _empty_figure(), _no_data_panel()
+
+    result_id = table_data[selected_rows[0]].get("result_id")
+    if result_id is None:
+        return _empty_figure(), _no_data_panel()
+
+    with get_session() as session:
+        result = session.get(TrainBestResult, result_id)
+        if result is None:
+            return _empty_figure(), _no_data_panel()
+
+        sma_period = result.params_json.get("sma_period", 20)
+
+        cache = DataCache(run_data["stock_code"], run_data["granularity"])
+        cache.load(
+            session,
+            datetime.datetime.fromisoformat(run_data["start_dt"]),
+            datetime.datetime.fromisoformat(run_data["end_dt"]),
+        )
+        cache.add_sma(sma_period)
+
+        # Load any extra indicators required by this result's params
+        for param_key, loader in _EXTRA_INDICATOR_LOADERS.items():
+            if param_key in result.params_json:
+                loader(cache, sma_period)
+
+        fig = _build_figure(result, cache, run_data["initial_capital"], run_data["stock_code"])
+        panel = _metrics_panel(result)
+
+    return fig, panel
+
+
+# ── Figure builder ────────────────────────────────────────────────────────────
+
+
+def _build_figure(
+    result: TrainBestResult,
+    cache: DataCache,
+    initial_capital: float,
+    stock_code: str,
+) -> go.Figure:
+    bars   = cache.bars
+    dates  = [b.dt.strftime("%Y-%m-%d") for b in bars]
+    opens  = [b.open   for b in bars]
+    highs  = [b.high   for b in bars]
+    lows   = [b.low    for b in bars]
+    closes = [b.close  for b in bars]
+    vols   = [b.volume for b in bars]
+
+    p          = result.params_json
+    sma_period = p.get("sma_period", 20)
+    sma_key    = f"SMA{sma_period}"
+    sma_vals   = [b.indicators.get(sma_key) for b in bars]
+
+    trades      = result.trades_json
+    buys        = [t for t in trades if t["side"] == 1]
+    sells       = [t for t in trades if t["side"] == -1]
+
+    def _d(iso: str) -> str:
+        return datetime.datetime.fromisoformat(iso).strftime("%Y-%m-%d")
+
+    buy_dates   = [_d(t["dt"]) for t in buys]
+    buy_prices  = [t["price"]  for t in buys]
+    sell_dates  = [_d(t["dt"]) for t in sells]
+    sell_prices = [t["price"]  for t in sells]
+    sell_pnls   = [t["realized_pnl"] for t in sells]
+
+    fig = make_subplots(
+        rows=3, cols=1, shared_xaxes=True,
+        row_heights=[0.60, 0.22, 0.18],
+        vertical_spacing=0.02,
+    )
+
+    # ── Candlestick ───────────────────────────────────────────────────────────
+    fig.add_trace(
+        go.Candlestick(
+            x=dates, open=opens, high=highs, low=lows, close=closes,
+            name="OHLCV",
+            increasing_fillcolor="#26a69a", increasing_line_color="#26a69a",
+            decreasing_fillcolor="#ef5350", decreasing_line_color="#ef5350",
+            showlegend=False,
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "O: %{open:,.0f}  H: %{high:,.0f}<br>"
+                "L: %{low:,.0f}  C: %{close:,.0f}<extra></extra>"
+            ),
+        ),
+        row=1, col=1,
+    )
+
+    # ── SMA (middle band / baseline indicator) ────────────────────────────────
+    fig.add_trace(
+        go.Scatter(
+            x=dates, y=sma_vals, mode="lines", name=sma_key,
+            line=dict(color="#ff9800", width=1.5),
+            hovertemplate=f"{sma_key}: %{{y:,.0f}}<extra></extra>",
+        ),
+        row=1, col=1,
+    )
+
+    # ── Extra traces (Bollinger upper band, etc.) ─────────────────────────────
+    for param_key, trace_fn in _EXTRA_TRACES.items():
+        if param_key in p:
+            fig.add_trace(trace_fn(p, dates, bars), row=1, col=1)
+
+    # ── Position highlighting ─────────────────────────────────────────────────
+    buys_by_id  = {t["order_id"]: t for t in buys}
+    sells_by_id = {t["order_id"]: t for t in sells}
+    for oid, buy_t in buys_by_id.items():
+        sell_t = sells_by_id.get(oid)
+        if sell_t:
+            color = (
+                "rgba(38,166,154,0.12)"
+                if sell_t["realized_pnl"] > 0
+                else "rgba(239,83,80,0.12)"
+            )
+            fig.add_vrect(
+                x0=_d(buy_t["dt"]), x1=_d(sell_t["dt"]),
+                fillcolor=color, layer="below", line_width=0,
+                row=1, col=1,
+            )
+
+    # ── Buy / Sell markers ────────────────────────────────────────────────────
+    if buy_dates:
+        fig.add_trace(
+            go.Scatter(
+                x=buy_dates, y=buy_prices, mode="markers", name="Buy",
+                marker=dict(symbol="triangle-up", size=14,
+                            color="#00e676", line=dict(width=1, color="#fff")),
+                hovertemplate="<b>Buy</b>  %{x}<br>Fill: %{y:,.0f}<extra></extra>",
+            ),
+            row=1, col=1,
+        )
+    if sell_dates:
+        fig.add_trace(
+            go.Scatter(
+                x=sell_dates, y=sell_prices, mode="markers+text", name="Sell",
+                marker=dict(symbol="triangle-down", size=14,
+                            color="#ff5252", line=dict(width=1, color="#fff")),
+                text=[f"{pnl:+,.0f}" for pnl in sell_pnls],
+                textposition="top center",
+                textfont=dict(size=10, color="#ffd700"),
+                customdata=sell_pnls,
+                hovertemplate=(
+                    "<b>Sell</b>  %{x}<br>"
+                    "Fill: %{y:,.0f}<br>"
+                    "PnL: %{customdata:+,.0f}<extra></extra>"
+                ),
+            ),
+            row=1, col=1,
+        )
+
+    # ── Equity curve ──────────────────────────────────────────────────────────
+    eq_dates = [
+        datetime.datetime.fromisoformat(d).strftime("%Y-%m-%d")
+        for d in result.bar_dts
+    ]
+    fig.add_trace(
+        go.Scatter(
+            x=eq_dates, y=result.equity_curve,
+            mode="lines", name="Equity",
+            line=dict(color="#58a6ff", width=1.5),
+            fill="tozeroy", fillcolor="rgba(88,166,255,0.07)",
+            hovertemplate="<b>Equity</b>  %{x}<br>%{y:,.0f}<extra></extra>",
+        ),
+        row=2, col=1,
+    )
+    fig.add_hline(y=initial_capital, line_dash="dot", line_color=_MUTED,
+                  opacity=0.5, row=2, col=1)
+
+    # ── Volume ────────────────────────────────────────────────────────────────
+    vol_colors = ["#26a69a" if c >= o else "#ef5350" for c, o in zip(closes, opens)]
+    fig.add_trace(
+        go.Bar(x=dates, y=vols, name="Volume", marker_color=vol_colors,
+               showlegend=False,
+               hovertemplate="<b>Vol</b>  %{x}<br>%{y:,.0f}<extra></extra>"),
+        row=3, col=1,
+    )
+
+    # ── Title (built from params_json, no strategy name hardcoded) ────────────
+    title = _params_title(p, stock_code, result.score)
+
+    # ── Layout ────────────────────────────────────────────────────────────────
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor=_BG, plot_bgcolor="#0d1117",
+        margin=dict(l=60, r=20, t=40, b=20),
+        title=dict(text=title, font=dict(size=13, color=_MUTED), x=0.01),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01,
+                    xanchor="right", x=1, font=dict(size=11),
+                    bgcolor="rgba(0,0,0,0)"),
+        dragmode="pan",
+        hovermode="x unified",
+        yaxis_title="Price", yaxis2_title="Equity", yaxis3_title="Vol",
+        yaxis_tickformat=",.0f", yaxis2_tickformat=",.0f", yaxis3_tickformat=".2s",
+    )
+    fig.update_xaxes(type="category")
+    n = len(dates)
+    ticks = dates[:: max(1, n // 24)]
+    fig.update_xaxes(tickvals=ticks, ticktext=ticks, tickangle=-30, tickfont=dict(size=10))
+    fig.update_xaxes(rangeslider_visible=False)
+    fig.update_xaxes(
+        rangeslider_visible=True,
+        rangeslider=dict(thickness=0.05, bgcolor=_CARD_BG, bordercolor=_BORDER),
+        row=3, col=1,
+    )
+    return fig
+
+
+def _params_title(params_json: dict, stock_code: str, score: float) -> str:
+    parts: list[str] = []
+    for key in _PARAM_ORDER:
+        if key not in params_json:
+            continue
+        val = params_json[key]
+        label = _PARAM_DISPLAY.get(key, key)
+        parts.append(f"{label}={val:.0%}" if key in _PCT_PARAMS else f"{label}={val}")
+    return f"{stock_code}  —  " + "  ".join(parts) + f"   ·   Score {score:.3f}"
+
+
+# ── UI helpers ────────────────────────────────────────────────────────────────
+
+
+def _empty_figure() -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(
+        template="plotly_dark", paper_bgcolor=_BG, plot_bgcolor=_BG,
+        annotations=[{
+            "text": "Select a training run and parameter set",
+            "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5,
+            "showarrow": False, "font": {"size": 16, "color": _MUTED},
+        }],
+    )
+    return fig
+
+
+def _no_data_panel() -> list:
+    return [html.Span("No parameter set selected.",
+                      style={"color": _MUTED, "fontSize": "12px"})]
+
+
+def _metrics_panel(result: TrainBestResult) -> list:
+    pf = "∞" if result.profit_factor is None else f"{result.profit_factor:.2f}"
+    ret_color = _GREEN if result.total_return_pct >= 0 else _RED
+
+    def _row(label: str, value: str, color: str | None = None) -> html.Div:
+        return html.Div(style=_S_METRIC_ROW, children=[
+            html.Span(label, style={"color": _MUTED}),
+            html.Span(value, style={"color": color or _TEXT, "fontWeight": "500"}),
+        ])
+
+    return [
+        html.Div("Performance",
+                 style={"color": _ACCENT, "fontWeight": "600",
+                        "marginBottom": "6px", "fontSize": "12px"}),
+        _row("Total Return",  f"{result.total_return_pct:+.2f}%",  ret_color),
+        _row("CAGR",          f"{result.annualized_return_pct:+.2f}%"),
+        _row("Sharpe Ratio",  f"{result.sharpe_ratio:.3f}"),
+        _row("Max Drawdown",  f"{result.max_drawdown_pct:.2f}%",
+             _RED if result.max_drawdown_pct < -5 else None),
+        _row("Win Rate",      f"{result.win_rate_pct:.1f}%",
+             _GREEN if result.win_rate_pct >= 50 else _RED),
+        _row("Profit Factor", pf),
+        _row("Total Trades",  str(result.total_trades)),
+        _row("Avg Holding",   f"{result.avg_holding_days:.1f} days"),
+        html.Div(
+            style={**_S_METRIC_ROW, "borderBottom": "none", "marginTop": "6px"},
+            children=[
+                html.Span("Score", style={"color": _ACCENT, "fontWeight": "600"}),
+                html.Span(f"{result.score:.3f}",
+                          style={"color": _ACCENT, "fontWeight": "700", "fontSize": "15px"}),
+            ],
+        ),
+    ]
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+
+def main() -> None:
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8050
+    print(f"Starting Trade Advisor at http://localhost:{port}")
+    app.run(debug=False, host="0.0.0.0", port=port)
+
+
+if __name__ == "__main__":
+    main()
