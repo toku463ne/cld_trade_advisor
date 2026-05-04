@@ -28,10 +28,12 @@ uv run --env-file devenv alembic upgrade head
 
 ## Stock code sets (`configs/stock_codes.ini`)
 
-| Section  | Description                       |
-|----------|-----------------------------------|
-| `test`   | 2 stocks — quick smoke tests      |
-| `medium` | ~64 stocks — standard train/collect set |
+| Section  | Description                                                    |
+|----------|----------------------------------------------------------------|
+| `test`   | 2 JP stocks + 7 global indices — quick smoke tests            |
+| `medium` | ~64 JP stocks + Nikkei 225 + 7 global indices — standard set |
+
+Global indices included in both sets: `^DJI` (Dow Jones), `^GSPC` (S&P 500), `^IXIC` (NASDAQ), `^HSI` (Hang Seng), `^GDAXI` (DAX), `^FTSE` (FTSE 100), `^VIX` (VIX).
 
 ## Config files (`configs/dev_*.yaml`)
 
@@ -131,6 +133,50 @@ uv run --env-file devenv python -m src.viz.app 8080
 - **Equity curve** panel below the candles
 - **Volume** panel at the bottom
 - Scroll to zoom, drag to pan; use the camera button to export a PNG
+
+## Stock Correlation Analysis
+
+Computes sliding-window return correlation between all stock pairs over a given period. Results are stored in `corr_runs` / `stock_corr_pairs` tables and browsable in a Dash UI.
+
+### Run correlation analysis
+
+```bash
+uv run --env-file devenv python -m src.analysis.stock_corrs \
+    --stock-set medium --start 2022-01-01 --end 2025-12-31
+```
+
+Options:
+
+| Flag              | Default | Description                          |
+|-------------------|---------|--------------------------------------|
+| `--stock-set`     | medium  | Section name from `stock_codes.ini`  |
+| `--start`         | —       | Period start date (YYYY-MM-DD)       |
+| `--end`           | —       | Period end date (YYYY-MM-DD)         |
+| `--window-days`   | 60      | Rolling window size in days          |
+| `--step-days`     | 20      | Step between windows in days         |
+| `--granularity`   | 1d      | OHLCV granularity                    |
+| `--min-windows`   | 3       | Minimum windows required per pair    |
+
+### Correlation UI
+
+```bash
+uv run --env-file devenv python -m src.analysis.corr_ui
+```
+
+Then open **http://localhost:8051** in a browser. Use a different port:
+
+```bash
+uv run --env-file devenv python -m src.analysis.corr_ui 8052
+```
+
+**What you can do:**
+
+- **Run** dropdown — select a stored correlation run
+- **Stock filter** — filter pairs by stock code substring
+- **Pair table** — sortable; columns: stock_a, stock_b, mean_corr, std_corr, n_windows
+- **Heatmap** — mean correlation matrix for the top-40 most-involved stocks
+
+See [src/analysis/readme_stock_corrs.md](src/analysis/readme_stock_corrs.md) for methodology and interpretation.
 
 ## DB Schema Changes
 

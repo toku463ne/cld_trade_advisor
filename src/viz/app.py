@@ -35,6 +35,12 @@ from src.data.db import get_session
 from src.simulator.cache import DataCache
 from src.simulator.bar import BarData
 from src.simulator.simulator import TradeSimulator
+from src.viz.charts import (
+    BG as _BG, SIDEBAR_BG as _SIDEBAR_BG, CARD_BG as _CARD_BG,
+    BORDER as _BORDER, TEXT as _TEXT, MUTED as _MUTED, ACCENT as _ACCENT,
+    GREEN as _GREEN, RED as _RED,
+    empty_figure as _base_empty_figure,
+)
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
@@ -45,18 +51,6 @@ app = dash.Dash(
     assets_folder=str(_ASSETS),
     suppress_callback_exceptions=True,
 )
-
-# ── Palette ───────────────────────────────────────────────────────────────────
-
-_BG         = "#0d1117"
-_SIDEBAR_BG = "#161b22"
-_CARD_BG    = "#1c2128"
-_BORDER     = "#30363d"
-_TEXT       = "#c9d1d9"
-_MUTED      = "#8b949e"
-_ACCENT     = "#58a6ff"
-_GREEN      = "#3fb950"
-_RED        = "#f85149"
 
 # ── Param display config (keyed by param name, NOT strategy name) ─────────────
 
@@ -611,16 +605,7 @@ def _params_title(params_json: dict, stock_code: str, score: float) -> str:
 
 
 def _empty_figure() -> go.Figure:
-    fig = go.Figure()
-    fig.update_layout(
-        template="plotly_dark", paper_bgcolor=_BG, plot_bgcolor=_BG,
-        annotations=[{
-            "text": "Select a training run and parameter set",
-            "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5,
-            "showarrow": False, "font": {"size": 16, "color": _MUTED},
-        }],
-    )
-    return fig
+    return _base_empty_figure("Select a training run and parameter set")
 
 
 def _no_data_panel() -> list:
