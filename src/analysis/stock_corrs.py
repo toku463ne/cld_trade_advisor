@@ -62,9 +62,14 @@ def _load_close_prices(
     end: datetime.datetime,
     gran: str,
 ) -> pd.DataFrame:
-    """Return a DataFrame of close prices: index=date, columns=stock_code."""
+    """Return a DataFrame of close prices: index=date, columns=stock_code.
+
+    Timestamps are normalised to their local calendar date so that stocks from
+    different timezones (e.g. JP midnight vs US 14:00 JST) land on the same
+    index row when they represent the same trading day.
+    """
     model = OHLCV_MODEL_MAP[gran]
-    price_map: dict[str, dict[datetime.datetime, float]] = {}
+    price_map: dict[str, dict[datetime.date, float]] = {}
 
     for code in codes:
         stmt = (
@@ -74,7 +79,8 @@ def _load_close_prices(
         )
         rows = session.execute(stmt).all()
         if rows:
-            price_map[code] = {r.ts: r.close_price for r in rows}
+            # Use .date() to strip time-of-day differences across timezones
+            price_map[code] = {r.ts.date(): r.close_price for r in rows}
 
     if not price_map:
         return pd.DataFrame()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime
 
 from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String
-from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.data.models import Base
 
@@ -46,3 +46,44 @@ class StockCorrPair(Base):
     n_windows:   Mapped[int]   = mapped_column(Integer, nullable=False)
 
     corr_run: Mapped["CorrRun"] = relationship("CorrRun", back_populates="pairs")
+
+
+# ── Peak-correlation models ────────────────────────────────────────────────────
+
+
+class PeakCorrRun(Base):
+    __tablename__ = "peak_corr_runs"
+
+    id:             Mapped[int]               = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at:     Mapped[datetime.datetime]  = mapped_column(DateTime(timezone=True), nullable=False)
+    start_dt:       Mapped[datetime.datetime]  = mapped_column(DateTime(timezone=True), nullable=False)
+    end_dt:         Mapped[datetime.datetime]  = mapped_column(DateTime(timezone=True), nullable=False)
+    granularity:    Mapped[str]               = mapped_column(String(10),  nullable=False)
+    zz_size:        Mapped[int]               = mapped_column(Integer,     nullable=False)
+    zz_middle_size: Mapped[int]               = mapped_column(Integer,     nullable=False)
+    stock_set:      Mapped[str | None]        = mapped_column(String(100), nullable=True)
+    n_indicators:   Mapped[int]               = mapped_column(Integer,     nullable=False)
+    n_stocks:       Mapped[int]               = mapped_column(Integer,     nullable=False)
+
+    results: Mapped[list["PeakCorrResult"]] = relationship(
+        "PeakCorrResult", back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class PeakCorrResult(Base):
+    __tablename__ = "peak_corr_results"
+    __table_args__ = (
+        Index("ix_peak_corr_results_run",       "run_id"),
+        Index("ix_peak_corr_results_stock",     "run_id", "stock"),
+        Index("ix_peak_corr_results_indicator", "run_id", "indicator"),
+    )
+
+    id:          Mapped[int]        = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id:      Mapped[int]        = mapped_column(Integer, ForeignKey("peak_corr_runs.id", ondelete="CASCADE"), nullable=False)
+    stock:       Mapped[str]        = mapped_column(String(30), nullable=False)
+    indicator:   Mapped[str]        = mapped_column(String(30), nullable=False)
+    mean_corr_a: Mapped[float|None] = mapped_column(Float, nullable=True)
+    mean_corr_b: Mapped[float|None] = mapped_column(Float, nullable=True)
+    n_peaks:     Mapped[int]        = mapped_column(Integer, nullable=False)
+
+    run: Mapped["PeakCorrRun"] = relationship("PeakCorrRun", back_populates="results")

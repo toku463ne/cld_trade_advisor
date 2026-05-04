@@ -109,14 +109,38 @@ def build_price_figure(cache: DataCache, title: str = "") -> go.Figure:
     return fig
 
 
+# ZigzagPoint = (date_str, price, direction)   direction: 2=conf high, -2=conf low, ±1=early
+ZigzagPoint = tuple[str, float, int]
+
+
+def _zigzag_trace(pts: list[ZigzagPoint], name: str = "Zigzag") -> go.Scatter:
+    """Line + marker trace connecting confirmed zigzag peaks/troughs."""
+    xs      = [p[0] for p in pts]
+    ys      = [p[1] for p in pts]
+    symbols = ["triangle-up" if p[2] > 0 else "triangle-down" for p in pts]
+    return go.Scatter(
+        x=xs, y=ys,
+        mode="lines+markers",
+        line=dict(color="#f0c040", width=1.5, dash="dot"),
+        marker=dict(color="#f0c040", symbol=symbols, size=10,
+                    line=dict(color=BG, width=1)),
+        name=name,
+        showlegend=False,
+        hovertemplate="ZZ  <b>%{x}</b>  %{y:,.2f}<extra></extra>",
+    )
+
+
 def build_pair_figure(
     cache_a: DataCache, cache_b: DataCache,
     title_a: str = "", title_b: str = "",
+    zigzag_a: list[ZigzagPoint] | None = None,
+    zigzag_b: list[ZigzagPoint] | None = None,
 ) -> go.Figure:
     """4-row subplot with shared x-axis: A price / A vol / B price / B vol.
 
     Dates are unioned across both stocks so the x-axis is perfectly aligned.
     Missing bars for a stock on a given date are rendered as gaps.
+    Pass *zigzag_a* / *zigzag_b* to overlay a zigzag line on the price rows.
     """
     bars_a = {b.dt: b for b in cache_a.bars}
     bars_b = {b.dt: b for b in cache_b.bars}
@@ -180,6 +204,11 @@ def build_pair_figure(
                hovertemplate="Vol %{x}: %{y:,.0f}<extra></extra>"),
         row=4, col=1,
     )
+
+    if zigzag_a:
+        fig.add_trace(_zigzag_trace(zigzag_a), row=1, col=1)
+    if zigzag_b:
+        fig.add_trace(_zigzag_trace(zigzag_b), row=3, col=1)
 
     n     = len(dates)
     ticks = dates[::max(1, n // 24)]
