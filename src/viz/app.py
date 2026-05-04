@@ -12,6 +12,8 @@ Design principles
 - Extra indicators / chart traces are registered in _EXTRA_INDICATOR_LOADERS
   and _EXTRA_TRACES, keyed by the *param name* that triggers them — so adding
   a new strategy never requires touching this file.
+- For multi-stock runs a stock dropdown appears; the backtest is re-run live
+  for the selected stock so the chart always shows one stock at a time.
 """
 
 from __future__ import annotations
@@ -26,10 +28,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from sqlalchemy import select
 
+from src.backtest.metrics import BacktestMetrics, compute_metrics
+from src.backtest.runner import run_backtest
 from src.backtest.train_models import TrainBestResult, TrainRun
 from src.data.db import get_session
 from src.simulator.cache import DataCache
 from src.simulator.bar import BarData
+from src.simulator.simulator import TradeSimulator
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
@@ -55,7 +60,6 @@ _RED        = "#f85149"
 
 # ── Param display config (keyed by param name, NOT strategy name) ─────────────
 
-# Human-readable label for each known param key
 _PARAM_DISPLAY: dict[str, str] = {
     "sma_period":  "SMA",
     "sigma_mult":  "σ",
@@ -63,27 +67,21 @@ _PARAM_DISPLAY: dict[str, str] = {
     "m_days":      "M",
     "tp":          "TP%",
     "sl":          "SL%",
-    "take_profit": "TP%",   # backward compat with old DB rows
-    "stop_loss":   "SL%",   # backward compat with old DB rows
+    "take_profit": "TP%",
+    "stop_loss":   "SL%",
 }
 
-# Params that are constant within a grid search — hide from table
 _SKIP_PARAMS: frozenset[str] = frozenset({"units"})
 
-# Preferred column order; any unknown params are appended alphabetically
 _PARAM_ORDER: list[str] = [
     "sma_period", "sigma_mult", "n_days", "m_days",
     "tp", "take_profit", "sl", "stop_loss",
 ]
 
-# Percentage-valued params (displayed as "10%" not "0.1")
 _PCT_PARAMS: frozenset[str] = frozenset({"tp", "take_profit", "sl", "stop_loss"})
 
 
 # ── Extra indicator loaders (keyed by triggering param name) ──────────────────
-#
-# When a result's params_json contains the key, the loader is called.
-# Signature: loader(cache, sma_period)
 
 def _load_rolling_std(cache: DataCache, sma_period: int) -> None:
     cache.add_rolling_std(sma_period)
@@ -94,10 +92,6 @@ _EXTRA_INDICATOR_LOADERS: dict[str, Callable[[DataCache, int], None]] = {
 
 
 # ── Extra chart traces (keyed by triggering param name) ───────────────────────
-#
-# When params_json contains the key, the trace function is called and the
-# returned trace is added to row=1 of the figure.
-# Signature: fn(params_json, dates, bars) -> go.BaseTraceType
 
 def _bollinger_upper_band(
     params_json: dict, dates: list[str], bars: list[BarData],
@@ -126,7 +120,6 @@ _EXTRA_TRACES: dict[str, Callable] = {
 # ── Column generation from params_json ────────────────────────────────────────
 
 def _columns_from_params(params_json: dict) -> list[dict]:
-    """Build DataTable column definitions from the keys of a params_json dict."""
     keys = set(params_json.keys()) - _SKIP_PARAMS
     ordered   = [k for k in _PARAM_ORDER if k in keys]
     remaining = sorted(keys - set(ordered))
@@ -138,7 +131,6 @@ def _columns_from_params(params_json: dict) -> list[dict]:
 
 
 def _result_to_row(r: TrainBestResult) -> dict[str, Any]:
-    """Flatten a TrainBestResult into a DataTable row dict."""
     row: dict[str, Any] = {"rank": r.rank, "score": f"{r.score:.3f}", "result_id": r.id}
     for key, val in r.params_json.items():
         if key in _SKIP_PARAMS:
@@ -166,6 +158,7 @@ _S_LABEL: dict[str, Any] = {
     "textTransform": "uppercase", "letterSpacing": "0.5px",
     "marginTop": "14px", "marginBottom": "4px", "display": "block",
 }
+_S_LABEL_HIDDEN: dict[str, Any] = {**_S_LABEL, "display": "none"}
 _S_CARD: dict[str, Any] = {
     "background": _CARD_BG, "border": f"1px solid {_BORDER}",
     "borderRadius": "6px", "padding": "12px", "marginTop": "12px",
@@ -181,7 +174,6 @@ _S_METRIC_ROW: dict[str, Any] = {
 app.layout = html.Div(
     style={"display": "flex", "fontFamily": "'Segoe UI', Arial, sans-serif", "background": _BG},
     children=[
-        # Triggers initial DB load on page render (fires once, immediately)
         dcc.Store(id="_init", data=True),
 
         # ── Sidebar ───────────────────────────────────────────────────────────
@@ -194,6 +186,11 @@ app.layout = html.Div(
 
             html.Span("Training Run", style=_S_LABEL),
             dcc.Dropdown(id="run-dd", placeholder="Select run…", clearable=False),
+
+            # Stock selector — visible only when the run covers multiple stocks
+            html.Span("Stock", id="stock-label", style=_S_LABEL_HIDDEN),
+            dcc.Dropdown(id="stock-dd", options=[], value=None, clearable=False,
+                         style={"display": "none"}),
 
             html.Span("Parameter Set", style=_S_LABEL),
             dash_table.DataTable(
@@ -255,7 +252,6 @@ app.layout = html.Div(
     Input("_init", "data"),
 )
 def _init_strategies(_: Any) -> tuple[list[dict], Any]:
-    """Populate strategy dropdown from distinct strategy_names in train_runs."""
     with get_session() as session:
         names: list[str] = session.execute(
             select(TrainRun.strategy_name).distinct().order_by(TrainRun.strategy_name)
@@ -272,7 +268,6 @@ def _init_strategies(_: Any) -> tuple[list[dict], Any]:
     Input("strategy-dd", "value"),
 )
 def _load_runs(strategy: str | None) -> tuple[list[dict], Any]:
-    """Populate training-run dropdown for the selected strategy."""
     if not strategy:
         return [], None
     with get_session() as session:
@@ -286,8 +281,8 @@ def _load_runs(strategy: str | None) -> tuple[list[dict], Any]:
             {
                 "label": (
                     f"{r.created_at.strftime('%Y-%m-%d %H:%M')}  |  "
-                    f"{r.stock_code} {r.granularity}  |  "
-                    f"{r.total_combinations} combos"
+                    f"{r.stock_code[:30]}{'…' if len(r.stock_code) > 30 else ''} "
+                    f"{r.granularity}  |  {r.total_combinations} combos"
                 ),
                 "value": r.id,
             }
@@ -301,17 +296,21 @@ def _load_runs(strategy: str | None) -> tuple[list[dict], Any]:
     Output("params-tbl", "columns"),
     Output("params-tbl", "selected_rows"),
     Output("run-store", "data"),
+    Output("stock-dd", "options"),
+    Output("stock-dd", "value"),
+    Output("stock-dd", "style"),
+    Output("stock-label", "style"),
     Input("run-dd", "value"),
 )
-def _load_params(run_id: int | None) -> tuple[list[dict], list[dict], list[int], dict | None]:
-    """Populate params table (data + columns) when the selected run changes."""
+def _load_params(run_id: int | None) -> tuple:
+    _hidden = ([], _EMPTY_COLS, [0], None, [], None, {"display": "none"}, _S_LABEL_HIDDEN)
     if run_id is None:
-        return [], _EMPTY_COLS, [0], None
+        return _hidden
 
     with get_session() as session:
         run = session.get(TrainRun, run_id)
         if run is None:
-            return [], _EMPTY_COLS, [0], None
+            return _hidden
 
         stmt = (
             select(TrainBestResult)
@@ -320,33 +319,45 @@ def _load_params(run_id: int | None) -> tuple[list[dict], list[dict], list[int],
         )
         results_db = session.execute(stmt).scalars().all()
         if not results_db:
-            return [], _EMPTY_COLS, [0], None
+            return _hidden
 
-        # Derive columns from the first result's params_json
         columns = _columns_from_params(results_db[0].params_json)
         rows    = [_result_to_row(r) for r in results_db]
 
+        stocks = [s.strip() for s in run.stock_code.split(",") if s.strip()]
+        multi  = len(stocks) > 1
+        stock_options  = [{"label": s, "value": s} for s in stocks]
+        stock_dd_style = {} if multi else {"display": "none"}
+        stock_lbl_style = _S_LABEL if multi else _S_LABEL_HIDDEN
+
         run_meta: dict[str, Any] = {
             "run_id":          run_id,
-            "strategy_name":   run.strategy_name,   # for display only
+            "strategy_name":   run.strategy_name,
             "stock_code":      run.stock_code,
             "granularity":     run.granularity,
             "start_dt":        run.start_dt.isoformat(),
             "end_dt":          run.end_dt.isoformat(),
             "initial_capital": run.initial_capital,
         }
-    return rows, columns, [0], run_meta
+
+    return (
+        rows, columns, [0], run_meta,
+        stock_options, stocks[0],
+        stock_dd_style, stock_lbl_style,
+    )
 
 
 @callback(
     Output("main-chart", "figure"),
     Output("metrics-panel", "children"),
     Input("params-tbl", "selected_rows"),
+    Input("stock-dd", "value"),
     State("params-tbl", "data"),
     State("run-store", "data"),
 )
 def _update_chart(
     selected_rows: list[int],
+    selected_stock: str | None,
     table_data: list[dict],
     run_data: dict | None,
 ) -> tuple[go.Figure, list]:
@@ -357,29 +368,53 @@ def _update_chart(
     if result_id is None:
         return _empty_figure(), _no_data_panel()
 
+    # Resolve which single stock to chart
+    stocks = [s.strip() for s in run_data["stock_code"].split(",") if s.strip()]
+    stock  = selected_stock if selected_stock in stocks else stocks[0]
+
     with get_session() as session:
         result = session.get(TrainBestResult, result_id)
         if result is None:
             return _empty_figure(), _no_data_panel()
 
-        sma_period = result.params_json.get("sma_period", 20)
+        start = datetime.datetime.fromisoformat(run_data["start_dt"])
+        end   = datetime.datetime.fromisoformat(run_data["end_dt"])
 
-        cache = DataCache(run_data["stock_code"], run_data["granularity"])
-        cache.load(
-            session,
-            datetime.datetime.fromisoformat(run_data["start_dt"]),
-            datetime.datetime.fromisoformat(run_data["end_dt"]),
-        )
-        cache.add_sma(sma_period)
+        cache = DataCache(stock, run_data["granularity"])
+        cache.load(session, start, end)
+        if not cache.bars:
+            return _empty_figure(), _no_data_panel()
 
-        # Load any extra indicators required by this result's params
-        for param_key, loader in _EXTRA_INDICATOR_LOADERS.items():
-            if param_key in result.params_json:
-                loader(cache, sma_period)
+        # Reconstruct typed params and re-run backtest for this stock
+        from src.strategy.registry import get_by_name
+        plugin = get_by_name(run_data["strategy_name"])
+        units  = result.params_json.get("units", 100)
+        params_cls = type(plugin.make_grid(units)[0])
+        params = params_cls(**result.params_json)
 
-        fig = _build_figure(result, cache, run_data["initial_capital"], run_data["stock_code"])
-        panel = _metrics_panel(result)
+        plugin.setup_cache_for_params(cache, params)
+        strategy = plugin.make_strategy(params)
+        sim = TradeSimulator(cache, run_data["initial_capital"])
+        bt  = run_backtest(strategy, sim, cache)
+        metrics = compute_metrics(bt, cache.gran)
 
+        trades_json = [
+            {
+                "order_id":    t.order_id,
+                "side":        int(t.side),
+                "price":       t.price,
+                "dt":          t.dt.isoformat(),
+                "realized_pnl": t.realized_pnl,
+            }
+            for t in bt.trades
+        ]
+
+    fig   = _build_figure(
+        result.params_json, cache, trades_json,
+        bt.equity_curve, bt.bar_dts,
+        run_data["initial_capital"], stock, metrics.score,
+    )
+    panel = _metrics_panel(metrics)
     return fig, panel
 
 
@@ -387,10 +422,14 @@ def _update_chart(
 
 
 def _build_figure(
-    result: TrainBestResult,
+    params_json: dict,
     cache: DataCache,
+    trades_json: list[dict],
+    equity_curve: list[float],
+    bar_dts: list[Any],
     initial_capital: float,
     stock_code: str,
+    score: float,
 ) -> go.Figure:
     bars   = cache.bars
     dates  = [b.dt.strftime("%Y-%m-%d") for b in bars]
@@ -400,14 +439,12 @@ def _build_figure(
     closes = [b.close  for b in bars]
     vols   = [b.volume for b in bars]
 
-    p          = result.params_json
-    sma_period = p.get("sma_period", 20)
+    sma_period = params_json.get("sma_period", 20)
     sma_key    = f"SMA{sma_period}"
     sma_vals   = [b.indicators.get(sma_key) for b in bars]
 
-    trades      = result.trades_json
-    buys        = [t for t in trades if t["side"] == 1]
-    sells       = [t for t in trades if t["side"] == -1]
+    buys  = [t for t in trades_json if t["side"] == 1]
+    sells = [t for t in trades_json if t["side"] == -1]
 
     def _d(iso: str) -> str:
         return datetime.datetime.fromisoformat(iso).strftime("%Y-%m-%d")
@@ -441,7 +478,7 @@ def _build_figure(
         row=1, col=1,
     )
 
-    # ── SMA (middle band / baseline indicator) ────────────────────────────────
+    # ── SMA ───────────────────────────────────────────────────────────────────
     fig.add_trace(
         go.Scatter(
             x=dates, y=sma_vals, mode="lines", name=sma_key,
@@ -453,8 +490,8 @@ def _build_figure(
 
     # ── Extra traces (Bollinger upper band, etc.) ─────────────────────────────
     for param_key, trace_fn in _EXTRA_TRACES.items():
-        if param_key in p:
-            fig.add_trace(trace_fn(p, dates, bars), row=1, col=1)
+        if param_key in params_json:
+            fig.add_trace(trace_fn(params_json, dates, bars), row=1, col=1)
 
     # ── Position highlighting ─────────────────────────────────────────────────
     buys_by_id  = {t["order_id"]: t for t in buys}
@@ -505,12 +542,13 @@ def _build_figure(
 
     # ── Equity curve ──────────────────────────────────────────────────────────
     eq_dates = [
-        datetime.datetime.fromisoformat(d).strftime("%Y-%m-%d")
-        for d in result.bar_dts
+        (d.strftime("%Y-%m-%d") if isinstance(d, datetime.datetime)
+         else datetime.datetime.fromisoformat(d).strftime("%Y-%m-%d"))
+        for d in bar_dts
     ]
     fig.add_trace(
         go.Scatter(
-            x=eq_dates, y=result.equity_curve,
+            x=eq_dates, y=equity_curve,
             mode="lines", name="Equity",
             line=dict(color="#58a6ff", width=1.5),
             fill="tozeroy", fillcolor="rgba(88,166,255,0.07)",
@@ -530,10 +568,8 @@ def _build_figure(
         row=3, col=1,
     )
 
-    # ── Title (built from params_json, no strategy name hardcoded) ────────────
-    title = _params_title(p, stock_code, result.score)
+    title = _params_title(params_json, stock_code, score)
 
-    # ── Layout ────────────────────────────────────────────────────────────────
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor=_BG, plot_bgcolor="#0d1117",
@@ -592,9 +628,9 @@ def _no_data_panel() -> list:
                       style={"color": _MUTED, "fontSize": "12px"})]
 
 
-def _metrics_panel(result: TrainBestResult) -> list:
-    pf = "∞" if result.profit_factor is None else f"{result.profit_factor:.2f}"
-    ret_color = _GREEN if result.total_return_pct >= 0 else _RED
+def _metrics_panel(metrics: BacktestMetrics) -> list:
+    pf = "∞" if metrics.profit_factor == float("inf") else f"{metrics.profit_factor:.2f}"
+    ret_color = _GREEN if metrics.total_return_pct >= 0 else _RED
 
     def _row(label: str, value: str, color: str | None = None) -> html.Div:
         return html.Div(style=_S_METRIC_ROW, children=[
@@ -606,21 +642,21 @@ def _metrics_panel(result: TrainBestResult) -> list:
         html.Div("Performance",
                  style={"color": _ACCENT, "fontWeight": "600",
                         "marginBottom": "6px", "fontSize": "12px"}),
-        _row("Total Return",  f"{result.total_return_pct:+.2f}%",  ret_color),
-        _row("CAGR",          f"{result.annualized_return_pct:+.2f}%"),
-        _row("Sharpe Ratio",  f"{result.sharpe_ratio:.3f}"),
-        _row("Max Drawdown",  f"{result.max_drawdown_pct:.2f}%",
-             _RED if result.max_drawdown_pct < -5 else None),
-        _row("Win Rate",      f"{result.win_rate_pct:.1f}%",
-             _GREEN if result.win_rate_pct >= 50 else _RED),
+        _row("Total Return",  f"{metrics.total_return_pct:+.2f}%",  ret_color),
+        _row("CAGR",          f"{metrics.annualized_return_pct:+.2f}%"),
+        _row("Sharpe Ratio",  f"{metrics.sharpe_ratio:.3f}"),
+        _row("Max Drawdown",  f"{metrics.max_drawdown_pct:.2f}%",
+             _RED if metrics.max_drawdown_pct < -5 else None),
+        _row("Win Rate",      f"{metrics.win_rate_pct:.1f}%",
+             _GREEN if metrics.win_rate_pct >= 50 else _RED),
         _row("Profit Factor", pf),
-        _row("Total Trades",  str(result.total_trades)),
-        _row("Avg Holding",   f"{result.avg_holding_days:.1f} days"),
+        _row("Total Trades",  str(metrics.total_trades)),
+        _row("Avg Holding",   f"{metrics.avg_holding_days:.1f} days"),
         html.Div(
             style={**_S_METRIC_ROW, "borderBottom": "none", "marginTop": "6px"},
             children=[
                 html.Span("Score", style={"color": _ACCENT, "fontWeight": "600"}),
-                html.Span(f"{result.score:.3f}",
+                html.Span(f"{metrics.score:.3f}",
                           style={"color": _ACCENT, "fontWeight": "700", "fontSize": "15px"}),
             ],
         ),

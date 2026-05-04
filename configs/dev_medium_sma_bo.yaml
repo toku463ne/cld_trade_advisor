@@ -1,0 +1,26 @@
+stock_codes_file: configs/stock_codes.ini
+stock_set: medium        # [section] name in stock_codes.ini
+
+data:
+  granularity: 1d
+  start: "2022-01-01"
+  end: "2025-12-31"
+
+strategy:
+  name: sma_breakout     # must match a registered plugin.cli_name
+  units: 100
+
+trainer:
+  algorithm: ga          # grid | ga
+  capital: 1000000
+  top: 20
+  score_agg: mean        # mean | min | median  (how to aggregate across stocks)
+
+ga:
+  population: 60
+  generations: 40
+  elite_fraction: 0.15
+  crossover_prob: 0.80
+  mutation_rate: 0.30
+  mutation_sigma: 0.15
+  seed: null             # null = non-deterministic; set an integer for reproducibility

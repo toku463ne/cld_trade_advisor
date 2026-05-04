@@ -139,26 +139,35 @@ def _build_parser() -> argparse.ArgumentParser:
     # --- ohlcv sub-command ---
     ohlcv_p = sub.add_parser("ohlcv", help="Download OHLCV price data")
     ohlcv_p.add_argument(
-        "--code",
-        required=True,
-        nargs="+",
-        metavar="CODE",
-        help="Stock code(s), e.g. 7203.T 6758.T",
+        "--config", default=None, metavar="YAML",
+        help="YAML config file; CLI flags override values in the file",
+    )
+    # Stock selection: explicit codes OR a named set from stock_codes.ini
+    stock_grp = ohlcv_p.add_mutually_exclusive_group(required=False)
+    stock_grp.add_argument(
+        "--code", nargs="+", metavar="CODE", default=None,
+        help="Explicit stock codes, e.g. --code 7203.T 6758.T",
+    )
+    stock_grp.add_argument(
+        "--stock-set", default=None, metavar="SECTION",
+        help="Named stock set from --stock-codes-file, e.g. --stock-set universe",
+    )
+    ohlcv_p.add_argument(
+        "--stock-codes-file", default="configs/stock_codes.ini", metavar="INI",
+        help="Path to stock_codes.ini (default: configs/stock_codes.ini)",
     )
     ohlcv_p.add_argument(
         "--granularity",
-        required=True,
+        default="1d",
         choices=list(GRANULARITIES),
-        help="Time granularity",
+        help="Time granularity (default: 1d)",
     )
     ohlcv_p.add_argument(
-        "--start",
-        required=True,
+        "--start", default=None,
         help="Start date/datetime (ISO format, e.g. 2020-01-01)",
     )
     ohlcv_p.add_argument(
-        "--end",
-        default=None,
+        "--end", default=None,
         help="End date/datetime (ISO format). Defaults to today.",
     )
 
@@ -189,10 +198,44 @@ def _setup_logging() -> None:
 def main(argv: list[str] | None = None) -> None:
     _setup_logging()
     parser = _build_parser()
+
+    # ── Apply YAML defaults before full parse ────────────────────────────
+    _pre = argparse.ArgumentParser(add_help=False)
+    _pre.add_argument("command", nargs="?")
+    _pre.add_argument("--config", default=None)
+    _pre_args, _ = _pre.parse_known_args(argv)
+    if _pre_args.config:
+        from src.config import collect_defaults, load_yaml
+        cfg = load_yaml(_pre_args.config)
+        # set_defaults on the ohlcv sub-parser via the main parser's _subparsers
+        for action in parser._subparsers._group_actions:  # type: ignore[attr-defined]
+            for name, sp in action.choices.items():
+                if name == "ohlcv":
+                    sp.set_defaults(**collect_defaults(cfg))
+
     args = parser.parse_args(argv)
 
     with get_session() as session:
         if args.command == "ohlcv":
+            # ── Resolve stock codes ───────────────────────────────────────
+            if args.code:
+                codes: list[str] = args.code
+            elif args.stock_set:
+                from src.config import load_stock_codes
+                codes = load_stock_codes(args.stock_codes_file, args.stock_set)
+                logger.info(
+                    "Loaded {} codes from [{}] in {}",
+                    len(codes), args.stock_set, args.stock_codes_file,
+                )
+            else:
+                parser.error(
+                    "Provide --code, --stock-set, or set stock_set in a --config file."
+                )
+                return
+
+            if not args.start:
+                parser.error("--start is required (or set data.start in the config file).")
+
             start = _parse_dt(args.start)
             end = (
                 _parse_dt(args.end)
@@ -200,7 +243,7 @@ def main(argv: list[str] | None = None) -> None:
                 else datetime.datetime.now(datetime.timezone.utc)
             )
             collector = OHLCVCollector(session)
-            for code in args.code:
+            for code in codes:
                 collector.collect(code, args.granularity, start, end)
 
         elif args.command == "stocks":

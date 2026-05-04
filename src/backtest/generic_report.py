@@ -29,7 +29,13 @@ def generate_report(
 ) -> Path:
     _REPORTS_DIR.mkdir(exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    fname = f"{plugin.cli_name}_{stock_code.replace('.', '')}_{ts}.md"
+    if "," in stock_code:
+        n = stock_code.count(",") + 1
+        first = stock_code.split(",")[0].replace(".", "")
+        label = f"{n}stocks_{first}"
+    else:
+        label = stock_code.replace(".", "")
+    fname = f"{plugin.cli_name}_{label}_{ts}.md"
     path = _REPORTS_DIR / fname
     path.write_text(
         "\n".join(_build(plugin, stock_code, gran, start, end, results, top_n)),

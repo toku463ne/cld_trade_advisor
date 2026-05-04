@@ -51,8 +51,10 @@ def compute_metrics(result: BacktestResult, granularity: str = "1d") -> Backtest
     # ------------------------------------------------------------------ returns
     total_return = (result.final_equity / result.initial_capital - 1.0) * 100.0
     years = n / bars_per_year
+    # Clamp ratio to 0 before fractional exponent: negative base → complex in Python.
+    ratio = max(result.final_equity / result.initial_capital, 0.0)
     annualized = (
-        ((result.final_equity / result.initial_capital) ** (1.0 / years) - 1.0) * 100.0
+        (ratio ** (1.0 / years) - 1.0) * 100.0
         if years > 0 else 0.0
     )
 

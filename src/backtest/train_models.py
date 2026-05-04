@@ -7,7 +7,7 @@ import datetime
 import math
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
@@ -19,13 +19,14 @@ class TrainRun(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     strategy_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    stock_code: Mapped[str] = mapped_column(Text, nullable=False)
     granularity: Mapped[str] = mapped_column(String(10), nullable=False)
     start_dt: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_dt: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     total_combinations: Mapped[int] = mapped_column(Integer, nullable=False)
     initial_capital: Mapped[float] = mapped_column(Float, nullable=False)
+    config: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     results: Mapped[list["TrainBestResult"]] = relationship(
         "TrainBestResult", back_populates="train_run", order_by="TrainBestResult.rank"
@@ -74,6 +75,7 @@ def save_best_to_db(
     results: list[Any],  # list[TrainResult[P]]
     top_n: int,
     initial_capital: float,
+    config: str | None = None,
 ) -> int:
     """Persist the top *top_n* ranked results.  Returns the new train_run.id."""
     run = TrainRun(
@@ -85,6 +87,7 @@ def save_best_to_db(
         created_at=datetime.datetime.now(datetime.timezone.utc),
         total_combinations=len(results),
         initial_capital=initial_capital,
+        config=config,
     )
     session.add(run)
     session.flush()  # obtain run.id before inserting children
