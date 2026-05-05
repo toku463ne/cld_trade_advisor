@@ -46,7 +46,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from src.analysis.models import CorrRun, StockCorrPair
+from src.analysis.models import CorrRun, StockCorrPair, StockClusterMember, StockClusterRun
 from src.data.db import get_session
 from src.data.models import OHLCV_MODEL_MAP, Stock
 
@@ -62,14 +62,17 @@ def _load_close_prices(
     end: datetime.datetime,
     gran: str,
 ) -> pd.DataFrame:
-    """Return a DataFrame of close prices: index=date, columns=stock_code.
+    """Return a DataFrame of close prices indexed by timestamp, columns=stock_code.
 
-    Timestamps are normalised to their local calendar date so that stocks from
-    different timezones (e.g. JP midnight vs US 14:00 JST) land on the same
-    index row when they represent the same trading day.
+    For daily granularity timestamps are normalised to calendar date to align
+    stocks across timezones (JP midnight vs US 14:00 JST).
+    For intraday granularity the full UTC timestamp is used so that hourly bars
+    are not collapsed to one bar per day.
     """
-    model = OHLCV_MODEL_MAP[gran]
-    price_map: dict[str, dict[datetime.date, float]] = {}
+    from src.data.models import INTRADAY_GRANULARITIES
+    intraday = gran in INTRADAY_GRANULARITIES
+    model    = OHLCV_MODEL_MAP[gran]
+    price_map: dict[str, dict] = {}
 
     for code in codes:
         stmt = (
@@ -79,8 +82,11 @@ def _load_close_prices(
         )
         rows = session.execute(stmt).all()
         if rows:
-            # Use .date() to strip time-of-day differences across timezones
-            price_map[code] = {r.ts.date(): r.close_price for r in rows}
+            if intraday:
+                price_map[code] = {r.ts: r.close_price for r in rows}
+            else:
+                # .date() strips time-of-day so cross-timezone daily bars align
+                price_map[code] = {r.ts.date(): r.close_price for r in rows}
 
     if not price_map:
         return pd.DataFrame()
@@ -258,7 +264,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     stock_grp = p.add_mutually_exclusive_group(required=True)
     stock_grp.add_argument("--code", nargs="+", metavar="CODE")
-    stock_grp.add_argument("--stock-set", metavar="SECTION")
+    stock_grp.add_argument("--stock-set",   metavar="SECTION")
+    stock_grp.add_argument("--cluster-set", metavar="LABEL",
+                           help="Use representative stocks from a StockClusterRun (e.g. classified2023)")
     p.add_argument("--stock-codes-file", default="configs/stock_codes.ini")
     p.add_argument("--start", required=True)
     p.add_argument("--end",   default=None)
@@ -276,6 +284,19 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.code:
         codes: list[str] = args.code
+    elif args.cluster_set:
+        with get_session() as _s:
+            run = _s.execute(
+                select(StockClusterRun).where(StockClusterRun.fiscal_year == args.cluster_set)
+            ).scalar_one_or_none()
+            if run is None:
+                raise SystemExit(f"No StockClusterRun for fiscal_year={args.cluster_set!r}")
+            codes = [m.stock_code for m in _s.execute(
+                select(StockClusterMember)
+                .where(StockClusterMember.run_id == run.id,
+                       StockClusterMember.is_representative.is_(True))
+            ).scalars().all()]
+        logger.info("Loaded {} representative stocks from cluster [{}]", len(codes), args.cluster_set)
     else:
         from src.config import load_stock_codes
         codes = load_stock_codes(args.stock_codes_file, args.stock_set)

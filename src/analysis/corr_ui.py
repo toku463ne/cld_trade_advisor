@@ -4,6 +4,7 @@ Routes:
   /              → correlation pair table
   /pair?a=X&b=Y  → side-by-side price charts for stock pair X and Y
   /peak-corr     → zigzag peak correlation table (A / B metrics)
+  /moving-corr   → per-bar rolling correlation chart for a selected stock
 
 Launch:
     uv run --env-file devenv python -m src.analysis.corr_ui
@@ -18,21 +19,24 @@ from typing import Any
 from urllib.parse import urlencode, parse_qs
 
 import numpy as np
+import pandas as pd
 import yfinance as yf
 import dash
 from dash import Input, Output, callback, dash_table, dcc, html
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from src.analysis.models import CorrRun, StockCorrPair, PeakCorrRun, PeakCorrResult
+from src.analysis.models import CorrRun, StockCorrPair, PeakCorrRun, PeakCorrResult, StockClusterMember, StockClusterRun
 from src.analysis.peak_corr import MAJOR_INDICATORS
+from src.config import load_stock_codes
+from src.indicators.moving_corr import compute_moving_corr
 from src.indicators.zigzag import detect_peaks
 from src.data.db import get_session
 from src.data.models import Stock
 from src.simulator.cache import DataCache
 from src.viz.charts import (
     BG, SIDEBAR_BG, CARD_BG, BORDER, TEXT, MUTED, ACCENT,
-    ZigzagPoint, build_pair_figure, empty_figure,
+    ZigzagPoint, build_moving_corr_figure, build_pair_figure, empty_figure,
 )
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -72,13 +76,16 @@ def _peaks_for_cache(cache: DataCache) -> list[ZigzagPoint]:
     """
     if not cache.bars:
         return []
-    highs = [b.high for b in cache.bars]
-    lows  = [b.low  for b in cache.bars]
+    bars  = cache.bars
+    intraday = len(bars) >= 2 and bars[0].dt.date() == bars[1].dt.date()
+    ts_fmt   = "%Y-%m-%d %H:%M" if intraday else "%Y-%m-%d"
+    highs = [b.high for b in bars]
+    lows  = [b.low  for b in bars]
     peaks = detect_peaks(highs, lows, size=5, middle_size=2)
     return [
-        (cache.bars[p.bar_index].dt.strftime("%Y-%m-%d"), p.price, p.direction)
+        (bars[p.bar_index].dt.strftime(ts_fmt), p.price, p.direction)
         for p in peaks
-        if abs(p.direction) == 2 and p.bar_index < len(cache.bars)
+        if abs(p.direction) == 2 and p.bar_index < len(bars)
     ]
 
 
@@ -138,8 +145,9 @@ def _lookup_names(codes: set[str]) -> dict[str, str]:
 
 def _nav(active: str) -> html.Div:
     links = [
-        ("Correlation Table", "/"),
-        ("Peak Correlation",  "/peak-corr"),
+        ("Correlation Table",  "/"),
+        ("Peak Correlation",   "/peak-corr"),
+        ("Moving Correlation", "/moving-corr"),
     ]
     items = []
     for label, href in links:
@@ -330,6 +338,206 @@ def _peak_corr_page() -> html.Div:
     ])
 
 
+_INPUT_STYLE: dict = {
+    "background": CARD_BG, "color": TEXT,
+    "border": f"1px solid {BORDER}", "borderRadius": "4px",
+    "padding": "8px", "width": "100%", "fontSize": "13px",
+    "boxSizing": "border-box",
+}
+
+# Height: price + vol + indicator panel + fixed pixels per corr panel
+_MC_CHART_HEIGHT = 620 + 110 * len(MAJOR_INDICATORS)
+
+
+_STOCK_CODES_INI = "configs/stock_codes.ini"
+
+
+def _all_stock_group_options() -> list[dict]:
+    """Return dropdown options for every available stock group.
+
+    Values are prefixed with their source:
+      "db:<fiscal_year>"   — cluster run from DB
+      "ini:<section>"      — section in stock_codes.ini
+    """
+    opts: list[dict] = []
+
+    # DB cluster runs (most recent first)
+    try:
+        with get_session() as s:
+            runs = s.execute(
+                select(StockClusterRun.fiscal_year, StockClusterRun.n_clusters)
+                .order_by(StockClusterRun.created_at.desc())
+            ).all()
+        for r in runs:
+            opts.append({
+                "label": f"{r.fiscal_year}  ({r.n_clusters} clusters, DB)",
+                "value": f"db:{r.fiscal_year}",
+            })
+    except Exception:
+        pass
+
+    # INI sections
+    try:
+        import configparser
+        cfg = configparser.ConfigParser(allow_no_value=True)
+        cfg.read(_STOCK_CODES_INI)
+        for section in cfg.sections():
+            n = len([k for k in cfg[section]])
+            opts.append({
+                "label": f"{section}  ({n} stocks, INI)",
+                "value": f"ini:{section}",
+            })
+    except Exception:
+        pass
+
+    return opts
+
+
+def _stock_options_for_group(group_key: str | None) -> list[dict]:
+    """Return stock dropdown options for a given group key (e.g. 'db:classified2023')."""
+    if not group_key:
+        return []
+    try:
+        source, name = group_key.split(":", 1)
+    except ValueError:
+        return []
+
+    if source == "db":
+        try:
+            with get_session() as s:
+                run = s.execute(
+                    select(StockClusterRun)
+                    .where(StockClusterRun.fiscal_year == name)
+                ).scalar_one_or_none()
+                if run is None:
+                    return []
+                members = s.execute(
+                    select(StockClusterMember.stock_code)
+                    .where(StockClusterMember.run_id == run.id,
+                           StockClusterMember.is_representative.is_(True))
+                    .order_by(StockClusterMember.stock_code)
+                ).scalars().all()
+                codes = [c for c in members if c not in _MAJOR_SET]
+                name_rows = s.execute(
+                    select(Stock.code, Stock.name).where(Stock.code.in_(codes))
+                ).all()
+                stock_names = {r.code: r.name for r in name_rows}
+            return [
+                {"label": f"{c}  {stock_names.get(c, '')}", "value": c}
+                for c in codes
+            ]
+        except Exception:
+            return []
+
+    if source == "ini":
+        try:
+            codes = load_stock_codes(_STOCK_CODES_INI, name)
+            codes = [c for c in codes if c not in _MAJOR_SET]
+            return [{"label": c, "value": c} for c in codes]
+        except Exception:
+            return []
+
+    return []
+
+
+def _moving_corr_page() -> html.Div:
+    return html.Div(style=_S_PAGE, children=[
+        _nav("/moving-corr"),
+        html.H3("Moving Correlation vs Major Indices",
+                style={"color": ACCENT, "margin": "0 0 16px 0"}),
+
+        # ── Controls ──────────────────────────────────────────────────────────
+        html.Div(
+            style={"display": "flex", "gap": "16px", "alignItems": "flex-end",
+                   "flexWrap": "wrap"},
+            children=[
+                # Stock group selector
+                html.Div(style={"flex": "0 0 240px"}, children=[
+                    html.Span("Stock group", style=_S_LABEL),
+                    dcc.Dropdown(
+                        id="mc-group-dd",
+                        options=_all_stock_group_options(),
+                        value=None, clearable=True, searchable=False,
+                        placeholder="Select group…",
+                    ),
+                ]),
+                # Stock dropdown (populated by callback)
+                html.Div(style={"flex": "0 0 220px"}, children=[
+                    html.Span("Stock", style=_S_LABEL),
+                    dcc.Dropdown(
+                        id="mc-stock-dd",
+                        options=[], value=None,
+                        clearable=True, searchable=True,
+                        placeholder="Select…",
+                    ),
+                ]),
+                # Free-text code entry
+                html.Div(style={"flex": "0 0 160px"}, children=[
+                    html.Span("or type code", style=_S_LABEL),
+                    dcc.Input(
+                        id="mc-stock-input", type="text",
+                        debounce=True, placeholder="e.g. 9101.T",
+                        style=_INPUT_STYLE,
+                    ),
+                ]),
+                # Window
+                html.Div(style={"flex": "0 0 120px"}, children=[
+                    html.Span("Window (bars)", style=_S_LABEL),
+                    dcc.Input(
+                        id="mc-window", type="number",
+                        value=20, min=5, max=500, step=1,
+                        debounce=True,
+                        style=_INPUT_STYLE,
+                    ),
+                ]),
+                # Granularity
+                html.Div(style={"flex": "0 0 110px"}, children=[
+                    html.Span("Granularity", style=_S_LABEL),
+                    dcc.Dropdown(
+                        id="mc-gran",
+                        options=[{"label": "Daily", "value": "1d"},
+                                 {"label": "Hourly", "value": "1h"}],
+                        value="1d", clearable=False,
+                    ),
+                ]),
+                # Start date
+                html.Div(style={"flex": "0 0 140px"}, children=[
+                    html.Span("Start", style=_S_LABEL),
+                    dcc.Input(
+                        id="mc-start", type="text",
+                        value="2022-01-01", debounce=True,
+                        placeholder="YYYY-MM-DD",
+                        style=_INPUT_STYLE,
+                    ),
+                ]),
+                # End date
+                html.Div(style={"flex": "0 0 140px"}, children=[
+                    html.Span("End (blank = today)", style=_S_LABEL),
+                    dcc.Input(
+                        id="mc-end", type="text",
+                        value="", debounce=True,
+                        placeholder="YYYY-MM-DD",
+                        style=_INPUT_STYLE,
+                    ),
+                ]),
+            ],
+        ),
+
+        # ── Status card ───────────────────────────────────────────────────────
+        html.Div(id="mc-status", style={**_S_CARD, "marginTop": "12px",
+                                        "marginBottom": "8px"}),
+
+        # ── Chart ─────────────────────────────────────────────────────────────
+        dcc.Graph(
+            id="mc-chart",
+            figure=empty_figure("Select a stock to view moving correlation"),
+            style={"height": f"{_MC_CHART_HEIGHT}px"},
+            config={"scrollZoom": True, "displayModeBar": True,
+                    "modeBarButtonsToRemove": ["lasso2d", "select2d"]},
+        ),
+    ])
+
+
 # ── Top-level layout with routing ─────────────────────────────────────────────
 
 app.layout = html.Div([
@@ -352,6 +560,8 @@ def _route(pathname: str | None, search: str | None) -> html.Div:
             return _pair_page(stock_a, stock_b)
     if pathname == "/peak-corr":
         return _peak_corr_page()
+    if pathname == "/moving-corr":
+        return _moving_corr_page()
     return _main_page()
 
 
@@ -602,6 +812,127 @@ def _update_pc_table(run_id: int | None, indicator: str | None) -> tuple:
     ]
 
     return _pc_meta_card(*run_meta_args), rows, summary
+
+
+# ── Moving-corr page callbacks ────────────────────────────────────────────────
+
+
+@callback(
+    Output("mc-stock-dd", "options"),
+    Output("mc-stock-dd", "value"),
+    Input("mc-group-dd",  "value"),
+)
+def _update_mc_stock_list(group_key: str | None) -> tuple:
+    return _stock_options_for_group(group_key), None
+
+
+def _parse_date(s: str | None, fallback: datetime.datetime) -> datetime.datetime:
+    if not s or not s.strip():
+        return fallback
+    try:
+        dt = datetime.datetime.fromisoformat(s.strip())
+        return dt.replace(tzinfo=datetime.timezone.utc) if dt.tzinfo is None else dt
+    except ValueError:
+        return fallback
+
+
+@callback(
+    Output("mc-chart",  "figure"),
+    Output("mc-status", "children"),
+    Input("mc-stock-dd",    "value"),
+    Input("mc-stock-input", "value"),
+    Input("mc-window",      "value"),
+    Input("mc-gran",        "value"),
+    Input("mc-start",       "value"),
+    Input("mc-end",         "value"),
+)
+def _update_mc_chart(
+    stock_dd: str | None,
+    stock_input: str | None,
+    window: int | None,
+    gran: str | None,
+    start_str: str | None,
+    end_str: str | None,
+) -> tuple:
+    # Text input takes priority over dropdown when non-empty
+    stock = (stock_input or "").strip() or stock_dd
+    if not stock:
+        return empty_figure("Select a stock to view moving correlation"), "No stock selected."
+
+    window = int(window) if window else 20
+    gran   = gran or "1d"
+
+    now   = datetime.datetime.now(datetime.timezone.utc)
+    start = _parse_date(start_str, datetime.datetime(2022, 1, 1, tzinfo=datetime.timezone.utc))
+    end   = _parse_date(end_str, now)
+
+    with get_session() as session:
+        cache = DataCache(stock, gran)
+        cache.load(session, start, end)
+
+        if not cache.bars:
+            msg = f"No OHLCV data found for {stock} ({gran}) in DB."
+            return empty_figure(msg), msg
+
+        # For hourly gran: only ^N225 (same trading hours as JP stocks → true hourly corr).
+        # For daily gran: all major indicators using daily closes.
+        inds_to_load   = ["^N225"] if gran == "1h" else list(MAJOR_INDICATORS)
+        indicator_map: dict[str, pd.Series] = {}
+        first_ind_cache: DataCache | None = None
+        first_ind_code:  str = ""
+        for ind_code in inds_to_load:
+            cache_ind = DataCache(ind_code, gran)
+            cache_ind.load(session, start, end)
+            if not cache_ind.bars:
+                continue
+            if first_ind_cache is None:
+                first_ind_cache = cache_ind
+                first_ind_code  = ind_code
+            if gran == "1h":
+                indicator_map[ind_code] = pd.Series({b.dt: b.close for b in cache_ind.bars})
+            else:
+                indicator_map[ind_code] = pd.Series({b.dt.date(): b.close for b in cache_ind.bars})
+
+    if not indicator_map:
+        msg = "No indicator data found in DB. Run the data collector first."
+        return empty_figure(msg), msg
+
+    if gran == "1h":
+        stock_series = pd.Series({b.dt: b.close for b in cache.bars})
+        corr_map = compute_moving_corr(stock_series, indicator_map, window=window)
+    else:
+        stock_series = pd.Series({b.dt.date(): b.close for b in cache.bars})
+        corr_map = compute_moving_corr(stock_series, indicator_map, window=window)
+
+    names = _lookup_names({stock})
+    name  = names.get(stock, "")
+    title = (
+        f"{stock}" + (f" — {name}" if name else "")
+        + f"  |  ρ vs major indices  |  window={window} bars"
+    )
+
+    ind_zigzag = _peaks_for_cache(first_ind_cache) if first_ind_cache else None
+    fig = build_moving_corr_figure(
+        cache, corr_map, title=title,
+        indicator_cache=first_ind_cache,
+        indicator_zigzag=ind_zigzag,
+        indicator_label=first_ind_code,
+    )
+
+    bar0, barN = cache.bars[0].dt.date(), cache.bars[-1].dt.date()
+    status = [
+        html.Span("Stock: ",    style={"color": MUTED}),
+        html.Span(f"{stock}  ", style={"color": TEXT, "fontWeight": "500", "marginRight": "20px"}),
+        html.Span("Bars: ",     style={"color": MUTED}),
+        html.Span(f"{len(cache.bars)}  ", style={"color": TEXT, "marginRight": "20px"}),
+        html.Span("Period: ",   style={"color": MUTED}),
+        html.Span(f"{bar0} → {barN}  ", style={"color": TEXT, "marginRight": "20px"}),
+        html.Span("Indicators: ", style={"color": MUTED}),
+        html.Span(f"{len(indicator_map)}  ", style={"color": TEXT, "marginRight": "20px"}),
+        html.Span("Window: ",   style={"color": MUTED}),
+        html.Span(f"{window} bars", style={"color": TEXT}),
+    ]
+    return fig, status
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

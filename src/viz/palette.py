@@ -1,0 +1,11 @@
+"""Shared color palette — single source of truth for all viz modules."""
+
+BG         = "#0d1117"
+SIDEBAR_BG = "#161b22"
+CARD_BG    = "#1c2128"
+BORDER     = "#30363d"
+TEXT       = "#c9d1d9"
+MUTED      = "#8b949e"
+ACCENT     = "#58a6ff"
+GREEN      = "#3fb950"
+RED        = "#f85149"

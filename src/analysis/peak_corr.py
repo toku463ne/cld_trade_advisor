@@ -29,14 +29,14 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from src.analysis.models import PeakCorrResult, PeakCorrRun
+from src.analysis.models import PeakCorrResult, PeakCorrRun, StockClusterMember, StockClusterRun
 from src.indicators.zigzag import detect_peaks
 from src.data.db import get_session
 from src.data.models import OHLCV_MODEL_MAP, Stock
 from src.data.models import Stock  # noqa: F811 — already imported once
 
 MAJOR_INDICATORS: list[str] = [
-    "^N225", "^DJI", "^GSPC", "^IXIC", "^HSI", "^GDAXI", "^FTSE", "^VIX",
+    "^N225", "^GSPC", "^GDAXI", "^HSI", "^VIX",
 ]
 
 # ── Data loading ──────────────────────────────────────────────────────────────
@@ -263,7 +263,9 @@ def main(argv: list[str] | None = None) -> None:
         description="Compute zigzag peak-correlation and save to DB",
     )
     grp = p.add_mutually_exclusive_group(required=True)
-    grp.add_argument("--stock-set", metavar="SECTION")
+    grp.add_argument("--stock-set",   metavar="SECTION")
+    grp.add_argument("--cluster-set", metavar="LABEL",
+                     help="Use representative stocks from a StockClusterRun (e.g. classified2023)")
     grp.add_argument("--code", nargs="+", metavar="CODE")
     p.add_argument("--stock-codes-file", default="configs/stock_codes.ini")
     p.add_argument("--start",          required=True)
@@ -276,6 +278,20 @@ def main(argv: list[str] | None = None) -> None:
     if args.code:
         codes: list[str] = args.code
         stock_set = None
+    elif args.cluster_set:
+        with get_session() as _s:
+            run = _s.execute(
+                select(StockClusterRun).where(StockClusterRun.fiscal_year == args.cluster_set)
+            ).scalar_one_or_none()
+            if run is None:
+                raise SystemExit(f"No StockClusterRun for fiscal_year={args.cluster_set!r}")
+            codes = [m.stock_code for m in _s.execute(
+                select(StockClusterMember)
+                .where(StockClusterMember.run_id == run.id,
+                       StockClusterMember.is_representative.is_(True))
+            ).scalars().all()]
+        stock_set = args.cluster_set
+        logger.info("Loaded {} representative stocks from cluster [{}]", len(codes), args.cluster_set)
     else:
         from src.config import load_stock_codes
         codes    = load_stock_codes(args.stock_codes_file, args.stock_set)
