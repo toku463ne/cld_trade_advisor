@@ -135,10 +135,10 @@ class TradeSimulator:
 
     @property
     def equity(self) -> float:
-        """Cash + unrealized P&L of the open position."""
+        """Cash + current market value of the open position."""
         if self._current_bar is None or self._position.is_flat:
             return self._cash
-        return self._cash + self._position.unrealized_pnl(self._current_bar.typical_price)
+        return self._cash + self._position.quantity * self._current_bar.typical_price
 
     @property
     def realized_pnl(self) -> float:

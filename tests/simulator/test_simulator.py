@@ -280,19 +280,70 @@ class TestReset:
 
 
 class TestEquity:
-    def test_equity_includes_unrealized_pnl(self) -> None:
+    def test_equity_equals_initial_plus_position_gain(self) -> None:
+        # equity must equal initial_capital + (current_price - entry_price) * qty,
+        # NOT (cash) + (current_price - entry_price) * qty, which would double-subtract
+        # the entry cost and under-report equity by entry_price * qty.
         bar0 = _bar("2024-01-02", 100, 110, 90, 100)
-        bar1 = _bar("2024-01-03", 104, 112, 98, 108)  # long fills at 104
-        bar2 = _bar("2024-01-04", 110, 118, 104, 114)  # price rises
+        bar1 = _bar("2024-01-03", 104, 112, 98, 108)  # long fills at open=104
+        bar2 = _bar("2024-01-04", 110, 118, 104, 114)  # typical = (118+104+114)/3 = 112
 
         sim = _make_sim()
         _advance(sim, bar0)
         sim.buy(10, OrderType.MARKET)
         _advance(sim, bar1)   # filled at 104
-        _advance(sim, bar2)   # current bar for equity calculation
+        _advance(sim, bar2)
 
-        # equity = cash + unrealized P&L
-        # cash = 1_000_000 - 104*10 = 998_960
-        # unrealized = (bar2.typical_price - 104) * 10
-        expected = (1_000_000 - 104 * 10) + (bar2.typical_price - 104) * 10
+        # Correct: initial + unrealized gain on the position
+        # = 1_000_000 + (112 - 104) * 10 = 1_000_080
+        expected = 1_000_000 + (bar2.typical_price - 104) * 10
         assert sim.equity == pytest.approx(expected)
+
+        # Sanity: cash alone is less than initial (position cost deducted)
+        assert sim.cash == pytest.approx(1_000_000 - 104 * 10)
+
+    def test_equity_no_double_entry_cost_deduction(self) -> None:
+        # Regression test: the buggy formula was
+        #   equity = cash + (tp - entry) * qty
+        #          = (initial - entry*qty) + (tp - entry)*qty
+        #          = initial + tp*qty - 2*entry*qty          ← wrong
+        # The correct formula is
+        #   equity = cash + qty * tp
+        #          = (initial - entry*qty) + qty*tp
+        #          = initial + (tp - entry)*qty              ← correct
+        # At the fill bar the two differ by exactly entry_price * qty.
+        entry_price = 200.0
+        qty         = 5
+        capital     = 10_000.0
+
+        bar0 = _bar("2024-01-02", 200, 210, 190, 200)
+        bar1 = _bar("2024-01-03", 200, 210, 190, 200)  # fills at open=200; tp=200
+
+        sim = _make_sim(capital)
+        _advance(sim, bar0)
+        sim.buy(qty, OrderType.MARKET)
+        _advance(sim, bar1)  # filled at 200; tp=200 → no gain/loss yet
+
+        # With zero gain, equity must equal initial capital exactly.
+        # The buggy formula would give: (10_000 - 1_000) + (200-200)*5 = 9_000
+        assert sim.equity == pytest.approx(capital)
+
+    def test_equity_after_position_close_equals_initial_plus_realized(self) -> None:
+        # Buy fills at bar1 open=104; market sell submitted on bar1 fills at bar2 open=110.
+        # Realized P&L = (110 - 104) * 10 = 60.
+        # After flat, equity = cash = initial + realized.
+        bar0 = _bar("2024-01-02", 100, 110, 90, 100)
+        bar1 = _bar("2024-01-03", 104, 112, 98, 108)  # buy fills at open=104
+        bar2 = _bar("2024-01-04", 110, 118, 104, 114)  # sell fills at open=110
+
+        sim = _make_sim()
+        _advance(sim, bar0)
+        sim.buy(10, OrderType.MARKET)
+        _advance(sim, bar1)              # long filled at 104
+        sim.sell(10, OrderType.MARKET)
+        _advance(sim, bar2)              # sell fills at open=110; realized=(110-104)*10=60
+
+        assert sim.position.is_flat
+        assert sim.realized_pnl == pytest.approx((110 - 104) * 10)
+        # After close position is flat; equity = cash = initial + realized P&L
+        assert sim.equity == pytest.approx(1_000_000 + (110 - 104) * 10)

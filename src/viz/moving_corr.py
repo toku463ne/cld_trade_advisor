@@ -95,6 +95,20 @@ def build_moving_corr_figure(
         row=1, col=1,
     )
 
+    # ── Row 1 overlay: 20-bar SMA ────────────────────────────────────────────
+
+    sma_vals = pd.Series(closes).rolling(20).mean().tolist()
+    fig.add_trace(
+        go.Scatter(
+            x=stock_dates, y=sma_vals,
+            mode="lines", name="SMA20",
+            line=dict(color="#f0c040", width=1.2),
+            showlegend=False,
+            hovertemplate="SMA20 %{x}: %{y:,.2f}<extra></extra>",
+        ),
+        row=1, col=1,
+    )
+
     # ── Row 2: stock volume ───────────────────────────────────────────────────
 
     vol_colors = ["#26a69a" if c >= o else "#ef5350" for c, o in zip(closes, opens)]

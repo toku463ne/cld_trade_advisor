@@ -138,6 +138,154 @@ class StockClusterRun(Base):
     )
 
 
+# ── Sign-benchmark models ─────────────────────────────────────────────────────
+
+
+class SignBenchmarkRun(Base):
+    """One benchmark execution: one sign type × one stock set × one period."""
+
+    __tablename__ = "sign_benchmark_runs"
+    __table_args__ = (
+        Index("ix_sbr_sign_set", "sign_type", "stock_set"),
+        Index("ix_sbr_period",   "start_dt",  "end_dt"),
+    )
+
+    id:             Mapped[int]               = mapped_column(Integer, primary_key=True, autoincrement=True)
+    sign_type:      Mapped[str]               = mapped_column(String(32),  nullable=False)
+    stock_set:      Mapped[str]               = mapped_column(String(64),  nullable=False)
+    gran:           Mapped[str]               = mapped_column(String(10),  nullable=False)
+    start_dt:       Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_dt:         Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Detector parameters
+    window:         Mapped[int]               = mapped_column(Integer, nullable=False)
+    valid_bars:     Mapped[int]               = mapped_column(Integer, nullable=False)
+    # Zigzag parameters
+    zz_size:        Mapped[int]               = mapped_column(Integer, nullable=False)
+    zz_mid_size:    Mapped[int]               = mapped_column(Integer, nullable=False)
+    trend_cap_days: Mapped[int]               = mapped_column(Integer, nullable=False)
+    # Counts
+    n_stocks:       Mapped[int]               = mapped_column(Integer, nullable=False)
+    n_events:       Mapped[int]               = mapped_column(Integer, nullable=False)
+    # Aggregate results (nullable — populated after events are saved)
+    direction_rate:  Mapped[float | None] = mapped_column(Float, nullable=True)
+    mean_trend_bars: Mapped[float | None] = mapped_column(Float, nullable=True)
+    mag_follow:      Mapped[float | None] = mapped_column(Float, nullable=True)
+    mag_reverse:     Mapped[float | None] = mapped_column(Float, nullable=True)
+    benchmark_flw:   Mapped[float | None] = mapped_column(Float, nullable=True)
+    benchmark_rev:   Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at:      Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    events: Mapped[list["SignBenchmarkEvent"]] = relationship(
+        "SignBenchmarkEvent", back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class SignBenchmarkEvent(Base):
+    """Per-fire-event result within a SignBenchmarkRun."""
+
+    __tablename__ = "sign_benchmark_events"
+    __table_args__ = (
+        Index("ix_sbe_run",   "run_id"),
+        Index("ix_sbe_stock", "run_id", "stock_code"),
+    )
+
+    id:              Mapped[int]               = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id:          Mapped[int]               = mapped_column(Integer, ForeignKey("sign_benchmark_runs.id", ondelete="CASCADE"), nullable=False)
+    stock_code:      Mapped[str]               = mapped_column(String(30), nullable=False)
+    fired_at:        Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    sign_score:      Mapped[float]             = mapped_column(Float,   nullable=False)
+    trend_direction: Mapped[int | None]        = mapped_column(Integer, nullable=True)   # +1=HIGH first, -1=LOW first
+    trend_bars:      Mapped[int | None]        = mapped_column(Integer, nullable=True)   # bars from entry to first confirmed peak
+    trend_magnitude: Mapped[float | None]      = mapped_column(Float,   nullable=True)   # |peak - entry| / entry
+
+    run: Mapped["SignBenchmarkRun"] = relationship("SignBenchmarkRun", back_populates="events")
+
+
+# ── Peak-feature models ───────────────────────────────────────────────────────
+
+
+class PeakFeatureRun(Base):
+    """One execution: collect peak context features for a stock set + period."""
+
+    __tablename__ = "peak_feature_runs"
+
+    id:             Mapped[int]               = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stock_set:      Mapped[str]               = mapped_column(String(64),  nullable=False)
+    start_dt:       Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    end_dt:         Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    zz_size:        Mapped[int]               = mapped_column(Integer, nullable=False)
+    zz_mid_size:    Mapped[int]               = mapped_column(Integer, nullable=False)
+    trend_cap_days: Mapped[int]               = mapped_column(Integer, nullable=False)
+    n_stocks:       Mapped[int]               = mapped_column(Integer, nullable=False)
+    n_records:      Mapped[int]               = mapped_column(Integer, nullable=False)
+    created_at:     Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    records: Mapped[list["PeakFeatureRecord"]] = relationship(
+        "PeakFeatureRecord", back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class PeakFeatureRecord(Base):
+    """Context features at each confirmed hourly zigzag peak."""
+
+    __tablename__ = "peak_feature_records"
+    __table_args__ = (
+        Index("ix_pfr_run",      "run_id"),
+        Index("ix_pfr_stock",    "run_id", "stock_code"),
+        Index("ix_pfr_peak_dir", "run_id", "peak_direction"),
+    )
+
+    id:             Mapped[int]               = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id:         Mapped[int]               = mapped_column(Integer, ForeignKey("peak_feature_runs.id", ondelete="CASCADE"), nullable=False)
+    stock_code:     Mapped[str]               = mapped_column(String(30), nullable=False)
+    confirmed_at:   Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    peak_at:        Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    peak_direction: Mapped[int]               = mapped_column(Integer, nullable=False)   # +2=HIGH, -2=LOW
+    peak_price:     Mapped[float]             = mapped_column(Float,   nullable=False)
+
+    # Technical context (daily-derived at confirmation date)
+    sma20_dist:      Mapped[float | None] = mapped_column(Float,   nullable=True)   # (price − SMA20) / SMA20
+    rsi14:           Mapped[float | None] = mapped_column(Float,   nullable=True)
+    bb_pct_b:        Mapped[float | None] = mapped_column(Float,   nullable=True)   # Bollinger %B
+    vol_ratio:       Mapped[float | None] = mapped_column(Float,   nullable=True)   # hourly vol / 20-bar avg
+    trend_age_bars:  Mapped[int | None]   = mapped_column(Integer, nullable=True)   # hourly bars since last opposite peak
+
+    # Market regime context
+    n225_sma20_dist: Mapped[float | None] = mapped_column(Float,   nullable=True)
+    n225_20d_ret:    Mapped[float | None] = mapped_column(Float,   nullable=True)   # crash detector
+    is_crash:        Mapped[bool | None]  = mapped_column(Boolean, nullable=True)
+
+    # Daily correlation (10-day rolling Pearson vs major indicators)
+    corr_n225: Mapped[float | None] = mapped_column(Float, nullable=True)
+    corr_gspc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    corr_hsi:  Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Sign scores — NULL = not active, float = active with this score
+    sign_div_bar:    Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_div_vol:    Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_div_gap:    Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_div_peer:   Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_corr_flip:  Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_corr_shift: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_corr_peak:  Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_str_hold:   Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_str_lead:   Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_brk_sma:    Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_brk_bol:    Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_rev_lo:     Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_rev_hi:     Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_rev_nhi:    Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_rev_nlo:    Mapped[float | None] = mapped_column(Float, nullable=True)
+    sign_active_count: Mapped[int]        = mapped_column(Integer, nullable=False, default=0)
+
+    # Outcome: first confirmed zigzag peak within trend_cap_days
+    outcome_direction: Mapped[int | None]   = mapped_column(Integer, nullable=True)   # +1=HIGH, -1=LOW
+    outcome_bars:      Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    outcome_magnitude: Mapped[float | None] = mapped_column(Float,   nullable=True)
+
+    run: Mapped["PeakFeatureRun"] = relationship("PeakFeatureRun", back_populates="records")
+
+
 class StockClusterMember(Base):
     """Cluster assignment for one stock in one StockClusterRun."""
 
