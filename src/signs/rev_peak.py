@@ -18,6 +18,33 @@ Score = 1 − proximity / proximity_pct
 
 Valid for up to ``valid_bars`` bars after firing (time-bounded only).
 """
+# ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
+# rev_lo (side='lo'):
+#   uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#       --sign rev_lo --cluster-set classified2023 \
+#       --start 2023-04-01 --end 2025-03-31 --gran 1d
+#   run_id=28  n=1829  direction_rate=58.6%  p<0.001
+#   bench_flw=0.049  bench_rev=0.028  mean_bars=13.0  (mag_flw=0.083  mag_rev=0.067)
+#   → RECOMMEND (FLW) — strong and significant; best direction_rate among high-n signs
+# rev_lo low-corr only (run_id=43, --corr-mode low):
+#   uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#       --sign rev_lo --cluster-set classified2023 \
+#       --start 2023-04-01 --end 2025-03-31 --gran 1d --corr-mode low
+#   n=356  direction_rate=57.9%  p≈0.003  bench_flw=0.043
+#   → Note: corr-neutral; support-test thesis holds regardless of index coupling
+# rev_hi (side='hi'):
+#   uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#       --sign rev_hi --cluster-set classified2023 \
+#       --start 2023-04-01 --end 2025-03-31 --gran 1d
+#   run_id=29  n=2180  direction_rate=50.5%  p≈0.64
+#   bench_flw=0.039  bench_rev=0.034  mean_bars=12.4  (mag_flw=0.077  mag_rev=0.069)
+#   → SKIP — no directional edge at prior-high resistance
+# rev_hi low-corr only (run_id=44, --corr-mode low):
+#   uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#       --sign rev_hi --cluster-set classified2023 \
+#       --start 2023-04-01 --end 2025-03-31 --gran 1d --corr-mode low
+#   n=520  direction_rate=53.8%  p≈0.083  bench_flw=0.042
+#   → Note: slight improvement on low-corr stocks but still borderline; remains SKIP
 
 from __future__ import annotations
 

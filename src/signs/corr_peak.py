@@ -15,6 +15,12 @@ Score = min(−n225_down_corr_b, 1.0)
 
 Valid for up to ``valid_bars`` *hourly bars* after firing (time-bounded only).
 """
+# ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
+# uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#     --sign corr_peak --cluster-set classified2023 \
+#     --start 2023-04-01 --end 2025-03-31 --gran 1d
+# NOT RUN — requires a prior peak_corr analysis run (PeakCorrRun table must be populated)
+# Run peak-corr analysis first, then re-execute the benchmark command above.
 
 from __future__ import annotations
 

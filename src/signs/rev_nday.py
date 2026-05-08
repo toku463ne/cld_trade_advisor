@@ -19,6 +19,17 @@ by the n_days parameter choice).
 
 Valid for up to ``valid_bars`` bars after firing (time-bounded only).
 """
+# ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
+# rev_nhi: run_id=30  n=3579  direction_rate=54.0%  p<0.001
+#   bench_flw=0.047  bench_rev=0.033  mean_bars=12.6
+#   Regime split: bear DR=51.2% (p=0.47)  bull DR=54.4% (p<0.001)
+#   → 2-year result was RECOMMEND but driven by bull market (FY2023+FY2024).
+#
+# ── 7-year cross-validation (FY2018–FY2024) ──
+# rev_nhi: pooled DR=48.9%  p≈0.024  perm_pass=2/7
+# → PROVISIONAL (bull-only): no edge in bear regime across all FYs. Only use when
+#   N225 last confirmed zigzag peak is a LOW. In bear/neutral regimes treat as SKIP.
+# rev_nlo (side='lo') is handled by RevNloDetector in rev_nlo.py — see that file.
 
 from __future__ import annotations
 

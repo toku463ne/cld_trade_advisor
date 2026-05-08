@@ -12,21 +12,26 @@ benchmark_flw = direction_rate × mag_follow
 benchmark_rev = (1 − direction_rate) × mag_reverse
 
 Signs with extra data requirements:
-  div_peer   — loads all cluster members' 1h caches for peer comparison
-  corr_shift — loads ^GSPC 1h cache; computes daily rolling corr on-the-fly
+  div_peer   — loads all cluster members' caches for peer comparison
+  corr_shift — loads ^GSPC cache; computes daily rolling corr on-the-fly
   corr_peak  — looks up mean_corr_b from peak_corr_results (most recent 1d run)
+
+Gran parameter:
+  --gran 1d  (default) — sign detection runs on daily bars
+  --gran 1h            — sign detection runs on hourly bars
 
 CLI usage
 ---------
     uv run --env-file devenv python -m src.analysis.sign_benchmark \\
         --sign div_bar --cluster-set classified2023 \\
-        --start 2024-05-01 --end 2025-03-31
+        --start 2023-04-01 --end 2025-03-31 --gran 1d
 
     for sign in div_bar div_vol div_gap div_peer corr_flip corr_shift corr_peak \\
-                str_hold str_lead brk_sma brk_bol; do
+                str_hold str_lead str_lag brk_sma brk_bol \\
+                rev_lo rev_hi rev_nhi rev_nlo; do
         uv run --env-file devenv python -m src.analysis.sign_benchmark \\
             --sign $sign --cluster-set classified2023 \\
-            --start 2024-05-01 --end 2025-03-31
+            --start 2023-04-01 --end 2025-03-31 --gran 1d
     done
 """
 
@@ -34,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import math
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -65,8 +71,10 @@ from src.signs import (
     DivPeerDetector,
     DivVolDetector,
     RevNDayDetector,
+    RevNloDetector,
     RevPeakDetector,
     StrHoldDetector,
+    StrLagDetector,
     StrLeadDetector,
 )
 from src.simulator.cache import DataCache
@@ -167,66 +175,81 @@ def _first_zigzag_peak(
 def _eval_stock(
     stock_code: str,
     sign_type: str,
-    cache_1h: DataCache,
-    cache_1d: DataCache,
-    n225_cache_1h: DataCache,
+    cache_det: DataCache,       # detection-granularity cache (1h or 1d)
+    cache_1d: DataCache,        # daily bars for trend measurement
+    n225_cache_det: DataCache,  # N225 detection-granularity cache
     window: int,
     valid_bars: int,
     trend_cap_days: int,
     zz_size: int,
     zz_mid_size: int,
     extra: _ExtraData,
+    corr_n225: dict[datetime.date, float] | None = None,
+    corr_mode: str = "all",
+    corr_high_thresh: float = 0.6,
+    corr_low_thresh: float = 0.3,
 ) -> list[_EventResult]:
-    if not cache_1h.bars:
+    if not cache_det.bars:
         return []
 
     # Build detector
     if sign_type == "div_bar":
-        detector = DivBarDetector(cache_1h, n225_cache_1h, window=window)
+        detector = DivBarDetector(cache_det, n225_cache_det, window=window)
     elif sign_type == "div_vol":
-        detector = DivVolDetector(cache_1h, n225_cache_1h, window=window)
+        detector = DivVolDetector(cache_det, n225_cache_det, window=window)
     elif sign_type == "div_gap":
-        detector = DivGapDetector(cache_1h, n225_cache_1h)
+        detector = DivGapDetector(cache_det, n225_cache_det)
     elif sign_type == "div_peer":
-        detector = DivPeerDetector(cache_1h, extra.peer_caches)
+        detector = DivPeerDetector(cache_det, extra.peer_caches)
     elif sign_type == "corr_flip":
-        detector = CorrFlipDetector(cache_1h, n225_cache_1h, window=window)
+        detector = CorrFlipDetector(cache_det, n225_cache_det, window=window)
     elif sign_type == "corr_shift":
         if extra.gspc_cache is None:
             return []
-        n225_corr = _daily_corr_series(cache_1h, n225_cache_1h, window=window)
-        gspc_corr = _daily_corr_series(cache_1h, extra.gspc_cache, window=window)
-        detector = CorrShiftDetector(cache_1h, n225_corr, gspc_corr)
+        n225_corr = _daily_corr_series(cache_det, n225_cache_det, window=window)
+        gspc_corr = _daily_corr_series(cache_det, extra.gspc_cache, window=window)
+        detector = CorrShiftDetector(cache_det, n225_corr, gspc_corr)
     elif sign_type == "corr_peak":
         if extra.n225_down_corr_b is None:
             return []
-        detector = CorrPeakDetector(cache_1h, n225_cache_1h, extra.n225_down_corr_b)
+        detector = CorrPeakDetector(cache_det, n225_cache_det, extra.n225_down_corr_b)
     elif sign_type == "str_hold":
-        detector = StrHoldDetector(cache_1h, n225_cache_1h)
+        detector = StrHoldDetector(cache_det, n225_cache_det)
     elif sign_type == "str_lead":
-        detector = StrLeadDetector(cache_1h, n225_cache_1h)
+        detector = StrLeadDetector(cache_det, n225_cache_det)
+    elif sign_type == "str_lag":
+        detector = StrLagDetector(cache_det, n225_cache_det)
     elif sign_type == "brk_sma":
-        detector = BrkSmaDetector(cache_1h, window=window)
+        detector = BrkSmaDetector(cache_det, window=window)
     elif sign_type == "brk_bol":
-        detector = BrkBolDetector(cache_1h, window=window)
+        detector = BrkBolDetector(cache_det, window=window)
     elif sign_type == "rev_lo":
-        detector = RevPeakDetector(cache_1h, proximity_pct=extra.proximity_pct, side="lo")
+        detector = RevPeakDetector(cache_det, proximity_pct=extra.proximity_pct, side="lo")
     elif sign_type == "rev_hi":
-        detector = RevPeakDetector(cache_1h, proximity_pct=extra.proximity_pct, side="hi")
+        detector = RevPeakDetector(cache_det, proximity_pct=extra.proximity_pct, side="hi")
     elif sign_type == "rev_nhi":
-        detector = RevNDayDetector(cache_1h, n_days=window, side="hi")
+        detector = RevNDayDetector(cache_det, n_days=window, side="hi")
     elif sign_type == "rev_nlo":
-        detector = RevNDayDetector(cache_1h, n_days=window, side="lo")
+        detector = RevNloDetector(cache_det, n225_cache_det)
     else:
         raise ValueError(f"Unknown sign_type: {sign_type!r}")
 
     bars_1d  = cache_1d.bars
     results: list[_EventResult] = []
 
-    for bar in cache_1h.bars:
+    for bar in cache_det.bars:
         sign = detector.detect(bar.dt, valid_bars=valid_bars)
         if sign is None or sign.fired_at != bar.dt:
             continue
+
+        # ── Correlation mode filter ────────────────────────────────────────
+        if corr_mode != "all" and corr_n225 is not None:
+            raw = corr_n225.get(bar.dt.date())
+            abs_corr = abs(raw) if raw is not None and not math.isnan(raw) else float("nan")
+            if corr_mode == "high" and (math.isnan(abs_corr) or abs_corr < corr_high_thresh):
+                continue
+            elif corr_mode == "low" and (math.isnan(abs_corr) or abs_corr > corr_low_thresh):
+                continue
 
         trend_dir, trend_bars, magnitude = _first_zigzag_peak(
             bar.dt, bars_1d, trend_cap_days, zz_size, zz_mid_size,
@@ -257,7 +280,14 @@ def _aggregate(events: list[_EventResult]) -> dict:
             benchmark_flw=None, benchmark_rev=None,
         )
 
+    # direction_rate: fraction of fire events where the next confirmed zigzag peak is a HIGH
+    #   (trend_direction == +1 means price went up first; == -1 means down first).
+    #   0.5 = random; > 0.5 = sign predicts upward follow-through.
+    #   p-value is two-tailed binomial vs H₀ = 0.5: z = (dr - 0.5) / (0.5 / sqrt(n)).
     direction_rate  = float(sum(1 for e in with_trend if e.trend_direction == +1) / len(with_trend))
+
+    # mean_bars: average number of daily bars from the fire bar to the first confirmed
+    #   zigzag peak. Indicates how quickly the signal resolves on average.
     mean_trend_bars = float(np.mean([e.trend_bars for e in with_trend if e.trend_bars is not None]))
 
     flw_mags = [e.trend_magnitude for e in with_trend
@@ -265,9 +295,19 @@ def _aggregate(events: list[_EventResult]) -> dict:
     rev_mags = [e.trend_magnitude for e in with_trend
                 if e.trend_direction == -1 and e.trend_magnitude is not None]
 
+    # mag_follow:  mean price move (as a fraction) from the fire bar to the confirming HIGH,
+    #   averaged over all follow-through events (trend_direction == +1).
+    # mag_reverse: same but for events where price confirmed a LOW first (went against us).
+    #   Both are always positive (absolute magnitude of the move).
     mag_follow  = float(np.mean(flw_mags)) if flw_mags else None
     mag_reverse = float(np.mean(rev_mags)) if rev_mags else None
 
+    # bench_flw = direction_rate × mag_follow
+    #   Expected gain per fire event assuming you always follow the sign's direction.
+    #   Combines both how often the sign is right AND how large the winning moves are.
+    # bench_rev = (1 − direction_rate) × mag_reverse
+    #   Expected loss per fire event from adverse moves.
+    #   A good sign has bench_flw >> bench_rev.
     benchmark_flw = direction_rate * mag_follow         if mag_follow  is not None else None
     benchmark_rev = (1 - direction_rate) * mag_reverse  if mag_reverse is not None else None
 
@@ -290,22 +330,36 @@ def run_benchmark(
     stock_set: str,
     start: datetime.datetime,
     end: datetime.datetime,
-    window: int         = 20,
-    valid_bars: int     = 5,
-    trend_cap_days: int = _TREND_CAP,
-    zz_size: int        = _ZZ_SIZE,
-    zz_mid_size: int    = _ZZ_MID_SIZE,
+    gran: str            = "1d",
+    window: int          = 20,
+    valid_bars: int      = 5,
+    trend_cap_days: int  = _TREND_CAP,
+    zz_size: int         = _ZZ_SIZE,
+    zz_mid_size: int     = _ZZ_MID_SIZE,
     proximity_pct: float = 0.015,
+    corr_mode: str       = "all",
+    corr_high_thresh: float = 0.6,
+    corr_low_thresh:  float = 0.3,
+    corr_window: int    = 20,
 ) -> int:
-    logger.info("Loading ^N225 1h cache …")
-    n225_1h = DataCache(_N225, "1h"); n225_1h.load(session, start, end)
+    logger.info("Loading ^N225 {} cache …", gran)
+    n225_det = DataCache(_N225, gran); n225_det.load(session, start, end)
+
+    # N225 daily cache for corr computation (re-use det cache when already daily)
+    n225_1d: DataCache | None = None
+    if corr_mode != "all":
+        if gran == "1d":
+            n225_1d = n225_det
+        else:
+            logger.info("Loading ^N225 1d cache for corr filter …")
+            n225_1d = DataCache(_N225, "1d"); n225_1d.load(session, start, end)
 
     # ── Sign-specific pre-loading ──────────────────────────────────────────────
     extra_template = _ExtraData(proximity_pct=proximity_pct)
 
     if sign_type == "corr_shift":
-        logger.info("Loading ^GSPC 1h cache for corr_shift …")
-        gspc = DataCache(_GSPC, "1h"); gspc.load(session, start, end)
+        logger.info("Loading ^GSPC {} cache for corr_shift …", gran)
+        gspc = DataCache(_GSPC, gran); gspc.load(session, start, end)
         extra_template.gspc_cache = gspc
 
     elif sign_type == "corr_peak":
@@ -340,12 +394,12 @@ def run_benchmark(
             cluster_groups[m.cluster_id].append(m.stock_code)
             stock_to_cluster[m.stock_code] = m.cluster_id
 
-        # Pre-load 1h caches for all cluster members (incl. non-representatives)
+        # Pre-load detection-gran caches for all cluster members
         all_member_codes = sorted({m.stock_code for m in all_members})
-        logger.info("Pre-loading 1h caches for {} cluster members …", len(all_member_codes))
+        logger.info("Pre-loading {} caches for {} cluster members …", gran, len(all_member_codes))
         member_caches: dict[str, DataCache] = {}
         for code in all_member_codes:
-            c = DataCache(code, "1h"); c.load(session, start, end)
+            c = DataCache(code, gran); c.load(session, start, end)
             member_caches[code] = c
 
     # ── Per-stock loop ─────────────────────────────────────────────────────────
@@ -353,11 +407,11 @@ def run_benchmark(
 
     for i, code in enumerate(stock_codes, 1):
         logger.debug("  [{}/{}] {}", i, len(stock_codes), code)
-        cache_1h = DataCache(code, "1h"); cache_1h.load(session, start, end)
-        cache_1d = DataCache(code, "1d"); cache_1d.load(session, start, end)
+        cache_det = DataCache(code, gran); cache_det.load(session, start, end)
+        cache_1d  = DataCache(code, "1d"); cache_1d.load(session, start, end)
 
-        if not cache_1h.bars:
-            logger.warning("  No 1h data for {} — skipped", code)
+        if not cache_det.bars:
+            logger.warning("  No {} data for {} — skipped", gran, code)
             continue
 
         # Build per-stock extra data
@@ -379,17 +433,30 @@ def run_benchmark(
             b = peak_corr_b_map.get(code)
             extra.n225_down_corr_b = b  # None if stock not in peak_corr_results
 
+        # Per-stock corr dict for mode filter
+        corr_n225: dict[datetime.date, float] | None = None
+        if corr_mode != "all" and n225_1d is not None:
+            corr_series = _daily_corr_series(cache_1d, n225_1d, window=corr_window)
+            corr_n225 = {
+                d: v for d, v in corr_series.items()
+                if not (isinstance(v, float) and math.isnan(v))
+            }
+
         events = _eval_stock(
             code, sign_type,
-            cache_1h, cache_1d, n225_1h,
+            cache_det, cache_1d, n225_det,
             window, valid_bars, trend_cap_days, zz_size, zz_mid_size,
             extra,
+            corr_n225=corr_n225,
+            corr_mode=corr_mode,
+            corr_high_thresh=corr_high_thresh,
+            corr_low_thresh=corr_low_thresh,
         )
         all_events.extend(events)
         if events:
             logger.debug("    {} events", len(events))
 
-    logger.info("Total fire events: {}", len(all_events))
+    logger.info("Total fire events: {}  (corr_mode={})", len(all_events), corr_mode)
     agg = _aggregate(all_events)
     logger.info(
         "direction_rate={:.1%}  benchmark_flw={:.4f}  benchmark_rev={:.4f}  "
@@ -400,8 +467,9 @@ def run_benchmark(
         agg.get("mean_trend_bars") or 0,
     )
 
+    tagged_set = stock_set if corr_mode == "all" else f"{stock_set}:corr={corr_mode}"
     run = SignBenchmarkRun(
-        sign_type=sign_type, stock_set=stock_set, gran="1h",
+        sign_type=sign_type, stock_set=tagged_set, gran=gran,
         start_dt=start, end_dt=end,
         window=window, valid_bars=valid_bars,
         zz_size=zz_size, zz_mid_size=zz_mid_size, trend_cap_days=trend_cap_days,
@@ -433,7 +501,7 @@ def run_benchmark(
 _SIGN_CHOICES = [
     "div_bar", "div_vol", "div_gap", "div_peer",
     "corr_flip", "corr_shift", "corr_peak",
-    "str_hold", "str_lead",
+    "str_hold", "str_lead", "str_lag",
     "brk_sma", "brk_bol",
     "rev_lo", "rev_hi",
     "rev_nhi", "rev_nlo",
@@ -454,13 +522,22 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--cluster-set", required=True, metavar="LABEL")
     p.add_argument("--start",       required=True)
     p.add_argument("--end",         required=True)
+    p.add_argument("--gran",        default="1d", choices=["1h", "1d"],
+                   help="Granularity for sign detection (default: 1d)")
     p.add_argument("--window",      type=int, default=20)
     p.add_argument("--valid-bars",  type=int, default=5)
     p.add_argument("--trend-cap",   type=int, default=_TREND_CAP)
     p.add_argument("--zz-size",     type=int,   default=_ZZ_SIZE)
     p.add_argument("--zz-mid-size", type=int,   default=_ZZ_MID_SIZE)
-    p.add_argument("--proximity",   type=float, default=0.005,
+    p.add_argument("--proximity",        type=float, default=0.005,
                    help="Price proximity threshold for rev_lo/rev_hi (default 1.5%%)")
+    p.add_argument("--corr-mode",        default="all", choices=["all", "high", "low"],
+                   help="Filter events by |corr(stock,N225)| at fire date: "
+                        "high≥0.6, low≤0.3, all=no filter (default: all)")
+    p.add_argument("--corr-high-thresh", type=float, default=0.6,
+                   help="Min |corr| for --corr-mode high (default 0.6)")
+    p.add_argument("--corr-low-thresh",  type=float, default=0.3,
+                   help="Max |corr| for --corr-mode low (default 0.3)")
     args = p.parse_args(argv)
 
     with get_session() as session:
@@ -488,12 +565,16 @@ def main(argv: list[str] | None = None) -> None:
             stock_set=args.cluster_set,
             start=start,
             end=end,
+            gran=args.gran,
             window=args.window,
             valid_bars=args.valid_bars,
             trend_cap_days=args.trend_cap,
             zz_size=args.zz_size,
             zz_mid_size=args.zz_mid_size,
             proximity_pct=args.proximity,
+            corr_mode=args.corr_mode,
+            corr_high_thresh=args.corr_high_thresh,
+            corr_low_thresh=args.corr_low_thresh,
         )
     logger.info("Done — sign_benchmark_run.id={}", run_id)
 

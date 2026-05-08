@@ -10,6 +10,24 @@ Score = min(0.5 + excess × 0.5, 1.0)
 Valid for up to ``valid_bars`` bars after firing, provided close remains > upper band.
 If price retreats below the upper band the sign expires early.
 """
+# ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
+# uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#     --sign brk_bol --cluster-set classified2023 \
+#     --start 2023-04-01 --end 2025-03-31 --gran 1d
+# run_id=27  n=2540  direction_rate=52.0%  p≈0.044
+# bench_flw=0.047  bench_rev=0.034  mean_bars=12.5  (mag_flw=0.090  mag_rev=0.071)
+# → SKIP (downgraded from PROVISIONAL after sign_validate)
+#   Permutation test: emp_p=0.028 (passes)
+#   Dedup check:  dedup n=2189 (×1.1)  dedup DR=51.7%  dedup p=0.109 — loses significance
+#   Regime split: bear DR=54.0% (p=0.027)  bull DR=50.6% (p=0.630)
+#   → 2/3 of events are in bull regime where DR is 50.6% (random). The headline p=0.044
+#     was entirely driven by bear-regime events. Add bear-regime gate + volume filter before reuse.
+# Low-corr only (run_id=42, --corr-mode low):
+#   uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#       --sign brk_bol --cluster-set classified2023 \
+#       --start 2023-04-01 --end 2025-03-31 --gran 1d --corr-mode low
+#   n=636  direction_rate=51.4%  p≈0.48  bench_flw=0.050
+#   → Note: loses significance on low-corr stocks; use on all corr regimes
 
 from __future__ import annotations
 

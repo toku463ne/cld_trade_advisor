@@ -15,6 +15,13 @@ Score = min((-Δn225 + Δgspc) / (2 × DELTA_MIN), 2.0) / 2.0
 
 Valid for up to ``valid_bars`` *hourly bars* after firing (time-bounded only).
 """
+# ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
+# uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#     --sign corr_shift --cluster-set classified2023 \
+#     --start 2023-04-01 --end 2025-03-31 --gran 1d
+# run_id=32  n=1654  direction_rate=51.6%  p≈0.19
+# bench_flw=0.045  bench_rev=0.039  mean_bars=12.4  (mag_flw=0.088  mag_rev=0.081)
+# → SKIP — no statistically significant directional edge
 
 from __future__ import annotations
 

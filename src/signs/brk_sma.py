@@ -8,6 +8,19 @@ Score = min((close − SMA) / SMA, 0.02) / 0.02
 Valid for up to ``valid_bars`` bars after firing, provided close remains > SMA.
 The sign expires early if price falls back below the SMA.
 """
+# ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
+# uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#     --sign brk_sma --cluster-set classified2023 \
+#     --start 2023-04-01 --end 2025-03-31 --gran 1d
+# run_id=26  n=4800  direction_rate=53.2%  p<0.001
+# bench_flw=0.044  bench_rev=0.032  mean_bars=12.4  (mag_flw=0.083  mag_rev=0.069)
+# → PROVISIONAL (FLW) — significant but weak dr; fires too frequently
+# Low-corr only (run_id=41, --corr-mode low):
+#   uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#       --sign brk_sma --cluster-set classified2023 \
+#       --start 2023-04-01 --end 2025-03-31 --gran 1d --corr-mode low
+#   n=954  direction_rate=53.3%  p≈0.041  bench_flw=0.045
+#   → Note: mode-neutral; corr filter neither helps nor hurts
 
 from __future__ import annotations
 

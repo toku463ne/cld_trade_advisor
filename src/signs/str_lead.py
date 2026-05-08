@@ -24,6 +24,19 @@ key), the term defaults to 0.0 (neutral — no bonus, no penalty).
 
 Valid for up to ``valid_bars`` *trading days* after firing (time-bounded only).
 """
+# ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
+# run_id=25  n=405  direction_rate=59.5%  p<0.001
+# bench_flw=0.047  bench_rev=0.024  mean_bars=11.6
+# → 2-year result was RECOMMEND but coincided with sustained bull market (FY2023+FY2024).
+#
+# ── 7-year cross-validation (FY2018–FY2024, prior-year cluster sets) ──
+# pooled DR=47.2%  p≈0.062  perm_pass=3/7
+# FY breakdown: FY2018=60.2% (bull), FY2019=26.6%, FY2020=31.1%, FY2021=46.2%,
+#               FY2022=36.6%, FY2023=68.4% (bull), FY2024=62.0% (bull)
+# → CAUTION: behaves as a reversal sign in non-bull years. Only use when N225 is in
+#   a confirmed bull trend (last confirmed zigzag peak is a LOW). In neutral/bear years
+#   DR drops well below 50% — the capitulation-to-leadership thesis fails when N225
+#   makes multiple false bottoms.
 
 from __future__ import annotations
 

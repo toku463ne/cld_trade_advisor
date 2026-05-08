@@ -9,23 +9,9 @@ window (3–7 trading days) produces a more reliable buy point than a trough
 that occurs simultaneously with or well after N225.  N225 has already proven
 its low; the stock is still pricing in fear while the index has turned.
 
-Evidence (delayed_trough_iv, classified2023 representatives, 2024-01-01 –
-2025-03-31, size=3, mid=1, lag_window=30):
-
-  lag bucket     | confirm_rate | n
-  ———————————————+——————————————+——————
-  1–3 bars       |  72.7 %      | 1104   (lags 1–2 have look-ahead; lag 3 valid)
-  4–7 bars       |  71.2 %      |  836
-  8–15 bars      |  60.0 %      | 1779   ← signal degrades
-  16–30 bars     |  53.0 %      |  704   ← worse than baseline
-  baseline (all) |  64.7 %      | 5188
-
-High-corr stocks at lag 1–7: 76 % confirm rate.
-n225_recovery (IV=0.13) and n225_lag_bars (IV=0.10) are the two key features.
-
 Conditions (all must hold):
-  1. Stock daily early LOW: lows[i] < min(lows[i−ZZ_SIZE:i])
-                         AND lows[i] < lows[i+1]            (mid=1)
+  1. Stock daily early LOW: lows[i] < min(lows[i−ZZ_SIZE:i])   (ZZ_SIZE=5)
+                         AND lows[i] < min(lows[i+1:i+3])      (ZZ_MID=2)
   2. N225 had a confirmed low (dir=−2) LAG_MIN–LAG_MAX stock bars before
      the stock trough AND that low is already knowable in real time
      (N225_ZZ_SIZE bars have elapsed since the N225 low bar).
@@ -37,9 +23,30 @@ Score = lag_score × 0.4 + recovery_score × 0.4 + corr_score × 0.2
   recovery_score = 1 – n225_recovery / N225_RECOVERY_MAX       clipped [0.0, 1.0]
   corr_score     = max(0, corr_n225_daily_20bar at trough date)
 
-Fire date: first hourly bar of the day *after* the early trough is detectable
-  (= stock_dates[i + ZZ_MID], i.e. the next day after the trough bar).
+Fire date: first bar of the day 2 bars after the trough is detectable
+  (= stock_dates[i + ZZ_MID], ZZ_MID=2 → fire 2 days after trough).
 """
+# ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
+# All stocks (run_id=34, ZZ_SIZE=5, ZZ_MID=2):
+#   uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#       --sign str_lag --cluster-set classified2023 \
+#       --start 2023-04-01 --end 2025-03-31 --gran 1d
+#   n=2355  direction_rate=52.1%  p≈0.042
+#   bench_flw=0.051  bench_rev=0.029  mean_bars=13.0
+#   → PROVISIONAL (FLW)
+#   Note: run_id=19 (ZZ_SIZE=3, ZZ_MID=1) showed p=0.59 — ZZ tightening was essential.
+# High-corr only (run_id=36, --corr-mode high):
+#   uv run --env-file devenv python -m src.analysis.sign_benchmark \
+#       --sign str_lag --cluster-set classified2023 \
+#       --start 2023-04-01 --end 2025-03-31 --gran 1d --corr-mode high
+#   n=805  direction_rate=54.1%  p≈0.020
+#   bench_flw=0.057  bench_rev=0.027  mean_bars=13.1
+#   → PROVISIONAL (FLW) — preferred; |corr|≥0.6 lifts p to 0.020 and bench_flw to 0.057 (best overall)
+# Permutation & regime split (sign_validate, run_id=34):
+#   Permutation test: emp_p=0.028  dedup n=2234 (×1.0)  dedup DR=52.0%  dedup p=0.057
+#   Regime split: bear DR=50.2% (p=0.876, n=1021)  bull DR=53.6% (p=0.010, n=1247)
+#   → KEY FINDING: zero edge in bear regime; all signal in bull regime (N225 in recovery).
+#     Gate required: only fire when last confirmed N225 zigzag peak was a LOW (bull regime).
 
 from __future__ import annotations
 
@@ -51,9 +58,9 @@ from src.signs.base import SignResult
 from src.simulator.cache import DataCache
 
 _N225_ZZ_SIZE        =  3     # bars each side for N225 confirmed low
-_STOCK_ZZ_SIZE       =  3     # bars each side for stock early trough
-_STOCK_ZZ_MID        =  1     # right-window for early trough detection (fire day = i+1)
-_LAG_MIN             =  _N225_ZZ_SIZE   # = 3; also ensures N225 low is knowable in real time
+_STOCK_ZZ_SIZE       =  5     # bars each side for stock early trough (5 = meaningful peak)
+_STOCK_ZZ_MID        =  2     # right-window for early trough (fire day = trough + 2)
+_LAG_MIN             =  _N225_ZZ_SIZE   # = 3; ensures N225 low is knowable in real time
 _LAG_MAX             =  7     # beyond 7 bars the signal degrades sharply
 _N225_RECOVERY_MAX   =  0.05  # 5 % — gate out cases where N225 has already rallied hard
 
