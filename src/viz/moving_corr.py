@@ -9,7 +9,101 @@ from plotly.subplots import make_subplots
 from src.simulator.cache import DataCache
 from src.viz.palette import BG, MUTED, GREEN, RED
 from src.viz.price import build_price_figure, empty_figure
-from src.viz.pair import ZigzagPoint, _zigzag_trace
+
+
+def _add_overlay_trace(
+    fig: go.Figure,
+    dates: list[str],
+    ov: dict,
+    row: int,
+) -> None:
+    """Add an overlay trace to *row*.
+
+    Supports kind="zigzag" (lines+markers at peak points) or a plain
+    Scatter line (default, identified by having a ``y`` key).
+    """
+    if ov.get("kind") == "zigzag":
+        pts = ov.get("points", [])
+        if not pts:
+            return
+        xs      = [p[0] for p in pts]
+        ys      = [p[1] for p in pts]
+        symbols = ["triangle-up" if p[2] > 0 else "triangle-down" for p in pts]
+        fig.add_trace(
+            go.Scatter(
+                x=xs, y=ys,
+                mode="lines+markers",
+                line=dict(color="#f0c040", width=1.5, dash="dot"),
+                marker=dict(color="#f0c040", symbol=symbols, size=10,
+                            line=dict(color="#0d1117", width=1)),
+                name="Zigzag", showlegend=False,
+                hovertemplate="ZZ <b>%{x}</b>  %{y:,.2f}<extra></extra>",
+            ),
+            row=row, col=1,
+        )
+        return
+    fig.add_trace(
+        go.Scatter(
+            x=dates,
+            y=ov["y"],
+            mode="lines",
+            name=ov.get("label", ""),
+            line=dict(
+                color=ov.get("color", "#aaaaaa"),
+                width=ov.get("width", 1.2),
+                dash=ov.get("dash", "solid"),
+            ),
+            fill=ov.get("fill"),
+            fillcolor=ov.get("fillcolor"),
+            showlegend=False,
+            hovertemplate=f"{ov.get('label', '')} %{{x}}: %{{y:,.4f}}<extra></extra>",
+        ),
+        row=row, col=1,
+    )
+
+
+def _add_sub_panel(
+    fig: go.Figure,
+    row: int,
+    dates: list[str],
+    panel: dict,
+) -> None:
+    """Add traces for a sub-panel (line or MACD) to *row*."""
+    kind = panel.get("kind", "line")
+    label = panel.get("label", "")
+    if kind == "macd":
+        hist = panel.get("hist", [])
+        hist_colors = [GREEN if (v is not None and not (v != v) and v >= 0) else RED for v in hist]
+        fig.add_trace(go.Bar(
+            x=dates, y=hist,
+            marker_color=hist_colors, showlegend=False,
+            hovertemplate=f"MACD hist %{{x}}: %{{y:.4f}}<extra></extra>",
+        ), row=row, col=1)
+        fig.add_trace(go.Scatter(
+            x=dates, y=panel.get("macd", []), mode="lines",
+            line=dict(color="#2196F3", width=1.2), showlegend=False,
+            hovertemplate=f"MACD %{{x}}: %{{y:.4f}}<extra></extra>",
+        ), row=row, col=1)
+        fig.add_trace(go.Scatter(
+            x=dates, y=panel.get("signal", []), mode="lines",
+            line=dict(color="#FF9800", width=1.2), showlegend=False,
+            hovertemplate=f"Signal %{{x}}: %{{y:.4f}}<extra></extra>",
+        ), row=row, col=1)
+    else:
+        fig.add_trace(go.Scatter(
+            x=dates, y=panel.get("y", []), mode="lines",
+            line=dict(color=panel.get("color", "#aaaaaa"), width=1.2),
+            showlegend=False,
+            hovertemplate=f"{label} %{{x}}: %{{y:.4f}}<extra></extra>",
+        ), row=row, col=1)
+        for hl in (panel.get("hlines") or []):
+            fig.add_hline(y=hl, line_dash="dot", line_color=MUTED, line_width=0.8,
+                          row=row, col=1)
+    fig.update_yaxes(
+        title_text=label,
+        title_font=dict(size=9, color=MUTED),
+        row=row, col=1,
+    )
 
 
 def build_moving_corr_figure(
@@ -17,17 +111,31 @@ def build_moving_corr_figure(
     corr_map: dict[str, pd.Series],
     title: str = "",
     indicator_cache: DataCache | None = None,
-    indicator_zigzag: list[ZigzagPoint] | None = None,
     indicator_label: str = "",
+    stock_overlays: list[dict] | None = None,
+    ind_overlays: list[dict] | None = None,
+    sub_panels: list[dict] | None = None,
 ) -> go.Figure:
     """Vertically stacked chart:
-      Row 1   — stock candlestick
-      Row 2   — stock volume
-      Row 3   — first indicator candlestick + zigzag  (when indicator_cache given)
-      Rows …  — one corr bar panel per indicator
 
-    All rows share the x-axis for synchronized zoom/pan.
-    Reference lines at ρ = 0, ±0.7 are drawn on each correlation panel.
+      Row 1         — stock candlestick + stock_overlays
+      Row 2         — stock volume
+      Row 3         — indicator (N225) candlestick + ind_overlays  (when given)
+      Rows 4..      — sub-panels (RSI, MACD, ATR …)
+      Rows last..   — one corr bar panel per indicator
+
+    Parameters
+    ----------
+    stock_overlays:
+        List of overlay dicts for the stock price row.
+        Keys: label, y (aligned with stock bars), color, dash, width,
+              fill (e.g. "tonexty"), fillcolor.
+    ind_overlays:
+        Same format; overlaid on the indicator (N225) row.
+    sub_panels:
+        List of sub-panel dicts for indicators below both price charts.
+        kind="line": keys label, y, color, hlines.
+        kind="macd": keys label, hist, macd, signal.
     """
     bars = cache.bars
     if not bars:
@@ -37,11 +145,9 @@ def build_moving_corr_figure(
 
     has_ind = indicator_cache is not None and bool(indicator_cache.bars)
 
-    # Use full datetime label when bars run at sub-daily frequency
     intraday = len(bars) >= 2 and bars[0].dt.date() == bars[1].dt.date()
     ts_fmt   = "%Y-%m-%d %H:%M" if intraday else "%Y-%m-%d"
 
-    # Stock bar x-labels (daytime for JP stocks)
     stock_dates = [b.dt.strftime(ts_fmt) for b in bars]
     opens  = [b.open   for b in bars]
     highs  = [b.high   for b in bars]
@@ -49,8 +155,6 @@ def build_moving_corr_figure(
     closes = [b.close  for b in bars]
     vols   = [b.volume for b in bars]
 
-    # Union x-axis: merge stock timestamps with indicator timestamps so that
-    # JP daytime bars and US/EU nighttime bars appear in the same timeline.
     if has_ind:
         ind_bars_list = indicator_cache.bars  # type: ignore[union-attr]
         ind_date_strs = [b.dt.strftime(ts_fmt) for b in ind_bars_list]
@@ -59,17 +163,28 @@ def build_moving_corr_figure(
         ind_date_strs = []
         dates = stock_dates
 
-    n_inds   = len(corr_map)
-    price_h  = 0.28
+    n_sub  = len(sub_panels or [])
+    n_inds = len(corr_map)
+
+    price_h  = 0.25
     vol_h    = 0.03
     ind_h    = 0.20 if has_ind else 0.0
+    sub_h    = 0.09
     spacing  = 0.008
-    n_rows   = 2 + (1 if has_ind else 0) + n_inds
-    available = 1.0 - price_h - vol_h - ind_h - spacing * (n_rows - 1)
-    corr_h   = available / n_inds
+    n_rows   = 2 + n_sub + (1 if has_ind else 0) + n_inds
+    total_fixed = price_h + vol_h + sub_h * n_sub + ind_h + spacing * (n_rows - 1)
+    corr_h   = max(0.04, (1.0 - total_fixed) / n_inds) if n_inds else 0.04
 
-    row_heights = [price_h, vol_h] + ([ind_h] if has_ind else []) + [corr_h] * n_inds
-    corr_row0   = 4 if has_ind else 3   # first correlation row number
+    # Row order: stock price | stock vol | sub-panels… | N225 | corr panels…
+    row_heights = [price_h, vol_h]
+    row_heights += [sub_h] * n_sub
+    if has_ind:
+        row_heights.append(ind_h)
+    row_heights += [corr_h] * n_inds
+
+    sub_row0  = 3                               # first sub-panel row (1-indexed)
+    ind_row   = sub_row0 + n_sub                # N225 row
+    corr_row0 = ind_row + (1 if has_ind else 0)
 
     fig = make_subplots(
         rows=n_rows, cols=1, shared_xaxes=True,
@@ -95,19 +210,8 @@ def build_moving_corr_figure(
         row=1, col=1,
     )
 
-    # ── Row 1 overlay: 20-bar SMA ────────────────────────────────────────────
-
-    sma_vals = pd.Series(closes).rolling(20).mean().tolist()
-    fig.add_trace(
-        go.Scatter(
-            x=stock_dates, y=sma_vals,
-            mode="lines", name="SMA20",
-            line=dict(color="#f0c040", width=1.2),
-            showlegend=False,
-            hovertemplate="SMA20 %{x}: %{y:,.2f}<extra></extra>",
-        ),
-        row=1, col=1,
-    )
+    for ov in (stock_overlays or []):
+        _add_overlay_trace(fig, stock_dates, ov, row=1)
 
     # ── Row 2: stock volume ───────────────────────────────────────────────────
 
@@ -120,7 +224,7 @@ def build_moving_corr_figure(
         row=2, col=1,
     )
 
-    # ── Row 3: first indicator candlestick + zigzag ───────────────────────────
+    # ── Row 3: indicator (N225) candlestick ───────────────────────────────────
 
     if has_ind:
         ind_bars   = indicator_cache.bars  # type: ignore[union-attr]
@@ -143,18 +247,23 @@ def build_moving_corr_figure(
                     "<extra></extra>"
                 ),
             ),
-            row=3, col=1,
+            row=ind_row, col=1,
         )
 
-        if indicator_zigzag:
-            fig.add_trace(_zigzag_trace(indicator_zigzag), row=3, col=1)
+        for ov in (ind_overlays or []):
+            _add_overlay_trace(fig, ind_date_strs, ov, row=ind_row)
 
         fig.update_yaxes(
             title_text=indicator_label or "Indicator",
             title_font=dict(size=9, color=MUTED),
             tickformat=",.2f",
-            row=3, col=1,
+            row=ind_row, col=1,
         )
+
+    # ── Sub-panels (between stock vol and N225) ───────────────────────────────
+
+    for j, panel in enumerate(sub_panels or []):
+        _add_sub_panel(fig, row=sub_row0 + j, dates=stock_dates, panel=panel)
 
     # ── Corr rows ─────────────────────────────────────────────────────────────
 
@@ -165,7 +274,6 @@ def build_moving_corr_figure(
             ts.strftime(ts_fmt): (float(v) if pd.notna(v) else None)
             for ts, v in series.items()
         }
-        # Correlation bars only at stock (daytime) positions; nighttime slots are gaps
         corr_vals = [corr_by_date.get(d) for d in stock_dates]
 
         bar_colors = [
@@ -208,8 +316,6 @@ def build_moving_corr_figure(
         yaxis2_title="Vol",
         yaxis2_tickformat=".2s",
     )
-    # categoryarray pins the chronological order of the union x-axis so that
-    # JP daytime bars and US/EU nighttime bars appear in sequence, not shuffled.
     fig.update_xaxes(type="category", categoryorder="array", categoryarray=dates)
     fig.update_xaxes(tickvals=ticks, ticktext=ticks, tickangle=-30, tickfont=dict(size=10))
     fig.update_xaxes(rangeslider_visible=False)

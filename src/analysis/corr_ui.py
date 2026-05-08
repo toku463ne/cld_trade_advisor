@@ -29,14 +29,16 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.analysis.models import CorrRun, StockCorrPair, PeakCorrRun, PeakCorrResult, StockClusterMember, StockClusterRun
 from src.analysis.peak_corr import MAJOR_INDICATORS
 from src.config import load_stock_codes
-from src.indicators.moving_corr import compute_moving_corr
-from src.indicators.zigzag import detect_peaks
+from src.indicators import (
+    calc_atr, calc_bb, calc_ema, calc_ichimoku, calc_macd, calc_rsi, calc_sma,
+    compute_moving_corr, detect_peaks,
+)
 from src.data.db import get_session
 from src.data.models import Stock
 from src.simulator.cache import DataCache
 from src.viz.charts import (
     BG, SIDEBAR_BG, CARD_BG, BORDER, TEXT, MUTED, ACCENT,
-    ZigzagPoint, build_moving_corr_figure, build_pair_figure, empty_figure,
+    build_moving_corr_figure, build_pair_figure, empty_figure,
 )
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -47,7 +49,7 @@ app = dash.Dash(
     suppress_callback_exceptions=True,
 )
 
-# ── Style helpers (re-use palette from charts.py) ─────────────────────────────
+# ── Style helpers ─────────────────────────────────────────────────────────────
 
 _S_LABEL: dict[str, Any] = {
     "color": MUTED, "fontSize": "11px",
@@ -63,30 +65,155 @@ _S_PAGE: dict[str, Any] = {
     "fontFamily": "'Segoe UI', Arial, sans-serif",
     "background": BG, "minHeight": "100vh", "padding": "24px",
 }
+_S_IND_BLOCK: dict[str, Any] = {
+    "padding": "8px 4px",
+    "borderBottom": f"1px solid {BORDER}",
+}
+_S_IND_PARAM_WRAP: dict[str, Any] = {
+    "paddingLeft": "16px",
+    "display": "flex", "flexDirection": "column", "gap": "4px",
+    "marginTop": "4px",
+}
+_S_PARAM_ROW: dict[str, Any] = {
+    "display": "flex", "justifyContent": "space-between", "alignItems": "center",
+}
+_S_PARAM_LABEL: dict[str, Any] = {
+    "color": MUTED, "fontSize": "10px",
+}
+_S_PARAM_INPUT: dict[str, Any] = {
+    "background": CARD_BG, "color": TEXT,
+    "border": f"1px solid {BORDER}", "borderRadius": "3px",
+    "padding": "3px 5px", "width": "56px", "fontSize": "11px",
+    "textAlign": "right",
+}
 
 _MAJOR_SET: set[str] = set(MAJOR_INDICATORS)
 
+_INPUT_STYLE: dict = {
+    "background": CARD_BG, "color": TEXT,
+    "border": f"1px solid {BORDER}", "borderRadius": "4px",
+    "padding": "8px", "width": "100%", "fontSize": "13px",
+    "boxSizing": "border-box",
+}
 
-def _peaks_for_cache(cache: DataCache) -> list[ZigzagPoint]:
-    """Return confirmed zigzag points (|dir|==2) as (date_str, price, direction) tuples.
+_STOCK_CODES_INI = "configs/stock_codes.ini"
 
-    Early peaks (|dir|==1) are excluded: they can appear between two confirmed
-    highs of the same sign, creating a visual artifact where ▲ sits at the
-    trough of the zigzag line.
-    """
-    if not cache.bars:
-        return []
-    bars  = cache.bars
-    intraday = len(bars) >= 2 and bars[0].dt.date() == bars[1].dt.date()
-    ts_fmt   = "%Y-%m-%d %H:%M" if intraday else "%Y-%m-%d"
-    highs = [b.high for b in bars]
-    lows  = [b.low  for b in bars]
-    peaks = detect_peaks(highs, lows, size=5, middle_size=2)
+
+# ── Overlay builders ──────────────────────────────────────────────────────────
+
+
+def _sma_overlays(closes: list[float], period: int) -> list[dict]:
+    return [{"label": f"SMA{period}", "y": calc_sma(closes, period),
+             "color": "#F0C040", "dash": "solid", "width": 1.2}]
+
+
+def _ema_overlays(closes: list[float], period: int) -> list[dict]:
+    return [{"label": f"EMA{period}", "y": calc_ema(closes, period),
+             "color": "#29B6F6", "dash": "solid", "width": 1.2}]
+
+
+def _bb_overlays(closes: list[float], period: int, nstd: float) -> list[dict]:
+    lower, mid, upper = calc_bb(closes, period, nstd)
+    cb = "rgba(100,100,200,0.35)"
     return [
-        (bars[p.bar_index].dt.strftime(ts_fmt), p.price, p.direction)
-        for p in peaks
-        if abs(p.direction) == 2 and p.bar_index < len(bars)
+        {"label": f"BB{period} lo",  "y": lower, "color": cb, "dash": "dot", "width": 1.0},
+        {"label": f"BB{period} hi",  "y": upper, "color": cb, "dash": "dot", "width": 1.0,
+         "fill": "tonexty", "fillcolor": "rgba(100,100,200,0.07)"},
+        {"label": f"BB{period} mid", "y": mid,   "color": "rgba(100,100,200,0.7)", "dash": "dash", "width": 1.0},
     ]
+
+
+def _ichi_overlays(
+    highs: list[float], lows: list[float], closes: list[float],
+    tenkan: int, kijun: int, senkou_b: int, displacement: int,
+) -> list[dict]:
+    """Build overlay dicts for all five Ichimoku lines.
+
+    Senkou A/B are shifted forward by *displacement* within the existing
+    date range so they align with the chart x-axis.  Chikou is shifted
+    backward.  Values that fall outside the range are dropped (None).
+    """
+    import math
+    raw = calc_ichimoku(highs, lows, closes, tenkan, kijun, senkou_b, displacement)
+    n   = len(closes)
+    d   = displacement
+
+    def _shift_forward(src: list[float]) -> list[float | None]:
+        out: list[float | None] = [None] * n
+        for i in range(n):
+            j = i + d
+            if j < n:
+                v = src[i]
+                out[j] = None if math.isnan(v) else v
+        return out
+
+    def _shift_back(src: list[float]) -> list[float | None]:
+        out: list[float | None] = [None] * n
+        for i in range(d, n):
+            v = src[i]
+            out[i - d] = None if math.isnan(v) else v
+        return out
+
+    sa = _shift_forward(raw["senkou_a"])  # type: ignore[arg-type]
+    sb = _shift_forward(raw["senkou_b"])  # type: ignore[arg-type]
+    ch = _shift_back(raw["chikou"])       # type: ignore[arg-type]
+
+    return [
+        # Tenkan-sen (red)
+        {"label": f"Tenkan({tenkan})", "y": raw["tenkan"],
+         "color": "#EF5350", "dash": "solid", "width": 1.0},
+        # Kijun-sen (blue)
+        {"label": f"Kijun({kijun})",  "y": raw["kijun"],
+         "color": "#1E88E5", "dash": "solid", "width": 1.5},
+        # Senkou A (bottom of fill pair — must come first)
+        {"label": f"Senkou A", "y": sa,
+         "color": "rgba(0,200,83,0.5)", "dash": "solid", "width": 0.8},
+        # Senkou B (top / bottom — fill tonexty fills back to Senkou A)
+        {"label": f"Senkou B", "y": sb,
+         "color": "rgba(229,57,53,0.5)", "dash": "solid", "width": 0.8,
+         "fill": "tonexty", "fillcolor": "rgba(120,120,120,0.12)"},
+        # Chikou Span (lagging, gray dashed)
+        {"label": "Chikou",   "y": ch,
+         "color": "rgba(180,180,180,0.6)", "dash": "dot", "width": 1.0},
+    ]
+
+
+# ── Sidebar widget ────────────────────────────────────────────────────────────
+
+
+def _ind_item(
+    check_id: str,
+    label: str,
+    params: list[tuple[str, str, int | float, int | float, int | float]],
+) -> html.Div:
+    """Indicator row: checkbox + parameter inputs.
+
+    params: list of (input_id, display_label, default, min, max).
+    """
+    param_rows = [
+        html.Div([
+            html.Span(plabel, style=_S_PARAM_LABEL),
+            dcc.Input(
+                id=pid, type="number",
+                value=default, min=pmin, max=pmax,
+                step=1 if isinstance(default, int) else 0.5,
+                debounce=True,
+                style=_S_PARAM_INPUT,
+            ),
+        ], style=_S_PARAM_ROW)
+        for pid, plabel, default, pmin, pmax in params
+    ]
+    return html.Div([
+        dcc.Checklist(
+            id=check_id,
+            options=[{"label": f"  {label}", "value": "on"}],
+            value=[],
+            style={"fontSize": "12px", "cursor": "pointer"},
+            labelStyle={"color": "#e6edf3"},
+            inputStyle={"marginRight": "4px"},
+        ),
+        html.Div(param_rows, style=_S_IND_PARAM_WRAP),
+    ], style=_S_IND_BLOCK)
 
 
 # ── Stock name cache ──────────────────────────────────────────────────────────
@@ -338,30 +465,8 @@ def _peak_corr_page() -> html.Div:
     ])
 
 
-_INPUT_STYLE: dict = {
-    "background": CARD_BG, "color": TEXT,
-    "border": f"1px solid {BORDER}", "borderRadius": "4px",
-    "padding": "8px", "width": "100%", "fontSize": "13px",
-    "boxSizing": "border-box",
-}
-
-# Height: price + vol + indicator panel + fixed pixels per corr panel
-_MC_CHART_HEIGHT = 620 + 110 * len(MAJOR_INDICATORS)
-
-
-_STOCK_CODES_INI = "configs/stock_codes.ini"
-
-
 def _all_stock_group_options() -> list[dict]:
-    """Return dropdown options for every available stock group.
-
-    Values are prefixed with their source:
-      "db:<fiscal_year>"   — cluster run from DB
-      "ini:<section>"      — section in stock_codes.ini
-    """
     opts: list[dict] = []
-
-    # DB cluster runs (most recent first)
     try:
         with get_session() as s:
             runs = s.execute(
@@ -376,7 +481,6 @@ def _all_stock_group_options() -> list[dict]:
     except Exception:
         pass
 
-    # INI sections
     try:
         import configparser
         cfg = configparser.ConfigParser(allow_no_value=True)
@@ -394,7 +498,6 @@ def _all_stock_group_options() -> list[dict]:
 
 
 def _stock_options_for_group(group_key: str | None) -> list[dict]:
-    """Return stock dropdown options for a given group key (e.g. 'db:classified2023')."""
     if not group_key:
         return []
     try:
@@ -440,100 +543,142 @@ def _stock_options_for_group(group_key: str | None) -> list[dict]:
     return []
 
 
+_MC_CHART_HEIGHT_BASE = 620 + 110 * len(MAJOR_INDICATORS)
+
+
 def _moving_corr_page() -> html.Div:
+    _sidebar = html.Div(
+        style={
+            "flex": "0 0 180px",
+            "background": CARD_BG,
+            "border": f"1px solid {BORDER}",
+            "borderRadius": "6px",
+            "padding": "8px 10px",
+            "alignSelf": "flex-start",
+            "marginTop": "12px",
+        },
+        children=[
+            html.Span("Indicators", style={**_S_LABEL, "marginTop": "4px"}),
+            _ind_item("ind-sma-check", "SMA",
+                      [("ind-sma-period", "Period", 20, 2, 500)]),
+            _ind_item("ind-ema-check", "EMA",
+                      [("ind-ema-period", "Period", 20, 2, 500)]),
+            _ind_item("ind-bb-check", "Bollinger Bands", [
+                ("ind-bb-period", "Period", 20, 2, 500),
+                ("ind-bb-std",    "Std Dev", 2.0, 0.5, 5.0),
+            ]),
+            _ind_item("ind-ichi-check", "Ichimoku", [
+                ("ind-ichi-tenkan",   "Tenkan",   9,  1, 100),
+                ("ind-ichi-kijun",    "Kijun",   26,  1, 200),
+                ("ind-ichi-senkou-b", "Senkou B", 52,  1, 300),
+                ("ind-ichi-displace", "Displace", 26,  1, 100),
+            ]),
+            _ind_item("ind-rsi-check", "RSI",
+                      [("ind-rsi-period", "Period", 14, 2, 100)]),
+            _ind_item("ind-macd-check", "MACD", [
+                ("ind-macd-fast", "Fast",   12, 2, 200),
+                ("ind-macd-slow", "Slow",   26, 2, 500),
+                ("ind-macd-sig",  "Signal",  9, 2, 100),
+            ]),
+            _ind_item("ind-atr-check", "ATR",
+                      [("ind-atr-period", "Period", 14, 2, 200)]),
+            _ind_item("ind-zz-check", "Zigzag", [
+                ("ind-zz-size", "Size",    5, 1, 20),
+                ("ind-zz-mid",  "Mid",     2, 0, 10),
+            ]),
+        ],
+    )
+
+    _controls = html.Div(
+        style={"display": "flex", "gap": "16px", "alignItems": "flex-end", "flexWrap": "wrap"},
+        children=[
+            html.Div(style={"flex": "0 0 240px"}, children=[
+                html.Span("Stock group", style=_S_LABEL),
+                dcc.Dropdown(
+                    id="mc-group-dd",
+                    options=_all_stock_group_options(),
+                    value=None, clearable=True, searchable=False,
+                    placeholder="Select group…",
+                ),
+            ]),
+            html.Div(style={"flex": "0 0 220px"}, children=[
+                html.Span("Stock", style=_S_LABEL),
+                dcc.Dropdown(
+                    id="mc-stock-dd",
+                    options=[], value=None,
+                    clearable=True, searchable=True,
+                    placeholder="Select…",
+                ),
+            ]),
+            html.Div(style={"flex": "0 0 160px"}, children=[
+                html.Span("or type code", style=_S_LABEL),
+                dcc.Input(
+                    id="mc-stock-input", type="text",
+                    debounce=True, placeholder="e.g. 9101.T",
+                    style=_INPUT_STYLE,
+                ),
+            ]),
+            html.Div(style={"flex": "0 0 120px"}, children=[
+                html.Span("Window (bars)", style=_S_LABEL),
+                dcc.Input(
+                    id="mc-window", type="number",
+                    value=20, min=5, max=500, step=1,
+                    debounce=True,
+                    style=_INPUT_STYLE,
+                ),
+            ]),
+            html.Div(style={"flex": "0 0 110px"}, children=[
+                html.Span("Granularity", style=_S_LABEL),
+                dcc.Dropdown(
+                    id="mc-gran",
+                    options=[{"label": "Daily", "value": "1d"},
+                             {"label": "Hourly", "value": "1h"}],
+                    value="1d", clearable=False,
+                ),
+            ]),
+            html.Div(style={"flex": "0 0 140px"}, children=[
+                html.Span("Start", style=_S_LABEL),
+                dcc.Input(
+                    id="mc-start", type="text",
+                    value="2022-01-01", debounce=True,
+                    placeholder="YYYY-MM-DD",
+                    style=_INPUT_STYLE,
+                ),
+            ]),
+            html.Div(style={"flex": "0 0 140px"}, children=[
+                html.Span("End (blank = today)", style=_S_LABEL),
+                dcc.Input(
+                    id="mc-end", type="text",
+                    value="", debounce=True,
+                    placeholder="YYYY-MM-DD",
+                    style=_INPUT_STYLE,
+                ),
+            ]),
+        ],
+    )
+
+    _chart_area = html.Div(
+        style={"flex": "1", "minWidth": "0"},
+        children=[
+            html.Div(id="mc-status", style={**_S_CARD, "marginTop": "12px", "marginBottom": "8px"}),
+            dcc.Graph(
+                id="mc-chart",
+                figure=empty_figure("Select a stock to view moving correlation"),
+                style={"height": f"{_MC_CHART_HEIGHT_BASE}px"},
+                config={"scrollZoom": True, "displayModeBar": True,
+                        "modeBarButtonsToRemove": ["lasso2d", "select2d"]},
+            ),
+        ],
+    )
+
     return html.Div(style=_S_PAGE, children=[
         _nav("/moving-corr"),
         html.H3("Moving Correlation vs Major Indices",
                 style={"color": ACCENT, "margin": "0 0 16px 0"}),
-
-        # ── Controls ──────────────────────────────────────────────────────────
+        _controls,
         html.Div(
-            style={"display": "flex", "gap": "16px", "alignItems": "flex-end",
-                   "flexWrap": "wrap"},
-            children=[
-                # Stock group selector
-                html.Div(style={"flex": "0 0 240px"}, children=[
-                    html.Span("Stock group", style=_S_LABEL),
-                    dcc.Dropdown(
-                        id="mc-group-dd",
-                        options=_all_stock_group_options(),
-                        value=None, clearable=True, searchable=False,
-                        placeholder="Select group…",
-                    ),
-                ]),
-                # Stock dropdown (populated by callback)
-                html.Div(style={"flex": "0 0 220px"}, children=[
-                    html.Span("Stock", style=_S_LABEL),
-                    dcc.Dropdown(
-                        id="mc-stock-dd",
-                        options=[], value=None,
-                        clearable=True, searchable=True,
-                        placeholder="Select…",
-                    ),
-                ]),
-                # Free-text code entry
-                html.Div(style={"flex": "0 0 160px"}, children=[
-                    html.Span("or type code", style=_S_LABEL),
-                    dcc.Input(
-                        id="mc-stock-input", type="text",
-                        debounce=True, placeholder="e.g. 9101.T",
-                        style=_INPUT_STYLE,
-                    ),
-                ]),
-                # Window
-                html.Div(style={"flex": "0 0 120px"}, children=[
-                    html.Span("Window (bars)", style=_S_LABEL),
-                    dcc.Input(
-                        id="mc-window", type="number",
-                        value=20, min=5, max=500, step=1,
-                        debounce=True,
-                        style=_INPUT_STYLE,
-                    ),
-                ]),
-                # Granularity
-                html.Div(style={"flex": "0 0 110px"}, children=[
-                    html.Span("Granularity", style=_S_LABEL),
-                    dcc.Dropdown(
-                        id="mc-gran",
-                        options=[{"label": "Daily", "value": "1d"},
-                                 {"label": "Hourly", "value": "1h"}],
-                        value="1d", clearable=False,
-                    ),
-                ]),
-                # Start date
-                html.Div(style={"flex": "0 0 140px"}, children=[
-                    html.Span("Start", style=_S_LABEL),
-                    dcc.Input(
-                        id="mc-start", type="text",
-                        value="2022-01-01", debounce=True,
-                        placeholder="YYYY-MM-DD",
-                        style=_INPUT_STYLE,
-                    ),
-                ]),
-                # End date
-                html.Div(style={"flex": "0 0 140px"}, children=[
-                    html.Span("End (blank = today)", style=_S_LABEL),
-                    dcc.Input(
-                        id="mc-end", type="text",
-                        value="", debounce=True,
-                        placeholder="YYYY-MM-DD",
-                        style=_INPUT_STYLE,
-                    ),
-                ]),
-            ],
-        ),
-
-        # ── Status card ───────────────────────────────────────────────────────
-        html.Div(id="mc-status", style={**_S_CARD, "marginTop": "12px",
-                                        "marginBottom": "8px"}),
-
-        # ── Chart ─────────────────────────────────────────────────────────────
-        dcc.Graph(
-            id="mc-chart",
-            figure=empty_figure("Select a stock to view moving correlation"),
-            style={"height": f"{_MC_CHART_HEIGHT}px"},
-            config={"scrollZoom": True, "displayModeBar": True,
-                    "modeBarButtonsToRemove": ["lasso2d", "select2d"]},
+            style={"display": "flex", "gap": "16px", "alignItems": "flex-start"},
+            children=[_sidebar, _chart_area],
         ),
     ])
 
@@ -684,11 +829,7 @@ def _update_pair_charts(data: dict | None) -> tuple:
     title_a = f"{stock_a}  —  {name_a}" if name_a != stock_a else stock_a
     title_b = f"{stock_b}  —  {name_b}" if name_b != stock_b else stock_b
 
-    zz_a = _peaks_for_cache(cache_a) if stock_a in _MAJOR_SET else None
-    zz_b = _peaks_for_cache(cache_b) if stock_b in _MAJOR_SET else None
-
-    fig = build_pair_figure(cache_a, cache_b, title_a=title_a, title_b=title_b,
-                            zigzag_a=zz_a, zigzag_b=zz_b)
+    fig = build_pair_figure(cache_a, cache_b, title_a=title_a, title_b=title_b)
 
     header    = f"{stock_a} × {stock_b}"
     subheader = f"{name_a}  ×  {name_b}" if (name_a and name_b) else ""
@@ -837,14 +978,39 @@ def _parse_date(s: str | None, fallback: datetime.datetime) -> datetime.datetime
 
 
 @callback(
-    Output("mc-chart",  "figure"),
-    Output("mc-status", "children"),
+    Output("mc-chart",   "figure"),
+    Output("mc-chart",   "style"),
+    Output("mc-status",  "children"),
     Input("mc-stock-dd",    "value"),
     Input("mc-stock-input", "value"),
     Input("mc-window",      "value"),
     Input("mc-gran",        "value"),
     Input("mc-start",       "value"),
     Input("mc-end",         "value"),
+    # indicator checkboxes + params
+    Input("ind-sma-check",  "value"),
+    Input("ind-sma-period", "value"),
+    Input("ind-ema-check",  "value"),
+    Input("ind-ema-period", "value"),
+    Input("ind-bb-check",      "value"),
+    Input("ind-bb-period",     "value"),
+    Input("ind-bb-std",        "value"),
+    Input("ind-ichi-check",    "value"),
+    Input("ind-ichi-tenkan",   "value"),
+    Input("ind-ichi-kijun",    "value"),
+    Input("ind-ichi-senkou-b", "value"),
+    Input("ind-ichi-displace", "value"),
+    Input("ind-rsi-check",  "value"),
+    Input("ind-rsi-period", "value"),
+    Input("ind-macd-check", "value"),
+    Input("ind-macd-fast",  "value"),
+    Input("ind-macd-slow",  "value"),
+    Input("ind-macd-sig",   "value"),
+    Input("ind-atr-check",  "value"),
+    Input("ind-atr-period", "value"),
+    Input("ind-zz-check",   "value"),
+    Input("ind-zz-size",    "value"),
+    Input("ind-zz-mid",     "value"),
 )
 def _update_mc_chart(
     stock_dd: str | None,
@@ -853,11 +1019,20 @@ def _update_mc_chart(
     gran: str | None,
     start_str: str | None,
     end_str: str | None,
+    sma_check:  list, sma_period:  int | None,
+    ema_check:  list, ema_period:  int | None,
+    bb_check:   list, bb_period:   int | None, bb_std: float | None,
+    ichi_check: list, ichi_tenkan: int | None, ichi_kijun: int | None,
+    ichi_senkou_b: int | None, ichi_displace: int | None,
+    rsi_check:  list, rsi_period:  int | None,
+    macd_check: list, macd_fast:   int | None, macd_slow: int | None, macd_sig: int | None,
+    atr_check:  list, atr_period:  int | None,
+    zz_check:   list, zz_size:     int | None, zz_mid: int | None,
 ) -> tuple:
-    # Text input takes priority over dropdown when non-empty
     stock = (stock_input or "").strip() or stock_dd
     if not stock:
-        return empty_figure("Select a stock to view moving correlation"), "No stock selected."
+        default_style = {"height": f"{_MC_CHART_HEIGHT_BASE}px"}
+        return empty_figure("Select a stock to view moving correlation"), default_style, "No stock selected."
 
     window = int(window) if window else 20
     gran   = gran or "1d"
@@ -872,10 +1047,8 @@ def _update_mc_chart(
 
         if not cache.bars:
             msg = f"No OHLCV data found for {stock} ({gran}) in DB."
-            return empty_figure(msg), msg
+            return empty_figure(msg), {"height": f"{_MC_CHART_HEIGHT_BASE}px"}, msg
 
-        # For hourly gran: only ^N225 (same trading hours as JP stocks → true hourly corr).
-        # For daily gran: all major indicators using daily closes.
         inds_to_load   = ["^N225"] if gran == "1h" else list(MAJOR_INDICATORS)
         indicator_map: dict[str, pd.Series] = {}
         first_ind_cache: DataCache | None = None
@@ -895,7 +1068,7 @@ def _update_mc_chart(
 
     if not indicator_map:
         msg = "No indicator data found in DB. Run the data collector first."
-        return empty_figure(msg), msg
+        return empty_figure(msg), {"height": f"{_MC_CHART_HEIGHT_BASE}px"}, msg
 
     if gran == "1h":
         stock_series = pd.Series({b.dt: b.close for b in cache.bars})
@@ -904,6 +1077,113 @@ def _update_mc_chart(
         stock_series = pd.Series({b.dt.date(): b.close for b in cache.bars})
         corr_map = compute_moving_corr(stock_series, indicator_map, window=window)
 
+    # ── Compute overlays and sub-panels ───────────────────────────────────────
+
+    bars      = cache.bars
+    s_closes  = [b.close  for b in bars]
+    s_highs   = [b.high   for b in bars]
+    s_lows    = [b.low    for b in bars]
+
+    ind_bars   = first_ind_cache.bars if first_ind_cache else []
+    i_closes   = [b.close for b in ind_bars]
+    i_highs    = [b.high  for b in ind_bars]
+    i_lows     = [b.low   for b in ind_bars]
+
+    sma_on  = bool(sma_check)
+    ema_on  = bool(ema_check)
+    bb_on   = bool(bb_check)
+    ichi_on = bool(ichi_check)
+    rsi_on  = bool(rsi_check)
+    macd_on = bool(macd_check)
+    atr_on  = bool(atr_check)
+    zz_on   = bool(zz_check)
+
+    sma_p    = int(sma_period    or 20)
+    ema_p    = int(ema_period    or 20)
+    bb_p     = int(bb_period     or 20)
+    bb_s     = float(bb_std      or 2.0)
+    ichi_t   = int(ichi_tenkan   or 9)
+    ichi_k   = int(ichi_kijun    or 26)
+    ichi_sb  = int(ichi_senkou_b or 52)
+    ichi_d   = int(ichi_displace or 26)
+    rsi_p    = int(rsi_period    or 14)
+    mf     = int(macd_fast   or 12)
+    ms_    = int(macd_slow   or 26)
+    msig   = int(macd_sig    or 9)
+    atr_p  = int(atr_period  or 14)
+    zz_s   = int(zz_size     or 5)
+    zz_m   = int(zz_mid      or 2)
+
+    stock_overlays: list[dict] = []
+    ind_overlays:   list[dict] = []
+
+    if sma_on:
+        stock_overlays += _sma_overlays(s_closes, sma_p)
+        if i_closes:
+            ind_overlays += _sma_overlays(i_closes, sma_p)
+
+    if ema_on:
+        stock_overlays += _ema_overlays(s_closes, ema_p)
+        if i_closes:
+            ind_overlays += _ema_overlays(i_closes, ema_p)
+
+    if bb_on:
+        stock_overlays += _bb_overlays(s_closes, bb_p, bb_s)
+        if i_closes:
+            ind_overlays += _bb_overlays(i_closes, bb_p, bb_s)
+
+    if ichi_on:
+        stock_overlays += _ichi_overlays(s_highs, s_lows, s_closes, ichi_t, ichi_k, ichi_sb, ichi_d)
+        if i_closes:
+            ind_overlays += _ichi_overlays(i_highs, i_lows, i_closes, ichi_t, ichi_k, ichi_sb, ichi_d)
+
+    sub_panels: list[dict] = []
+
+    if rsi_on:
+        sub_panels.append({
+            "label": f"RSI({rsi_p})", "kind": "line",
+            "y": calc_rsi(s_closes, rsi_p),
+            "color": "#AB47BC", "hlines": [30, 70],
+        })
+
+    if macd_on:
+        m = calc_macd(s_closes, mf, ms_, msig)
+        sub_panels.append({
+            "label": f"MACD({mf},{ms_},{msig})", "kind": "macd", **m,
+        })
+
+    if atr_on:
+        sub_panels.append({
+            "label": f"ATR({atr_p})", "kind": "line",
+            "y": calc_atr(s_highs, s_lows, s_closes, atr_p),
+            "color": "#FF7043",
+        })
+
+    if zz_on:
+        intraday = len(bars) >= 2 and bars[0].dt.date() == bars[1].dt.date()
+        ts_fmt   = "%Y-%m-%d %H:%M" if intraday else "%Y-%m-%d"
+        peaks = detect_peaks(s_highs, s_lows, size=zz_s, middle_size=zz_m)
+        pts = [
+            (bars[p.bar_index].dt.strftime(ts_fmt), p.price, p.direction)
+            for p in peaks if abs(p.direction) == 2 and p.bar_index < len(bars)
+        ]
+        if pts:
+            stock_overlays.append({"kind": "zigzag", "points": pts})
+        if i_closes and ind_bars:
+            i_intraday = len(ind_bars) >= 2 and ind_bars[0].dt.date() == ind_bars[1].dt.date()
+            i_ts_fmt   = "%Y-%m-%d %H:%M" if i_intraday else "%Y-%m-%d"
+            i_highs_zz = [b.high for b in ind_bars]
+            i_lows_zz  = [b.low  for b in ind_bars]
+            i_peaks = detect_peaks(i_highs_zz, i_lows_zz, size=zz_s, middle_size=zz_m)
+            i_pts = [
+                (ind_bars[p.bar_index].dt.strftime(i_ts_fmt), p.price, p.direction)
+                for p in i_peaks if abs(p.direction) == 2 and p.bar_index < len(ind_bars)
+            ]
+            if i_pts:
+                ind_overlays.append({"kind": "zigzag", "points": i_pts})
+
+    # ── Build figure ──────────────────────────────────────────────────────────
+
     names = _lookup_names({stock})
     name  = names.get(stock, "")
     title = (
@@ -911,13 +1191,20 @@ def _update_mc_chart(
         + f"  |  ρ vs major indices  |  window={window} bars"
     )
 
-    ind_zigzag = _peaks_for_cache(first_ind_cache) if first_ind_cache else None
     fig = build_moving_corr_figure(
         cache, corr_map, title=title,
         indicator_cache=first_ind_cache,
-        indicator_zigzag=ind_zigzag,
         indicator_label=first_ind_code,
+        stock_overlays=stock_overlays or None,
+        ind_overlays=ind_overlays or None,
+        sub_panels=sub_panels or None,
     )
+
+    # Dynamic chart height
+    n_corr = len(corr_map)
+    n_sub  = len(sub_panels)
+    chart_h = 600 + 120 * n_corr + 120 * n_sub
+    chart_style = {"height": f"{chart_h}px"}
 
     bar0, barN = cache.bars[0].dt.date(), cache.bars[-1].dt.date()
     status = [
@@ -932,7 +1219,7 @@ def _update_mc_chart(
         html.Span("Window: ",   style={"color": MUTED}),
         html.Span(f"{window} bars", style={"color": TEXT}),
     ]
-    return fig, status
+    return fig, chart_style, status
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -34,6 +34,7 @@
 | 16 | rev_hi | 26885 | 49.8 % | 0.50 | 0.072 | 0.075 | 0.036 | 0.038 | 12.1 | SKIP |
 | 17 | rev_nhi | 3048 | 42.6 % | <0.001 | 0.066 | 0.088 | 0.028 | 0.051 | 12.3 | **RECOMMEND (REV)** |
 | 18 | rev_nlo | 2976 | 51.7 % | 0.064 | 0.084 | 0.084 | 0.043 | 0.040 | 12.2 | PROVISIONAL (FLW) |
+| 19 | str_lag | ~836 | 71.2 % | <0.001 (IV) | — | — | — | — | — | **RECOMMEND (FLW)** |
 
 *p-value: two-tailed binomial test vs H₀ = 50 %. bench_flw = direction_rate × mag_follow; bench_rev = (1 − direction_rate) × mag_reverse.*
 
@@ -109,6 +110,25 @@
 - Event rate ~18.6 per stock over 11 months (~1.7/month) — selective enough to be actionable.
 - **Use as**: short-side entry or exit signal when stock makes a new 20-day high on a bearish bar.
 
+### str_lag (run 19) — **RECOMMEND (FLW)**
+- **Thesis**: a high-N225-corr stock that makes an early daily low trough 3–7 trading days *after* N225's confirmed low is pricing in residual fear while the index has already turned — a reliable long entry.
+- **Evidence** (`delayed_trough_iv`, classified2023 representatives, 2024-01-01–2025-03-31, zigzag size=3, mid=1, lag_window=30):
+
+  | lag bucket   | confirm_rate | n    |
+  |--------------|-------------|------|
+  | 1–3 bars     | 72.7 %      | 1104 |
+  | 4–7 bars     | 71.2 %      |  836 |
+  | 8–15 bars    | 60.0 %      | 1779 |
+  | 16–30 bars   | 53.0 %      |  704 |
+  | baseline     | 64.7 %      | 5188 |
+
+- Key IV features: `n225_recovery` (IV=0.13, strongest), `n225_lag_bars` (IV=0.10).
+- High-corr stocks at lag 1–7: 76 % confirm rate.
+- Lag 1–2 have implicit look-ahead (N225 low not yet knowable); implementation enforces `LAG_MIN=3` to ensure real-time safety.
+- Conditions: early stock low trough (zigzag size=3, mid=1); N225 confirmed low 3–7 stock bars prior; N225 recovery from its low ≤ 5 %.
+- Score = `lag_score × 0.4 + recovery_score × 0.4 + corr_score × 0.2`.
+- **Use as**: primary long entry after N225 trough confirmation; strongest when combined with high N225 correlation.
+
 ### rev_nlo (run 18) — PROVISIONAL (FLW)
 - Fires when a bullish hourly bar touches or falls below the prior 20-day low.
 - direction_rate = 51.7% (p=0.064): marginally above random.
@@ -124,6 +144,7 @@
 | Priority | Sign | Direction | Rationale |
 |----------|------|-----------|-----------|
 | 1 | str_lead | Follow | Statistically significant; best bench_flw; logically sound |
+| 1 | str_lag | Follow | IV-based 71 % confirm rate at lag 3–7; N225 recovery gate eliminates noisy cases |
 | 2 | corr_shift | Reverse | Highly significant; consistent with regime-change thesis |
 | 3 | rev_nhi | Reverse | Highly significant; solid bench_rev; well-defined entry condition |
 | Watch | div_bar | Reverse | High magnitude but small n; needs more data |

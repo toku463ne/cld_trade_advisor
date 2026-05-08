@@ -1,7 +1,9 @@
 """Cross-sectional N225-correlation regime indicator.
 
 For each trading date computes the fraction of universe stocks whose
-20-bar daily rolling correlation to ^N225 exceeds *corr_threshold*.
+20-bar daily rolling correlation to ^N225 exceeds *corr_threshold* in
+absolute value (both strongly positive and strongly negative correlations
+count — the stock's movement is N225-predictable in either direction).
 When this fraction sits above its historical *regime_percentile*, the
 market is in a "high-corr regime" — most stocks move in lockstep with
 the index, so stock-selection signals carry little edge.
@@ -101,13 +103,13 @@ class CorrRegime:
             .order_by(MovingCorr.ts)
         ).all()
 
-        # Aggregate: per date, count stocks with corr > threshold
+        # Aggregate: per date, count stocks with |corr| > threshold
         above: dict[datetime.date, int]  = {}
         total: dict[datetime.date, int]  = {}
         for row in rows:
             d = row.ts.date()
             total[d] = total.get(d, 0) + 1
-            if row.corr_value is not None and row.corr_value > corr_threshold:
+            if row.corr_value is not None and abs(row.corr_value) > corr_threshold:
                 above[d] = above.get(d, 0) + 1
 
         frac_by_date: dict[datetime.date, float] = {}

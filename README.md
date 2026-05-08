@@ -62,19 +62,7 @@ uv run --env-file devenv python -m src.backtest.trainer \
     --config configs/dev_medium_sma_bo.yaml
 ```
 
-### Bollinger Breakout — test set
 
-```bash
-uv run --env-file devenv python -m src.backtest.trainer \
-    --config configs/dev_test_sma_bo.yaml --strategy bollinger_breakout
-```
-
-### Bollinger Breakout — medium set
-
-```bash
-uv run --env-file devenv python -m src.backtest.trainer \
-    --config configs/dev_medium_sma_bo.yaml --strategy bollinger_breakout
-```
 
 ### Override individual parameters from CLI
 
@@ -123,16 +111,7 @@ To use a different port:
 uv run --env-file devenv python -m src.viz.app 8080
 ```
 
-**What you can do in the UI:**
 
-- **Strategy** dropdown — switch between trained strategies
-- **Training Run** dropdown — select a specific run (shows date, stocks, and number of combinations)
-- **Parameter Set** table — click any row to switch the chart to that parameter combination
-- **Sidebar metrics** — total return, CAGR, Sharpe, drawdown, win rate, profit factor, score for the selected parameter set
-- **Main chart** — candlestick + SMA (+ Bollinger band if applicable), buy/sell markers with P&L labels, shaded holding periods
-- **Equity curve** panel below the candles
-- **Volume** panel at the bottom
-- Scroll to zoom, drag to pan; use the camera button to export a PNG
 
 ## Stock Correlation Analysis
 

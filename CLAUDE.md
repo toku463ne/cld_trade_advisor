@@ -56,6 +56,42 @@ A system for proposing Japanese stock trade candidates, strategy backtesting, an
 5. Trading          : **Human executes manually**
 6. Position Entry   : `uv run python -m src.portfolio.register`
 
+## Trading Philosophy — Correlation-Based Position Selection
+
+The 20-bar daily rolling correlation between a stock and ^N225 determines
+which mode to use **at entry time**:
+
+### High-corr mode  (|corr| ≥ ~0.6)
+- The stock is effectively a proxy for the index.
+- Entry is driven by **N225 signals** (confirmed zigzag LOW, regime gate, etc.).
+- Take **one position only** — holding multiple high-corr stocks simultaneously
+  is false diversification (they are the same bet).
+- Exit rules follow the same N225-linked logic (time stop, ATR stop, zigzag HIGH).
+
+### Low-corr mode  (|corr to N225| ≤ ~0.3)
+- The stock moves independently of the index — it carries genuine alpha.
+- Entry is driven by **stock-specific signs** (div_bar, str_hold, brk_sma, etc.)
+  regardless of current N225 direction.
+- **Multiple simultaneous positions are acceptable** because their moves are
+  genuinely uncorrelated; each adds real diversification.
+- Apply the same exit discipline (time stop, ATR stop, zigzag exit).
+
+### Implications for strategy design and backtest evaluation
+- When reviewing multi-stock backtests, count **concurrent high-corr positions
+  as one logical bet**, not N independent bets.
+- The same rule applies to **any shared foreign indicator**: if multiple
+  low-N225-corr stocks all have high |corr| to the same foreign indicator
+  (e.g., several stocks all tracking ^GSPC), treat them as one logical bet
+  — take only one position among them, same as High-corr mode.
+- A strategy that fires on many high-corr stocks during the same N225 event
+  is concentrated, not diversified — adjust position sizing accordingly.
+- CorrRegime (src/indicators/corr_regime.py) measures the fraction of
+  universe stocks with corr > 0.70; block *new* entries (especially high-corr
+  ones) when this fraction exceeds its historical 80th percentile.
+- Evidence base: early_peak_iv analysis showed high-corr stocks in a bear
+  N225 environment confirm peaks at only 54 %, vs 66 % for low-corr stocks —
+  confirming that corr regime is a meaningful risk gate.
+
 ## DB Schema Changes
 Always generate an Alembic migration file and get it reviewed before applying.
 `alembic revision --autogenerate -m "description"`
