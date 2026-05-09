@@ -39,6 +39,9 @@ import pandas as pd
 from src.signs.base import SignResult
 from src.simulator.cache import DataCache
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["corr_flip"]
+
 
 @dataclass
 class _FireEvent:

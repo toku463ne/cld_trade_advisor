@@ -53,6 +53,9 @@ _MIN_DAYS_OUTPERFORM =  3
 _REL_GAP_CAP    = 0.05
 _N225_DEPTH_CAP = 0.05
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["str_hold"]
+
 
 class StrHoldDetector:
     """Initialise once per (stock, N225) *hourly* cache pair; call detect() per bar."""

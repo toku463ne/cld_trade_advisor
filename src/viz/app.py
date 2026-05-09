@@ -1,8 +1,13 @@
-"""Interactive OHLCV + strategy chart viewer.
+"""Interactive trade advisor: daily proposals + backtest chart viewer.
 
 Launch:
     uv run --env-file devenv python -m src.viz.app
     # then open http://localhost:8050
+
+Tabs
+----
+- **Daily**   : today's RegimeSign proposals with regime status and stock charts.
+- **Backtest**: OHLCV + strategy chart viewer for training runs.
 
 Design principles
 -----------------
@@ -35,6 +40,8 @@ from src.data.db import get_session
 from src.simulator.cache import DataCache
 from src.simulator.bar import BarData
 from src.simulator.simulator import TradeSimulator
+from src.viz import daily as _daily
+from src.viz import maintenance as _maintenance
 from src.viz.charts import (
     BG as _BG, SIDEBAR_BG as _SIDEBAR_BG, CARD_BG as _CARD_BG,
     BORDER as _BORDER, TEXT as _TEXT, MUTED as _MUTED, ACCENT as _ACCENT,
@@ -51,6 +58,23 @@ app = dash.Dash(
     assets_folder=str(_ASSETS),
     suppress_callback_exceptions=True,
 )
+
+_TAB_STYLE: dict[str, Any] = {
+    "backgroundColor": _SIDEBAR_BG,
+    "color": _MUTED,
+    "border": f"1px solid {_BORDER}",
+    "borderBottom": "none",
+    "padding": "8px 24px",
+    "fontSize": "13px",
+    "fontFamily": "'Segoe UI', Arial, sans-serif",
+}
+_TAB_SELECTED_STYLE: dict[str, Any] = {
+    **_TAB_STYLE,
+    "backgroundColor": _BG,
+    "color": _ACCENT,
+    "fontWeight": "600",
+    "borderTop": f"2px solid {_ACCENT}",
+}
 
 # ── Param display config (keyed by param name, NOT strategy name) ─────────────
 
@@ -165,75 +189,127 @@ _S_METRIC_ROW: dict[str, Any] = {
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 
-app.layout = html.Div(
-    style={"display": "flex", "fontFamily": "'Segoe UI', Arial, sans-serif", "background": _BG},
-    children=[
-        dcc.Store(id="_init", data=True),
+def _backtest_layout() -> html.Div:
+    """Return the Backtest tab content (original sidebar + chart layout)."""
+    return html.Div(
+        style={
+            "display": "flex",
+            "fontFamily": "'Segoe UI', Arial, sans-serif",
+            "background": _BG,
+            "height": "calc(100vh - 44px)",
+            "overflow": "hidden",
+        },
+        children=[
+            dcc.Store(id="_init", data=True),
 
-        # ── Sidebar ───────────────────────────────────────────────────────────
-        html.Div(style=_S_SIDEBAR, children=[
-            html.H4("Trade Advisor",
-                    style={"color": _ACCENT, "margin": "0 0 10px 0", "fontSize": "16px"}),
+            # ── Sidebar ───────────────────────────────────────────────────────
+            html.Div(style=_S_SIDEBAR, children=[
+                html.H4("Backtest Review",
+                        style={"color": _ACCENT, "margin": "0 0 10px 0", "fontSize": "16px"}),
 
-            html.Span("Strategy", style=_S_LABEL),
-            dcc.Dropdown(id="strategy-dd", options=[], value=None, clearable=False),
+                html.Span("Strategy", style=_S_LABEL),
+                dcc.Dropdown(id="strategy-dd", options=[], value=None, clearable=False),
 
-            html.Span("Training Run", style=_S_LABEL),
-            dcc.Dropdown(id="run-dd", placeholder="Select run…", clearable=False),
+                html.Span("Training Run", style=_S_LABEL),
+                dcc.Dropdown(id="run-dd", placeholder="Select run…", clearable=False),
 
-            # Stock selector — visible only when the run covers multiple stocks
-            html.Span("Stock", id="stock-label", style=_S_LABEL_HIDDEN),
-            dcc.Dropdown(id="stock-dd", options=[], value=None, clearable=False,
-                         style={"display": "none"}),
+                # Stock selector — visible only when the run covers multiple stocks
+                html.Span("Stock", id="stock-label", style=_S_LABEL_HIDDEN),
+                dcc.Dropdown(id="stock-dd", options=[], value=None, clearable=False,
+                             style={"display": "none"}),
 
-            html.Span("Parameter Set", style=_S_LABEL),
-            dash_table.DataTable(
-                id="params-tbl",
-                columns=_EMPTY_COLS,
-                data=[],
-                row_selectable="single",
-                selected_rows=[0],
-                style_table={"overflowX": "auto", "marginTop": "4px"},
-                style_cell={
-                    "backgroundColor": _CARD_BG, "color": _TEXT,
-                    "fontSize": "12px", "padding": "4px 6px",
-                    "border": f"1px solid {_BORDER}",
-                    "textAlign": "center", "minWidth": "28px",
-                },
-                style_header={
-                    "backgroundColor": _SIDEBAR_BG, "color": _MUTED,
-                    "fontWeight": "600", "border": f"1px solid {_BORDER}",
-                    "fontSize": "11px", "textAlign": "center",
-                },
-                style_data_conditional=[{
-                    "if": {"state": "selected"},
-                    "backgroundColor": "#1f3a5f",
-                    "border": f"1px solid {_ACCENT}",
-                }],
-                page_size=30,
-            ),
-
-            html.Div(id="metrics-panel", style=_S_CARD),
-        ]),
-
-        # ── Main chart ────────────────────────────────────────────────────────
-        html.Div(style=_S_MAIN, children=[
-            dcc.Graph(
-                id="main-chart",
-                style={"height": "100vh"},
-                config={
-                    "scrollZoom": True,
-                    "displayModeBar": True,
-                    "modeBarButtonsToRemove": ["autoScale2d", "lasso2d", "select2d"],
-                    "toImageButtonOptions": {
-                        "format": "png", "width": 1920, "height": 1080,
-                        "filename": "trade_advisor_chart",
+                html.Span("Parameter Set", style=_S_LABEL),
+                dash_table.DataTable(
+                    id="params-tbl",
+                    columns=_EMPTY_COLS,
+                    data=[],
+                    row_selectable="single",
+                    selected_rows=[0],
+                    style_table={"overflowX": "auto", "marginTop": "4px"},
+                    style_cell={
+                        "backgroundColor": _CARD_BG, "color": _TEXT,
+                        "fontSize": "12px", "padding": "4px 6px",
+                        "border": f"1px solid {_BORDER}",
+                        "textAlign": "center", "minWidth": "28px",
                     },
-                },
-            ),
-        ]),
+                    style_header={
+                        "backgroundColor": _SIDEBAR_BG, "color": _MUTED,
+                        "fontWeight": "600", "border": f"1px solid {_BORDER}",
+                        "fontSize": "11px", "textAlign": "center",
+                    },
+                    style_data_conditional=[{
+                        "if": {"state": "selected"},
+                        "backgroundColor": "#1f3a5f",
+                        "border": f"1px solid {_ACCENT}",
+                    }],
+                    page_size=30,
+                ),
 
-        dcc.Store(id="run-store"),
+                html.Div(id="metrics-panel", style=_S_CARD),
+            ]),
+
+            # ── Main chart ────────────────────────────────────────────────────
+            html.Div(style={**_S_MAIN, "height": "100%"}, children=[
+                dcc.Graph(
+                    id="main-chart",
+                    style={"height": "100%"},
+                    config={
+                        "scrollZoom": True,
+                        "displayModeBar": True,
+                        "modeBarButtonsToRemove": ["autoScale2d", "lasso2d", "select2d"],
+                        "toImageButtonOptions": {
+                            "format": "png", "width": 1920, "height": 1080,
+                            "filename": "trade_advisor_chart",
+                        },
+                    },
+                ),
+            ]),
+
+            dcc.Store(id="run-store"),
+        ],
+    )
+
+
+app.layout = html.Div(
+    style={
+        "fontFamily": "'Segoe UI', Arial, sans-serif",
+        "background": _BG,
+        "height": "100vh",
+        "overflow": "hidden",
+    },
+    children=[
+        dcc.Tabs(
+            id="main-tabs",
+            value="daily",
+            style={
+                "background": _SIDEBAR_BG,
+                "borderBottom": f"1px solid {_BORDER}",
+                "height": "44px",
+            },
+            children=[
+                dcc.Tab(
+                    label="Daily",
+                    value="daily",
+                    style=_TAB_STYLE,
+                    selected_style=_TAB_SELECTED_STYLE,
+                    children=_daily.layout(),
+                ),
+                dcc.Tab(
+                    label="Backtest",
+                    value="backtest",
+                    style=_TAB_STYLE,
+                    selected_style=_TAB_SELECTED_STYLE,
+                    children=_backtest_layout(),
+                ),
+                dcc.Tab(
+                    label="Maintenance",
+                    value="maintenance",
+                    style=_TAB_STYLE,
+                    selected_style=_TAB_SELECTED_STYLE,
+                    children=_maintenance.layout(),
+                ),
+            ],
+        ),
     ],
 )
 
@@ -653,6 +729,8 @@ def _metrics_panel(metrics: BacktestMetrics) -> list:
 
 def main() -> None:
     import sys
+    _daily.register_callbacks()
+    _maintenance.register_callbacks()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8050
     print(f"Starting Trade Advisor at http://localhost:{port}")
     app.run(debug=False, host="0.0.0.0", port=port)

@@ -34,6 +34,9 @@ from src.simulator.cache import DataCache
 _ZZ_SIZE     = 5
 _ZZ_MID_SIZE = 2
 
+SIGN_VALID: bool = False  # requires PeakCorrRun table not yet available
+SIGN_NAMES: list[str] = ["corr_peak"]
+
 
 class CorrPeakDetector:
     """Initialise once per (stock, N225) hourly cache pair + scalar B-metric."""

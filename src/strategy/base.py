@@ -6,10 +6,13 @@ import datetime
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Generic, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar
 
 from src.simulator.bar import BarData
 from src.simulator.simulator import TradeSimulator
+
+if TYPE_CHECKING:
+    from src.strategy.proposal import SignalProposal
 
 P = TypeVar("P")
 
@@ -187,3 +190,47 @@ class StrategyPlugin(ABC, Generic[P]):
         """
         from src.backtest.generic_report import generate_report as _gen  # noqa: PLC0415
         return _gen(self, stock_code, gran, start, end, results, top_n)
+
+
+class ProposalStrategy(ABC):
+    """Abstract base for multi-stock proposal scanners.
+
+    Unlike :class:`Strategy` (which processes one stock's bars through a simulator),
+    a ProposalStrategy scans the full universe each day and returns ranked candidates
+    for human review.  No orders are submitted; output is a list of
+    :class:`~src.strategy.proposal.SignalProposal` objects.
+    """
+
+    @abstractmethod
+    def propose(
+        self,
+        as_of: datetime.datetime,
+        mode: str | None = None,
+    ) -> list[SignalProposal]:
+        """Return signal proposals for *as_of*.
+
+        Args:
+            as_of: The evaluation datetime (typically the daily close).
+            mode:  Optional override for the instance's default mode.
+
+        Returns:
+            Ordered list of proposals, best first.  Empty list when no
+            qualifying candidates exist.
+        """
+        ...
+
+    def propose_range(
+        self,
+        start: datetime.datetime,
+        end:   datetime.datetime,
+    ) -> dict[datetime.date, list[SignalProposal]]:
+        """Run :meth:`propose` for every trading date in ``[start, end]``.
+
+        The default implementation raises :exc:`NotImplementedError`.
+        Override when the subclass has access to a pre-loaded bar index
+        that can drive the date iteration efficiently.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement propose_range(). "
+            "Override it or iterate propose() manually."
+        )

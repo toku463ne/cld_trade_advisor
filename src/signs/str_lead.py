@@ -53,6 +53,9 @@ _N225_DEPTH_CAP  =  0.20   # cap for n225_depth_bonus normalisation
 _ZZ_SIZE         =  5
 _ZZ_MID_SIZE     =  2
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["str_lead"]
+
 
 class StrLeadDetector:
     """Initialise once per (stock, N225) hourly cache pair; call detect() per bar."""

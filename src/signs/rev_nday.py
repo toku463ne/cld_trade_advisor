@@ -39,6 +39,9 @@ import datetime
 from src.signs.base import SignResult
 from src.simulator.cache import DataCache
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["rev_nhi"]
+
 
 class RevNDayDetector:
     """Initialise once per stock hourly cache; call detect() per bar."""

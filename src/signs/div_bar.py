@@ -30,6 +30,9 @@ import pandas as pd
 from src.signs.base import SignResult
 from src.simulator.cache import DataCache
 
+SIGN_VALID: bool = False  # fires intrabar; not suitable for daily regime_sign benchmark
+SIGN_NAMES: list[str] = ["div_bar"]
+
 
 class DivBarDetector:
     """Initialise once per (stock, N225) cache pair; call detect() per bar."""

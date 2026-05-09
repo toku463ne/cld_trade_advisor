@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, SmallInteger, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.data.models import Base
@@ -307,3 +307,24 @@ class StockClusterMember(Base):
     n_bars:           Mapped[int | None]   = mapped_column(Integer, nullable=True)
 
     run: Mapped["StockClusterRun"] = relationship("StockClusterRun", back_populates="members")
+
+
+# ── N225 regime snapshot ──────────────────────────────────────────────────────
+
+
+class N225RegimeSnapshot(Base):
+    """Daily ADX(14) + Ichimoku Kumo regime state for ^N225.
+
+    One row per calendar date.  NULL values indicate insufficient warmup bars.
+    """
+
+    __tablename__ = "n225_regime_snapshots"
+
+    date:        Mapped[datetime.date]  = mapped_column(Date,         primary_key=True)
+    close:       Mapped[float]          = mapped_column(Float,        nullable=False)
+    adx:         Mapped[float | None]   = mapped_column(Float,        nullable=True)
+    adx_pos:     Mapped[float | None]   = mapped_column(Float,        nullable=True)   # +DI
+    adx_neg:     Mapped[float | None]   = mapped_column(Float,        nullable=True)   # −DI
+    kumo_top:    Mapped[float | None]   = mapped_column(Float,        nullable=True)
+    kumo_bottom: Mapped[float | None]   = mapped_column(Float,        nullable=True)
+    kumo_state:  Mapped[int | None]     = mapped_column(SmallInteger, nullable=True)   # +1 above / 0 inside / −1 below

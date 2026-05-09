@@ -8,13 +8,15 @@ FY mapping (fiscal year → cluster set → benchmark period):
   FY2022: classified2021 · 2022-04-01 – 2023-03-31
   FY2023: classified2022 · 2023-04-01 – 2024-03-31
   FY2024: classified2023 · 2024-04-01 – 2025-03-31
+  FY2025: classified2024 · 2025-04-01 – 2026-03-31  (out-of-sample backtest year)
 
 Phases (all by default; use --phase to run a subset):
-  download  — collect 1d OHLCV 2017-04-01 → 2025-03-31
+  download  — collect 1d OHLCV 2017-04-01 → 2026-03-31
   cluster   — build classified2017 … classified2022
-  benchmark — 13 signs × 7 FYs (skips existing runs)
+  benchmark — 13 signs × FYs (skips existing runs)
   validate  — permutation test + regime split per run
   report    — append per-FY + aggregate tables to src/analysis/benchmark.md
+  backtest  — evaluate FY2025 events through FY2018-FY2024 regime ranking
 
 Usage:
     uv run --env-file devenv python -m src.analysis.sign_benchmark_multiyear
@@ -47,11 +49,13 @@ from src.analysis.cluster import (
 )
 from src.analysis.models import (
     CorrRun,
+    N225RegimeSnapshot,
     SignBenchmarkEvent,
     SignBenchmarkRun,
     StockClusterMember,
     StockClusterRun,
 )
+from src.analysis.regime_ranking import ADX_VETO, build_regime_ranking
 from src.analysis.sign_benchmark import run_benchmark
 from src.analysis.sign_validate import (
     _binomial_p,
@@ -79,13 +83,16 @@ FY_CONFIG: list[tuple[str, str, str, str]] = [
     ("FY2022", "2022-04-01", "2023-03-31", "2021"),
     ("FY2023", "2023-04-01", "2024-03-31", "2022"),
     ("FY2024", "2024-04-01", "2025-03-31", "2023"),
+    ("FY2025", "2025-04-01", "2026-03-31", "2024"),  # out-of-sample backtest year
 ]
 
-# Cluster years to build (2017–2022; classified2023 already exists)
-_CLUSTER_YEARS_TO_BUILD = ["2017", "2018", "2019", "2020", "2021", "2022"]
+_TRAINING_FYS = ["FY2018", "FY2019", "FY2020", "FY2021", "FY2022", "FY2023", "FY2024"]
+
+# Cluster years to build (2017–2023; classified2024 needed for FY2025)
+_CLUSTER_YEARS_TO_BUILD = ["2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024"]
 
 _DOWNLOAD_START = "2017-04-01"
-_DOWNLOAD_END   = "2025-03-31"
+_DOWNLOAD_END   = "2026-03-31"
 
 # Signs to benchmark (excluding corr_peak and div_bar/div_vol which need special treatment)
 SIGNS: list[str] = [
@@ -315,7 +322,7 @@ def phase_validate(bench_results: dict[str, dict[str, int]]) -> list[RunResult]:
         return []
 
     regime_start = _dt("2018-01-01")  # broad window for regime map
-    regime_end   = _dt("2025-04-01")
+    regime_end   = _dt("2026-04-01")
     with get_session() as session:
         logger.info("Building N225 regime map …")
         regime_map = _build_regime_map(session, regime_start, regime_end)
@@ -543,9 +550,186 @@ def phase_report(results: list[RunResult]) -> None:
     logger.info("Appended multi-year results to {}", _REPORT_PATH)
 
 
+# ── Phase 6: Backtest (FY2025 out-of-sample) ───────────────────────────────────
+
+def phase_backtest(bench_results: dict[str, dict[str, int]]) -> None:
+    """Evaluate FY2025 events through FY2018–FY2024 regime ranking.
+
+    Loads training run_ids from DB independently (regardless of what bench_results
+    contains for training FYs), so this phase can be run in isolation via
+    --phase backtest --fy FY2025.
+    """
+    # ── Load training run_ids ─────────────────────────────────────────────────
+    train_db = _load_bench_results_from_db(fy_filter=_TRAINING_FYS)
+    training_run_ids: list[int] = [
+        rid for fy_runs in train_db.values() for rid in fy_runs.values()
+    ]
+    if not training_run_ids:
+        logger.error("No FY2018–FY2024 benchmark runs found in DB — cannot build ranking")
+        return
+    logger.info("Building regime ranking from {} training run_ids …", len(training_run_ids))
+
+    # ── Build regime ranking ──────────────────────────────────────────────────
+    with get_session() as session:
+        ranking = build_regime_ranking(session, training_run_ids)
+    if not ranking:
+        logger.error("Regime ranking is empty — ensure n225_regime_snapshots is populated")
+        return
+    logger.info("Ranking: {} (sign, kumo) cells", len(ranking))
+
+    # ── FY2025 runs ───────────────────────────────────────────────────────────
+    fy2025_runs = bench_results.get("FY2025")
+    if not fy2025_runs:
+        db2025 = _load_bench_results_from_db(fy_filter=["FY2025"])
+        fy2025_runs = db2025.get("FY2025", {})
+    if not fy2025_runs:
+        logger.error("No FY2025 benchmark runs found — run --phase benchmark --fy FY2025 first")
+        return
+    logger.info("FY2025: {} sign runs to evaluate", len(fy2025_runs))
+
+    # ── Load events + snapshots ───────────────────────────────────────────────
+    fy2025_events: dict[str, list[SignBenchmarkEvent]] = {}
+    snap_map: dict[datetime.date, N225RegimeSnapshot] = {}
+    with get_session() as session:
+        for sign, run_id in fy2025_runs.items():
+            evts = list(session.execute(
+                select(SignBenchmarkEvent).where(SignBenchmarkEvent.run_id == run_id)
+            ).scalars().all())
+            fy2025_events[sign] = evts
+
+        snaps = list(session.execute(
+            select(N225RegimeSnapshot).where(
+                N225RegimeSnapshot.date >= datetime.date(2025, 4, 1),
+                N225RegimeSnapshot.date <= datetime.date(2026, 3, 31),
+            )
+        ).scalars().all())
+        snap_map = {s.date: s for s in snaps}
+    logger.info("FY2025 regime snapshots: {} dates", len(snap_map))
+
+    # ── Build report ──────────────────────────────────────────────────────────
+    today = datetime.date.today().isoformat()
+    lines: list[str] = [
+        "",
+        "---",
+        "",
+        "## FY2025 Out-of-Sample Backtest",
+        "",
+        f"Generated: {today}  ",
+        "Training: FY2018–FY2024 regime ranking (Ichimoku Kumo × ADX veto)  ",
+        "Test: FY2025 · classified2024 · 2025-04-01 – 2026-03-31  ",
+        f"Ranking cells: {len(ranking)} (sign × kumo_state, min_n=30)  ",
+        "",
+    ]
+
+    # ── Regime-cell detail table ──────────────────────────────────────────────
+    lines += [
+        "### Regime Cell Detail (sign × kumo_state)",
+        "",
+        "Kumo states: ▲above cloud (+1) · ~inside (0) · ▼below cloud (−1)  ",
+        "Δ DR = test cell DR − sign-level baseline DR (all events for that sign).",
+        "",
+        "| Sign | kumo | train_bench_flw | train_DR | train_n | test_n | test_DR | Δ DR |",
+        "|------|------|-----------------|----------|---------|--------|---------|------|",
+    ]
+
+    cell_rows: list[tuple[float, str]] = []
+
+    def _get_date(e: SignBenchmarkEvent) -> datetime.date:
+        return e.fired_at.date() if hasattr(e.fired_at, "date") else e.fired_at  # type: ignore[return-value]
+
+    for (sign, kumo), entry in ranking.items():
+        all_sign_evts = [e for e in fy2025_events.get(sign, []) if e.trend_direction is not None]
+        base_n  = len(all_sign_evts)
+        base_dr = sum(1 for e in all_sign_evts if e.trend_direction == +1) / base_n if base_n else None
+
+        cell_evts = [
+            e for e in all_sign_evts
+            if (s := snap_map.get(_get_date(e))) is not None
+            and s.kumo_state is not None
+            and int(s.kumo_state) == kumo
+        ]
+        test_n  = len(cell_evts)
+        test_dr = sum(1 for e in cell_evts if e.trend_direction == +1) / test_n if test_n else None
+        delta   = (f"{(test_dr - base_dr) * 100:+.1f}%"
+                   if test_dr is not None and base_dr is not None else "—")
+        kumo_lbl = "▲above" if kumo == 1 else ("~inside" if kumo == 0 else "▼below")
+        row = (
+            f"| {sign:<10} | {kumo_lbl:<7} | {entry.bench_flw:.4f} | {entry.dr:.1%}"
+            f" | {entry.n:>7} | {test_n:>6} | {_pct(test_dr):>7} | {delta:<6} |"
+        )
+        cell_rows.append((-entry.bench_flw, row))
+
+    cell_rows.sort()
+    for _, row in cell_rows:
+        lines.append(row)
+
+    # ── Sign summary table ────────────────────────────────────────────────────
+    lines += [
+        "",
+        "### Sign Summary: All Events vs Regime-Accepted Events",
+        "",
+        "Regime-accepted = (sign, kumo) cell present in training ranking AND ADX veto passes.  ",
+        "regime_n% = fraction of total events retained by the regime filter.",
+        "",
+        "| Sign | total_n | total_DR | regime_n | regime_DR | Δ DR | regime_n% |",
+        "|------|---------|----------|----------|-----------|------|-----------|",
+    ]
+
+    for sign in SIGNS:
+        all_evts = [e for e in fy2025_events.get(sign, []) if e.trend_direction is not None]
+        total_n = len(all_evts)
+        if total_n == 0:
+            lines.append(f"| {sign:<10} | 0 | — | — | — | — | — |")
+            continue
+        total_dr = sum(1 for e in all_evts if e.trend_direction == +1) / total_n
+
+        regime_evts: list[SignBenchmarkEvent] = []
+        for e in all_evts:
+            snap = snap_map.get(_get_date(e))
+            if snap is None or snap.kumo_state is None:
+                continue
+            kumo = int(snap.kumo_state)
+            if (sign, kumo) not in ranking:
+                continue
+            req = ADX_VETO.get(sign)
+            if req is not None:
+                adx  = snap.adx     if snap.adx     is not None else float("nan")
+                adxp = snap.adx_pos if snap.adx_pos is not None else float("nan")
+                adxn = snap.adx_neg if snap.adx_neg is not None else float("nan")
+                if math.isnan(adx) or adx < 20.0:
+                    continue
+                if req == "bear" and not (adxn > adxp):
+                    continue
+                if req == "bull" and not (adxp > adxn):
+                    continue
+            regime_evts.append(e)
+
+        reg_n  = len(regime_evts)
+        reg_dr = sum(1 for e in regime_evts if e.trend_direction == +1) / reg_n if reg_n else None
+        delta_str   = f"{(reg_dr - total_dr) * 100:+.1f}%" if reg_dr is not None else "—"
+        pct_kept    = f"{reg_n / total_n * 100:.0f}%" if total_n else "—"
+
+        lines.append(
+            f"| {sign:<10} | {total_n:>7} | {_pct(total_dr):>8} | {reg_n:>8}"
+            f" | {_pct(reg_dr):>9} | {delta_str:>6} | {pct_kept:>9} |"
+        )
+
+    lines += [
+        "",
+        "**Interpretation**: Positive Δ DR means the Kumo+ADX regime filter selected",
+        "events with better follow-through outcomes in the out-of-sample year.",
+        "Low regime_n% indicates the filter is aggressive; verify test_n is large enough.",
+        "",
+    ]
+
+    with open(_REPORT_PATH, "a", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    logger.info("Appended FY2025 backtest results to {}", _REPORT_PATH)
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
-_ALL_PHASES = ["download", "cluster", "benchmark", "validate", "report"]
+_ALL_PHASES = ["download", "cluster", "benchmark", "validate", "report", "backtest"]
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -595,6 +779,10 @@ def main(argv: list[str] | None = None) -> None:
         else:
             logger.info("=== Phase: report ===")
             phase_report(run_results)
+
+    if "backtest" in phases:
+        logger.info("=== Phase: backtest ===")
+        phase_backtest(bench_results)
 
 
 def _load_bench_results_from_db(

@@ -456,3 +456,194 @@ uv run --env-file devenv python -m src.analysis.sign_benchmark_multiyear --phase
 - bear_DR / bull_DR ranges show min–max across FYs.
 - Signs consistent across multiple FYs with perm_pass ≥ 4/7 are the most reliable.
 
+
+---
+
+## Regime-Split Analysis: ADX + Ichimoku Kumo
+
+Generated: 2026-05-09
+Indicators computed on ^N225 daily bars.
+ADX window=14; Ichimoku: tenkan=9, kijun=26, senkou_b=52 (cloud shift=26).
+Events: multi-year runs (FY2018–FY2024, run_ids≥47).
+p: two-sided binomial vs H₀=50%.  vs_all: pooled DR for that sign across all regimes.
+
+### ADX Regime Split
+
+ADX regime states:
+- **choppy** (ADX < 20): no trending momentum — index oscillating, no directional bias
+- **bull** (ADX ≥ 20, +DI > −DI): uptrend with momentum
+- **bear** (ADX ≥ 20, +DI ≤ −DI): downtrend with momentum
+
+| Sign | ADX regime | n | DR% | p | vs_all |
+|------|------------|---|-----|---|--------|
+| div_gap    | choppy (ADX<20)           |   1456 |  52.1% |   ≈0.110 |  53.5% |
+| div_gap    | bull (ADX≥20,+DI>−DI)     |    482 |  51.5% |   ≈0.554 |  53.5% |
+| div_gap    | bear (ADX≥20,+DI≤−DI)     |    938 |  56.7% |   <0.001 |  53.5% |
+| div_peer   | choppy (ADX<20)           |    335 |  53.7% |   ≈0.190 |  53.7% |
+| div_peer   | bull (ADX≥20,+DI>−DI)     |     70 |  47.1% |   ≈0.720 |  53.7% |
+| div_peer   | bear (ADX≥20,+DI≤−DI)     |     94 |  58.5% |   ≈0.121 |  53.7% |
+| corr_flip  | choppy (ADX<20)           |    300 |  49.0% |   ≈0.773 |  53.9% |
+| corr_flip  | bull (ADX≥20,+DI>−DI)     |    184 |  56.0% |   ≈0.121 |  53.9% |
+| corr_flip  | bear (ADX≥20,+DI≤−DI)     |    126 |  62.7% |   ≈0.006 |  53.9% |
+| corr_shift | choppy (ADX<20)           |   3189 |  54.7% |   <0.001 |  52.3% |
+| corr_shift | bull (ADX≥20,+DI>−DI)     |   1222 |  46.8% |   ≈0.028 |  52.3% |
+| corr_shift | bear (ADX≥20,+DI≤−DI)     |    779 |  51.2% |   ≈0.519 |  52.3% |
+| str_hold   | choppy (ADX<20)           |   4759 |  52.1% |   ≈0.004 |  56.0% |
+| str_hold   | bull (ADX≥20,+DI>−DI)     |    823 |  56.0% |   <0.001 |  56.0% |
+| str_hold   | bear (ADX≥20,+DI≤−DI)     |   3993 |  60.6% |   <0.001 |  56.0% |
+| str_lead   | choppy (ADX<20)           |    322 |  32.3% |   <0.001 |  47.2% |
+| str_lead   | bull (ADX≥20,+DI>−DI)     |     75 |  25.3% |   <0.001 |  47.2% |
+| str_lead   | bear (ADX≥20,+DI≤−DI)     |    746 |  55.9% |   ≈0.001 |  47.2% |
+| str_lag    | choppy (ADX<20)           |   4750 |  48.9% |   ≈0.143 |  52.8% |
+| str_lag    | bull (ADX≥20,+DI>−DI)     |   1259 |  54.6% |   ≈0.001 |  52.8% |
+| str_lag    | bear (ADX≥20,+DI≤−DI)     |   2314 |  59.3% |   <0.001 |  52.8% |
+| brk_sma    | choppy (ADX<20)           |   9530 |  50.1% |   ≈0.782 |  52.1% |
+| brk_sma    | bull (ADX≥20,+DI>−DI)     |   3438 |  51.5% |   ≈0.073 |  52.1% |
+| brk_sma    | bear (ADX≥20,+DI≤−DI)     |   3927 |  57.2% |   <0.001 |  52.1% |
+| brk_bol    | choppy (ADX<20)           |   4828 |  50.9% |   ≈0.232 |  50.1% |
+| brk_bol    | bull (ADX≥20,+DI>−DI)     |   2578 |  47.6% |   ≈0.015 |  50.1% |
+| brk_bol    | bear (ADX≥20,+DI≤−DI)     |    940 |  53.0% |   ≈0.073 |  50.1% |
+| rev_lo     | choppy (ADX<20)           |  11851 |  49.2% |   ≈0.081 |  52.3% |
+| rev_lo     | bull (ADX≥20,+DI>−DI)     |   3001 |  53.7% |   <0.001 |  52.3% |
+| rev_lo     | bear (ADX≥20,+DI≤−DI)     |   4580 |  59.5% |   <0.001 |  52.3% |
+| rev_hi     | choppy (ADX<20)           |  12481 |  49.4% |   ≈0.157 |  51.2% |
+| rev_hi     | bull (ADX≥20,+DI>−DI)     |   5659 |  50.1% |   ≈0.873 |  51.2% |
+| rev_hi     | bear (ADX≥20,+DI≤−DI)     |   3939 |  58.3% |   <0.001 |  51.2% |
+| rev_nhi    | choppy (ADX<20)           |   5858 |  50.0% |   ≈0.990 |  48.9% |
+| rev_nhi    | bull (ADX≥20,+DI>−DI)     |   4267 |  46.1% |   <0.001 |  48.9% |
+| rev_nhi    | bear (ADX≥20,+DI≤−DI)     |   1251 |  53.8% |   ≈0.008 |  48.9% |
+| rev_nlo    | choppy (ADX<20)           |    767 |  36.9% |   <0.001 |  45.4% |
+| rev_nlo    | bull (ADX≥20,+DI>−DI)     |    299 |  22.1% |   <0.001 |  45.4% |
+| rev_nlo    | bear (ADX≥20,+DI≤−DI)     |   2127 |  51.8% |   ≈0.099 |  45.4% |
+
+### Ichimoku Kumo Regime Split
+
+Kumo state (N225 close vs cloud boundaries at each fired_at date):
+- **above (+1)**: close > upper cloud boundary — bullish trend confirmed
+- **inside (0)**: close within cloud — transitioning / no clear trend
+- **below (−1)**: close < lower cloud boundary — bearish trend confirmed
+
+| Sign | Kumo | n | DR% | p | vs_all |
+|------|------|---|-----|---|--------|
+| div_gap    | above (+1)                |   1254 |  51.9% |   ≈0.184 |  53.5% |
+| div_gap    | inside (0)                |    448 |  54.2% |   ≈0.080 |  53.5% |
+| div_gap    | below (−1)                |   1174 |  54.9% |   <0.001 |  53.5% |
+| div_peer   | above (+1)                |    248 |  54.4% |   ≈0.182 |  53.7% |
+| div_peer   | inside (0)                |    102 |  57.8% |   ≈0.137 |  53.7% |
+| div_peer   | below (−1)                |    149 |  49.7% |   ≈1.000 |  53.7% |
+| corr_flip  | above (+1)                |    390 |  53.1% |   ≈0.244 |  53.9% |
+| corr_flip  | inside (0)                |     89 |  58.4% |   ≈0.137 |  53.9% |
+| corr_flip  | below (−1)                |    131 |  53.4% |   ≈0.485 |  53.9% |
+| corr_shift | above (+1)                |   3220 |  48.8% |   ≈0.175 |  52.3% |
+| corr_shift | inside (0)                |    601 |  61.2% |   <0.001 |  52.3% |
+| corr_shift | below (−1)                |   1369 |  56.8% |   <0.001 |  52.3% |
+| str_hold   | above (+1)                |   2804 |  52.5% |   ≈0.010 |  56.0% |
+| str_hold   | inside (0)                |   1828 |  59.5% |   <0.001 |  56.0% |
+| str_hold   | below (−1)                |   4943 |  56.6% |   <0.001 |  56.0% |
+| str_lead   | above (+1)                |    335 |  31.0% |   <0.001 |  47.2% |
+| str_lead   | inside (0)                |    291 |  43.0% |   ≈0.019 |  47.2% |
+| str_lead   | below (−1)                |    517 |  60.2% |   <0.001 |  47.2% |
+| str_lag    | above (+1)                |   4304 |  49.1% |   ≈0.241 |  52.8% |
+| str_lag    | inside (0)                |   1224 |  59.4% |   <0.001 |  52.8% |
+| str_lag    | below (−1)                |   2795 |  55.2% |   <0.001 |  52.8% |
+| brk_sma    | above (+1)                |   9538 |  48.8% |   ≈0.016 |  52.1% |
+| brk_sma    | inside (0)                |   2455 |  56.7% |   <0.001 |  52.1% |
+| brk_sma    | below (−1)                |   4902 |  56.2% |   <0.001 |  52.1% |
+| brk_bol    | above (+1)                |   5868 |  48.9% |   ≈0.108 |  50.1% |
+| brk_bol    | inside (0)                |   1114 |  55.0% |   <0.001 |  50.1% |
+| brk_bol    | below (−1)                |   1364 |  51.0% |   ≈0.465 |  50.1% |
+| rev_lo     | above (+1)                |  10259 |  49.5% |   ≈0.323 |  52.3% |
+| rev_lo     | inside (0)                |   3024 |  55.5% |   <0.001 |  52.3% |
+| rev_lo     | below (−1)                |   6149 |  55.4% |   <0.001 |  52.3% |
+| rev_hi     | above (+1)                |  14035 |  48.5% |   <0.001 |  51.2% |
+| rev_hi     | inside (0)                |   2627 |  57.1% |   <0.001 |  51.2% |
+| rev_hi     | below (−1)                |   5417 |  55.2% |   <0.001 |  51.2% |
+| rev_nhi    | above (+1)                |   8059 |  47.6% |   <0.001 |  48.9% |
+| rev_nhi    | inside (0)                |   1034 |  55.8% |   <0.001 |  48.9% |
+| rev_nhi    | below (−1)                |   2283 |  50.7% |   ≈0.503 |  48.9% |
+| rev_nlo    | above (+1)                |    866 |  29.9% |   <0.001 |  45.4% |
+| rev_nlo    | inside (0)                |    720 |  39.6% |   <0.001 |  45.4% |
+| rev_nlo    | below (−1)                |   1607 |  56.4% |   <0.001 |  45.4% |
+
+
+---
+
+## FY2025 Out-of-Sample Backtest
+
+Generated: 2026-05-09  
+Training: FY2018–FY2024 regime ranking (Ichimoku Kumo × ADX veto)  
+Test: FY2025 · classified2024 · 2025-04-01 – 2026-03-31  
+Ranking cells: 39 (sign × kumo_state, min_n=30)  
+
+### Regime Cell Detail (sign × kumo_state)
+
+Kumo states: ▲above cloud (+1) · ~inside (0) · ▼below cloud (−1)  
+Δ DR = test cell DR − sign-level baseline DR (all events for that sign).
+
+| Sign | kumo | train_bench_flw | train_DR | train_n | test_n | test_DR | Δ DR |
+|------|------|-----------------|----------|---------|--------|---------|------|
+| div_peer   | ~inside | 0.0555 | 57.8% |     102 |      5 |   80.0% | +24.0% |
+| str_lag    | ▼below  | 0.0540 | 55.2% |    2795 |      0 |       — | —      |
+| div_gap    | ~inside | 0.0527 | 54.2% |     448 |     40 |   65.0% | +14.6% |
+| div_gap    | ▼below  | 0.0515 | 54.9% |    1174 |     27 |   70.4% | +20.0% |
+| corr_shift | ~inside | 0.0512 | 61.2% |     601 |     15 |   53.3% | -9.0%  |
+| rev_nlo    | ▼below  | 0.0505 | 56.4% |    1607 |      0 |       — | —      |
+| brk_bol    | ~inside | 0.0504 | 55.0% |    1114 |     47 |   48.9% | -8.1%  |
+| div_peer   | ▼below  | 0.0503 | 49.7% |     149 |     13 |   69.2% | +13.2% |
+| brk_sma    | ▼below  | 0.0499 | 56.2% |    4902 |    154 |   77.3% | +21.6% |
+| str_hold   | ~inside | 0.0498 | 59.5% |    1828 |    332 |   59.0% | +9.1%  |
+| brk_sma    | ~inside | 0.0494 | 56.7% |    2455 |     26 |   50.0% | -5.7%  |
+| corr_flip  | ▼below  | 0.0488 | 53.4% |     131 |      0 |       — | —      |
+| str_hold   | ▼below  | 0.0488 | 56.6% |    4943 |     17 |   94.1% | +44.2% |
+| rev_lo     | ▼below  | 0.0470 | 55.4% |    6149 |      5 |   20.0% | -35.7% |
+| div_peer   | ▲above  | 0.0459 | 54.4% |     248 |    164 |   54.3% | -1.8%  |
+| div_gap    | ▲above  | 0.0447 | 51.9% |    1254 |    642 |   48.6% | -1.8%  |
+| rev_nhi    | ~inside | 0.0446 | 55.8% |    1034 |    100 |   49.0% | -6.8%  |
+| rev_hi     | ~inside | 0.0432 | 57.1% |    2627 |     78 |   59.0% | +4.3%  |
+| rev_lo     | ~inside | 0.0432 | 55.5% |    3024 |     72 |   63.9% | +8.2%  |
+| brk_bol    | ▼below  | 0.0429 | 51.0% |    1364 |     49 |   49.0% | -8.1%  |
+| rev_hi     | ▼below  | 0.0424 | 55.2% |    5417 |     74 |   67.6% | +12.9% |
+| str_lead   | ▼below  | 0.0424 | 60.2% |     517 |      0 |       — | —      |
+| str_lag    | ~inside | 0.0421 | 59.4% |    1224 |     38 |   73.7% | +23.6% |
+| str_hold   | ▲above  | 0.0411 | 52.5% |    2804 |   1245 |   46.9% | -3.0%  |
+| corr_flip  | ~inside | 0.0411 | 58.4% |      89 |      4 |   50.0% | +6.9%  |
+| corr_shift | ▼below  | 0.0405 | 56.8% |    1369 |      1 |  100.0% | +37.7% |
+| corr_shift | ▲above  | 0.0402 | 48.8% |    3220 |   1086 |   62.4% | +0.1%  |
+| str_lag    | ▲above  | 0.0401 | 49.1% |    4304 |    679 |   48.7% | -1.3%  |
+| brk_sma    | ▲above  | 0.0399 | 48.8% |    9538 |   2091 |   54.2% | -1.5%  |
+| corr_flip  | ▲above  | 0.0394 | 53.1% |     390 |    207 |   43.0% | -0.1%  |
+| rev_nlo    | ~inside | 0.0394 | 39.6% |     720 |      0 |       — | —      |
+| brk_bol    | ▲above  | 0.0391 | 48.9% |    5868 |   1502 |   57.6% | +0.5%  |
+| rev_nhi    | ▼below  | 0.0389 | 50.7% |    2283 |     72 |   41.7% | -14.1% |
+| rev_nhi    | ▲above  | 0.0379 | 47.6% |    8059 |   2099 |   56.6% | +0.8%  |
+| rev_lo     | ▲above  | 0.0375 | 49.5% |   10259 |   2424 |   55.5% | -0.2%  |
+| rev_hi     | ▲above  | 0.0357 | 48.5% |   14035 |   3306 |   54.2% | -0.4%  |
+| str_lead   | ~inside | 0.0322 | 43.0% |     291 |      0 |       — | —      |
+| rev_nlo    | ▲above  | 0.0254 | 29.9% |     866 |    127 |   63.0% | +0.0%  |
+| str_lead   | ▲above  | 0.0198 | 31.0% |     335 |     52 |   63.5% | +0.0%  |
+
+### Sign Summary: All Events vs Regime-Accepted Events
+
+Regime-accepted = (sign, kumo) cell present in training ranking AND ADX veto passes.  
+regime_n% = fraction of total events retained by the regime filter.
+
+| Sign | total_n | total_DR | regime_n | regime_DR | Δ DR | regime_n% |
+|------|---------|----------|----------|-----------|------|-----------|
+| div_gap    |     709 |    50.4% |      709 |     50.4% |  +0.0% |      100% |
+| div_peer   |     182 |    56.0% |      182 |     56.0% |  +0.0% |      100% |
+| corr_flip  |     211 |    43.1% |      211 |     43.1% |  +0.0% |      100% |
+| corr_shift |    1102 |    62.3% |     1102 |     62.3% |  +0.0% |      100% |
+| str_hold   |    1594 |    49.9% |     1594 |     49.9% |  +0.0% |      100% |
+| str_lead   |      52 |    63.5% |        0 |         — |      — |        0% |
+| str_lag    |     717 |    50.1% |      717 |     50.1% |  +0.0% |      100% |
+| brk_sma    |    2271 |    55.7% |     2271 |     55.7% |  +0.0% |      100% |
+| brk_bol    |    1598 |    57.1% |     1598 |     57.1% |  +0.0% |      100% |
+| rev_lo     |    2501 |    55.7% |     2501 |     55.7% |  +0.0% |      100% |
+| rev_hi     |    3458 |    54.6% |     3458 |     54.6% |  +0.0% |      100% |
+| rev_nhi    |    2271 |    55.8% |     2271 |     55.8% |  +0.0% |      100% |
+| rev_nlo    |     127 |    63.0% |        0 |         — |      — |        0% |
+
+**Interpretation**: Positive Δ DR means the Kumo+ADX regime filter selected
+events with better follow-through outcomes in the out-of-sample year.
+Low regime_n% indicates the filter is aggressive; verify test_n is large enough.
+

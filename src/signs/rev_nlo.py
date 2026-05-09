@@ -44,6 +44,9 @@ _DEPTH_SCALE      =  2.0    # stock fell 2× N225 → underperform_norm = 1.0
 _ZZ_SIZE          =  5
 _ZZ_MID_SIZE      =  2
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["rev_nlo"]
+
 
 class RevNloDetector:
     """Initialise once per (stock, N225) hourly cache pair; call detect() per bar."""

@@ -64,6 +64,9 @@ _LAG_MIN             =  _N225_ZZ_SIZE   # = 3; ensures N225 low is knowable in r
 _LAG_MAX             =  7     # beyond 7 bars the signal degrades sharply
 _N225_RECOVERY_MAX   =  0.05  # 5 % — gate out cases where N225 has already rallied hard
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["str_lag"]
+
 
 class StrLagDetector:
     """Initialise once per (stock, N225) hourly-cache pair; call detect() per bar.

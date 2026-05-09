@@ -35,6 +35,9 @@ _STOCK_RET_MIN =  0.003
 _CORR_MIN      =  0.30
 _VOL_RATIO_MIN =  2.0
 
+SIGN_VALID: bool = False  # fires intrabar; not suitable for daily regime_sign benchmark
+SIGN_NAMES: list[str] = ["div_vol"]
+
 
 class DivVolDetector:
     """Initialise once per (stock, N225) hourly cache pair; call detect() per bar."""

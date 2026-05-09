@@ -36,6 +36,9 @@ from src.simulator.cache import DataCache
 _DELTA_MIN    = 0.15
 _DELTA_WINDOW = 5
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["corr_shift"]
+
 
 class CorrShiftDetector:
     """Initialise with stock 1h cache + two pre-loaded daily corr Series."""

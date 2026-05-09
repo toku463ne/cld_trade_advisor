@@ -34,6 +34,9 @@ from src.simulator.cache import DataCache
 
 _SCORE_SMA_CAP = 0.02  # distance at which score saturates to 1.0
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["brk_sma"]
+
 
 class BrkSmaDetector:
     """Initialise once per stock hourly cache; call detect() per bar."""

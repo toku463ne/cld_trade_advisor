@@ -55,6 +55,9 @@ from src.indicators.zigzag import detect_peaks
 from src.signs.base import SignResult
 from src.simulator.cache import DataCache
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["rev_lo", "rev_hi"]
+
 
 class RevPeakDetector:
     """Initialise once per stock hourly cache; call detect() per bar."""

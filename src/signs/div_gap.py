@@ -40,6 +40,9 @@ _STOCK_GAP_MIN = 0.005   # stock gap up > +0.5 %
 _N225_GAP_MAX  = -0.005  # N225 gap down < -0.5 %
 _SCORE_CAP     = 0.02    # gap magnitude at which score saturates to 1.0
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["div_gap"]
+
 
 class DivGapDetector:
     """Initialise once per (stock, N225) hourly cache pair; call detect() per bar."""

@@ -5,11 +5,15 @@ from __future__ import annotations
 import os
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.data.models import Base
+import src.analysis.models   # noqa: F401 — register tables with Base.metadata
+import src.portfolio.models  # noqa: F401
+import src.simulator.models  # noqa: F401
+import src.backtest.train_models  # noqa: F401
 
 
 @pytest.fixture(scope="session")
@@ -19,11 +23,7 @@ def db_engine() -> Engine:
         "postgresql://stockdevuser:stockdevpass@localhost:5432/stock_trader_test",
     )
     engine = create_engine(url)
-    # Create all parent tables (partitioned tables need raw DDL for the PARTITION BY clause)
-    # Use Alembic for real migrations; here we create a minimal schema for tests.
-    with engine.connect() as conn:
-        conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
-        conn.commit()
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     return engine
 

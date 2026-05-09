@@ -21,10 +21,11 @@ uv run --env-file devenv alembic upgrade head
 
 ## Environment files
 
-| File     | Purpose                          | DB                |
-|----------|----------------------------------|-------------------|
-| `devenv` | Data collection & development    | stock_trader_dev  |
-| `btenv`  | Backtest analysis (read-heavy)   | stock_trader_bt   |
+| File        | Purpose                          | DB                |
+|-------------|----------------------------------|-------------------|
+| `devenv`    | Data collection & development    | stock_trader_dev  |
+| `btenv`     | Backtest analysis (read-heavy)   | stock_trader_bt   |
+| `prodenv`   | Real trading environment         | stock_trader      |
 
 ## Stock code sets (`configs/stock_codes.ini`)
 

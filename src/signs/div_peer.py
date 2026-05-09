@@ -39,6 +39,9 @@ _PEER_DOWN_MIN  = -0.003   # peer "down" threshold: daily return < −0.3 %
 _PEER_DOWN_FRAC =  0.60    # at least 60 % of peers must be down
 _SCORE_RET_CAP  =  0.02    # stock return at which score saturates to 1.0
 
+SIGN_VALID: bool = True
+SIGN_NAMES: list[str] = ["div_peer"]
+
 
 class DivPeerDetector:
     """Initialise once per stock cache + list of cluster-peer caches."""
