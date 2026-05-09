@@ -303,15 +303,9 @@ def _build_combined_chart(
     """
     try:
         tz = datetime.timezone.utc
-        if stock_row:
-            fired_date = datetime.date.fromisoformat(stock_row["fired_at"])
-            end_dt = datetime.datetime(
-                fired_date.year, fired_date.month, fired_date.day, 23, 59, 59, tzinfo=tz,
-            )
-        else:
-            end_dt = datetime.datetime(
-                target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=tz,
-            )
+        end_dt = datetime.datetime(
+            target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=tz,
+        )
         start_dt = end_dt - datetime.timedelta(days=_CHART_BARS + 140)
 
         with get_session() as session:
@@ -629,20 +623,60 @@ def _build_combined_chart(
                 fig.add_hline(y=lvl, line_dash=dash, line_color=col,
                               line_width=width, opacity=1.0, row=5, col=1)
 
-            # Signal line spanning full figure height
-            if fired_str in dates:
-                fig.add_shape(type="line", x0=fired_str, x1=fired_str, y0=0, y1=1,
-                              xref="x", yref="paper",
-                              line=dict(width=1.5, dash="dot", color="#00e676"))
-                fig.add_annotation(x=fired_str, y=0.98, xref="x", yref="paper",
-                                   text=f" {stock_row['sign']}", showarrow=False,
-                                   xanchor="left", font=dict(size=10, color="#00e676"))
+            # Signal / entry annotation lines
+            if stock_row.get("is_position"):
+                entry_str = stock_row.get("entry_date", "")
+                if entry_str and entry_str in dates:
+                    fig.add_shape(type="line", x0=entry_str, x1=entry_str, y0=0, y1=1,
+                                  xref="x", yref="paper",
+                                  line=dict(width=1.5, dash="dot", color="#ff9800"))
+                    dir_label = stock_row.get("direction", "").upper()
+                    fig.add_annotation(x=entry_str, y=0.98, xref="x", yref="paper",
+                                       text=f" Entry {dir_label}", showarrow=False,
+                                       xanchor="left", font=dict(size=10, color="#ff9800"))
+                ep = stock_row.get("entry_price")
+                tp = stock_row.get("tp")
+                sl = stock_row.get("sl")
+                if ep:
+                    fig.add_hline(y=ep, line_dash="dot", line_color="#ff9800", opacity=0.8,
+                                  row=1, col=1,
+                                  annotation_text=f" {ep:,.0f}",
+                                  annotation_font_size=9, annotation_font_color="#ff9800",
+                                  annotation_position="right")
+                if tp:
+                    fig.add_hline(y=tp, line_dash="dash", line_color=GREEN, opacity=0.6,
+                                  row=1, col=1,
+                                  annotation_text=f" TP {tp:,.0f}",
+                                  annotation_font_size=9, annotation_font_color=GREEN,
+                                  annotation_position="right")
+                if sl:
+                    fig.add_hline(y=sl, line_dash="dash", line_color=RED, opacity=0.6,
+                                  row=1, col=1,
+                                  annotation_text=f" SL {sl:,.0f}",
+                                  annotation_font_size=9, annotation_font_color=RED,
+                                  annotation_position="right")
+                dir_label = stock_row.get("direction", "").upper()
+                title_text = (
+                    f"{stock_row['stock']}  —  {stock_row['sign']}  "
+                    f"|  entry {stock_row.get('entry_date', '')}  [{dir_label}]"
+                )
+            else:
+                if fired_str in dates:
+                    fig.add_shape(type="line", x0=fired_str, x1=fired_str, y0=0, y1=1,
+                                  xref="x", yref="paper",
+                                  line=dict(width=1.5, dash="dot", color="#00e676"))
+                    fig.add_annotation(x=fired_str, y=0.98, xref="x", yref="paper",
+                                       text=f" {stock_row['sign']}", showarrow=False,
+                                       xanchor="left", font=dict(size=10, color="#00e676"))
+                title_text = (
+                    f"{stock_row['stock']}  —  {stock_row['sign']}  |  fired {fired_str}"
+                )
 
             fig.update_layout(
                 template="plotly_dark", paper_bgcolor=BG, plot_bgcolor="#0d1117",
                 margin=dict(l=60, r=20, t=36, b=10),
                 title=dict(
-                    text=f"{stock_row['stock']}  —  {stock_row['sign']}  |  fired {fired_str}",
+                    text=title_text,
                     font=dict(size=13, color=MUTED), x=0.01,
                 ),
                 dragmode="pan", hovermode="x unified",
@@ -922,6 +956,7 @@ def layout() -> html.Div:
                     ),
 
                     dcc.Store(id="daily-proposals-store"),
+                    dcc.Store(id="daily-pos-selected-store"),
 
                     # ── Register form (shown when a row is selected) ──────────
                     html.Div(
@@ -1170,26 +1205,32 @@ def register_callbacks() -> None:
 
     @callback(
         Output("daily-chart", "figure"),
-        Input("daily-date",            "date"),
-        Input("daily-table",           "selected_rows"),
-        Input("daily-proposals-store", "data"),
+        Input("daily-date",                "date"),
+        Input("daily-table",               "selected_rows"),
+        Input("daily-proposals-store",     "data"),
+        Input("daily-pos-selected-store",  "data"),
     )
     def update_charts(
         date_str: str | None,
         selected_rows: list[int],
         store_data: str | None,
+        pos_data: dict | None,
     ) -> go.Figure:
         """Single combined figure — stock + N225 share one x-axis (no sync needed)."""
         target = (
             datetime.date.fromisoformat(date_str[:10])
             if date_str else datetime.date.today()
         )
-        if not selected_rows or not store_data:
-            return _build_combined_chart(target)
-        rows = json.loads(store_data)
-        if selected_rows[0] >= len(rows):
-            return _build_combined_chart(target)
-        return _build_combined_chart(target, stock_row=rows[selected_rows[0]])
+        triggered = callback_context.triggered_id
+        # Position card click takes priority
+        if triggered == "daily-pos-selected-store" and pos_data:
+            return _build_combined_chart(target, stock_row=pos_data)
+        # Proposal table row
+        if selected_rows and store_data:
+            rows = json.loads(store_data)
+            if selected_rows[0] < len(rows):
+                return _build_combined_chart(target, stock_row=rows[selected_rows[0]])
+        return _build_combined_chart(target)
 
     # ── Portfolio: show register panel when row selected ─────────────────────
 
@@ -1362,6 +1403,11 @@ def register_callbacks() -> None:
             tp_str    = f"{r['tp']:,.0f}" if r["tp"] else "—"
             sl_str    = f"{r['sl']:,.0f}" if r["sl"] else "—"
 
+            _pos_idx = (
+                f"{r['id']}|{r['stock']}|{r['sign']}|{r['entry_date']}"
+                f"|{r['entry_price']}|{r.get('tp', '')}|{r.get('sl', '')}"
+                f"|{r.get('direction', 'long')}"
+            )
             items.append(
                 html.Div(
                     style={
@@ -1370,40 +1416,51 @@ def register_callbacks() -> None:
                         "marginBottom": "6px",
                     },
                     children=[
-                        # Header row
+                        # Clickable area — header + detail (close button kept separate
+                        # to avoid event-bubbling triggering chart when closing)
                         html.Div(
-                            style={"display": "flex", "justifyContent": "space-between",
-                                   "marginBottom": "4px"},
+                            id={"type": "pos-card", "index": _pos_idx},
+                            n_clicks=0,
+                            style={"cursor": "pointer"},
                             children=[
-                                html.Span(
-                                    f"{r['stock']}  ·  {r['sign']}  ·  {r['direction'].upper()}",
-                                    style={"color": TEXT, "fontWeight": "600",
-                                           "fontSize": "12px"},
+                                # Header row
+                                html.Div(
+                                    style={"display": "flex",
+                                           "justifyContent": "space-between",
+                                           "marginBottom": "4px"},
+                                    children=[
+                                        html.Span(
+                                            f"{r['stock']}  ·  {r['sign']}  ·  {r['direction'].upper()}",
+                                            style={"color": TEXT, "fontWeight": "600",
+                                                   "fontSize": "12px"},
+                                        ),
+                                        html.Span(
+                                            status_text,
+                                            style={"color": status_color,
+                                                   "fontWeight": "600",
+                                                   "fontSize": "12px"},
+                                        ),
+                                    ],
                                 ),
-                                html.Span(
-                                    status_text,
-                                    style={"color": status_color, "fontWeight": "600",
-                                           "fontSize": "12px"},
+                                # Detail row
+                                html.Div(
+                                    style={"color": MUTED, "fontSize": "11px",
+                                           "display": "flex", "gap": "12px",
+                                           "flexWrap": "wrap"},
+                                    children=[
+                                        html.Span(f"Entry {r['entry_price']:,.0f} ({r['entry_date']})"),
+                                        html.Span(f"Cur {cur_str}",
+                                                  style={"color": pnl_color}),
+                                        html.Span(f"P&L {pnl_str}",
+                                                  style={"color": pnl_color}),
+                                        html.Span(f"TP {tp_str}", style={"color": GREEN}),
+                                        html.Span(f"SL {sl_str}", style={"color": RED}),
+                                        html.Span(f"×{r['units']}"),
+                                    ],
                                 ),
                             ],
                         ),
-                        # Detail row
-                        html.Div(
-                            style={"color": MUTED, "fontSize": "11px",
-                                   "display": "flex", "gap": "12px",
-                                   "flexWrap": "wrap"},
-                            children=[
-                                html.Span(f"Entry {r['entry_price']:,.0f} ({r['entry_date']})"),
-                                html.Span(f"Cur {cur_str}",
-                                          style={"color": pnl_color}),
-                                html.Span(f"P&L {pnl_str}",
-                                          style={"color": pnl_color}),
-                                html.Span(f"TP {tp_str}", style={"color": GREEN}),
-                                html.Span(f"SL {sl_str}", style={"color": RED}),
-                                html.Span(f"×{r['units']}"),
-                            ],
-                        ),
-                        # Close button
+                        # Close button — separate div so clicks don't bubble to pos-card
                         html.Div(
                             style={"marginTop": "6px"},
                             children=[
@@ -1427,6 +1484,33 @@ def register_callbacks() -> None:
                 )
             )
         return items
+
+    @callback(
+        Output("daily-pos-selected-store", "data"),
+        Input({"type": "pos-card", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def select_pos_card(n_clicks_list: list[int]) -> dict | None:
+        if not any(n for n in (n_clicks_list or []) if n):
+            return no_update  # type: ignore[return-value]
+        triggered = callback_context.triggered_id
+        if not triggered:
+            return no_update  # type: ignore[return-value]
+        parts = triggered["index"].split("|")
+        if len(parts) < 8:
+            return no_update  # type: ignore[return-value]
+        _, stock, sign, entry_date, ep_str, tp_str, sl_str, direction = parts
+        return {
+            "stock":        stock,
+            "sign":         sign,
+            "fired_at":     entry_date,
+            "entry_date":   entry_date,
+            "entry_price":  float(ep_str) if ep_str else None,
+            "tp":           float(tp_str) if tp_str else None,
+            "sl":           float(sl_str) if sl_str else None,
+            "direction":    direction,
+            "is_position":  True,
+        }
 
     @callback(
         Output("daily-positions-panel", "children", allow_duplicate=True),

@@ -170,6 +170,33 @@ which mode to use **at entry time**:
   N225 environment confirm peaks at only 54%, vs 66% for low-corr stocks —
   confirming that corr regime is a meaningful risk gate.
 
+## Rebenchmarking a Sign
+
+When a sign's detection logic changes (new gate, parameter change, etc.), run the
+full rebenchmark pipeline to update both the DB and `src/analysis/benchmark.md`:
+
+```bash
+scripts/rebenchmark_sign.sh <sign_type>
+# Example:
+scripts/rebenchmark_sign.sh str_lead
+```
+
+**What the script does (5 steps):**
+1. Deletes all `SignBenchmarkRun` rows (and cascaded events) for the sign from the dev DB.
+2. Truncates `benchmark.md` at the `## Multi-Year Benchmark` section header.
+3. Runs `sign_benchmark_multiyear --phase benchmark validate report --sign <sign>`.
+4. Runs `sign_regime_analysis` (rebuilds ADX+Kumo regime snapshots and report).
+5. Runs `sign_benchmark_multiyear --phase backtest --sign <sign>` (FY2025 OOS).
+
+**After the script completes:**
+- Review the new tables in `src/analysis/benchmark.md`.
+- Update the sign module's header comment with the new DR / perm_pass numbers.
+- If the sign's regime behaviour changed, update the sign's note in `## Per-Sign Notes`.
+
+**Note**: The script only rebenchmarks the named sign; other signs in `benchmark.md`
+are preserved. Steps 4 (`sign_regime_analysis`) and 5 (backtest) process ALL signs
+found in the DB, so all regime tables are regenerated consistently each time.
+
 ## DB Schema Changes
 Always generate an Alembic migration file and get it reviewed before applying.
 ```bash

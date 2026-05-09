@@ -29,14 +29,12 @@ Valid for up to ``valid_bars`` *trading days* after firing (time-bounded only).
 # bench_flw=0.047  bench_rev=0.024  mean_bars=11.6
 # → 2-year result was RECOMMEND but coincided with sustained bull market (FY2023+FY2024).
 #
-# ── 7-year cross-validation (FY2018–FY2024, prior-year cluster sets) ──
-# pooled DR=47.2%  p≈0.062  perm_pass=3/7
-# FY breakdown: FY2018=60.2% (bull), FY2019=26.6%, FY2020=31.1%, FY2021=46.2%,
-#               FY2022=36.6%, FY2023=68.4% (bull), FY2024=62.0% (bull)
-# → CAUTION: behaves as a reversal sign in non-bull years. Only use when N225 is in
-#   a confirmed bull trend (last confirmed zigzag peak is a LOW). In neutral/bear years
-#   DR drops well below 50% — the capitulation-to-leadership thesis fails when N225
-#   makes multiple false bottoms.
+# ── 7-year cross-validation NO gate (FY2019–FY2025, prior-year cluster sets) ──
+# pooled DR=48.1%  perm_pass=3/7
+# FY breakdown: FY2019=0 events, FY2020=104/32.7%, FY2021=289/47.1%, FY2022=235/36.2%,
+#               FY2023=150/54.7%, FY2024=258/58.1%, FY2025=66/65.2% (out-of-sample)
+# → CAUTION: sign is only reliable in N225 bull years (FY2020/FY2022 bear years show poor DR).
+# → Tested kumo gate and N225 ADX gate — both hurt pooled DR; no gate is the best found.
 
 from __future__ import annotations
 
@@ -70,10 +68,11 @@ class StrLeadDetector:
         self._dts         = [b.dt for b in stock_cache.bars]
         self._corr_n225   = corr_n225_1h or {}
 
-        # Derive daily close / high / low from hourly bars
+        # Derive daily close from hourly bars
         stock_close: dict[datetime.date, float] = {}
         for b in stock_cache.bars:
-            stock_close[b.dt.date()] = b.close   # last bar of day wins
+            d = b.dt.date()
+            stock_close[d] = b.close   # last bar of day wins
 
         n225_close: dict[datetime.date, float] = {}
         n225_high:  dict[datetime.date, float] = {}
