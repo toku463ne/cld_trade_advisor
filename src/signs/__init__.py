@@ -41,6 +41,7 @@ from src.signs.brk_sma import BrkSmaDetector
 from src.signs.brk_bol import BrkBolDetector
 from src.signs.rev_peak import RevPeakDetector
 from src.signs.rev_nday import RevNDayDetector
+from src.signs.rev_nhold import RevNholdDetector
 from src.signs.rev_nlo import RevNloDetector
 from src.signs.str_lag import StrLagDetector
 
@@ -60,5 +61,6 @@ __all__ = [
     "BrkBolDetector",
     "RevPeakDetector",
     "RevNDayDetector",
+    "RevNholdDetector",
     "RevNloDetector",
 ]

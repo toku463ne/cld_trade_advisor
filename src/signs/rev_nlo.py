@@ -46,6 +46,13 @@ _ZZ_MID_SIZE      =  2
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["rev_nlo"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "rev_nlo": (
+        "**Capitulation Bounce** — "
+        "stock's drawdown exceeds UNDERPERFORM_MIN × N225 drawdown and N225 zigzag confirms a LOW. "
+        "Oversold stock expected to snap back sharply."
+    ),
+}
 
 
 class RevNloDetector:

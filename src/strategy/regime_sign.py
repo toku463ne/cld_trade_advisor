@@ -71,6 +71,7 @@ from src.signs.corr_shift import CorrShiftDetector
 from src.signs.div_gap import DivGapDetector
 from src.signs.div_peer import DivPeerDetector
 from src.signs.rev_nday import RevNDayDetector
+from src.signs.rev_nhold import RevNholdDetector
 from src.signs.rev_nlo import RevNloDetector
 from src.signs.rev_peak import RevPeakDetector
 from src.signs.str_hold import StrHoldDetector
@@ -210,6 +211,8 @@ def _build_detector(
         return RevNDayDetector(stock_cache, n_days=window, side="hi")
     if sign_type == "rev_nlo":
         return RevNloDetector(stock_cache, n225_cache)
+    if sign_type == "rev_nhold":
+        return RevNholdDetector(stock_cache, n225_cache)
     return None  # corr_shift, div_peer built separately; corr_peak / div_bar need subclass
 
 
@@ -226,9 +229,27 @@ class RegimeSignStrategy(ProposalStrategy):
         end:        End of the date range (inclusive).
         mode:       "backtest" or "trade" (default "backtest").
         window:     Detector indicator window (default 20).
-        valid_bars: Sign validity in trading days (default 5).
+        valid_bars: Sign validity in trading days (default 3 — tight enough for
+                    a swing-trading window; per-sign overrides in
+                    ``_PER_SIGN_VALID_BARS`` shorten this further for single-bar
+                    signals).
         gran:       OHLCV granularity (default "1d").
     """
+
+    # Signs whose underlying signal only measures one trading day's behaviour
+    # use a 1-day validity regardless of the strategy-level default.
+    # The strategy default (3 days) covers signs whose measurement spans
+    # multiple days (str_hold, str_lead, str_lag, rev_nlo, rev_peak,
+    # corr_flip, corr_shift, rev_nday).
+    _PER_SIGN_VALID_BARS: dict[str, int] = {
+        "div_peer":  1,   # single-day close-to-close peer divergence
+        "div_bar":   1,   # single-bar price/volume divergence
+        "div_gap":   1,   # single opening-gap event
+        "div_vol":   1,   # single-bar volatility divergence
+        "brk_sma":   1,   # single-bar SMA crossover
+        "brk_bol":   1,   # single-bar Bollinger Band crossover
+        "corr_peak": 1,   # confirmed on a single zigzag-low day
+    }
 
     def __init__(
         self,
@@ -239,7 +260,7 @@ class RegimeSignStrategy(ProposalStrategy):
         end:        datetime.datetime,
         mode:       str   = "backtest",
         window:     int   = 20,
-        valid_bars: int   = 5,
+        valid_bars: int   = 3,
         gran:       str   = _GRAN,
         min_dr:     float = 0.0,
     ) -> None:
@@ -395,6 +416,17 @@ class RegimeSignStrategy(ProposalStrategy):
         }
         logger.info("Regime snapshots loaded: {} dates", len(self._snap_map))
 
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _valid_bars_for(self, sign: str) -> int:
+        """Return the validity window in trading days for *sign*.
+
+        Per-sign overrides in ``_PER_SIGN_VALID_BARS`` apply (e.g. signs whose
+        underlying signal only measures one day fall back to 1); otherwise the
+        strategy-level ``valid_bars`` is used.
+        """
+        return self._PER_SIGN_VALID_BARS.get(sign, self._valid_bars)
+
     # ── Public interface ──────────────────────────────────────────────────────
 
     def propose(
@@ -469,7 +501,7 @@ class RegimeSignStrategy(ProposalStrategy):
                 det = self._detectors.get((sign, code))
                 if det is None:
                     continue
-                result = det.detect(as_of, valid_bars=self._valid_bars)
+                result = det.detect(as_of, valid_bars=self._valid_bars_for(sign))
                 if result is None:
                     continue
 
@@ -486,6 +518,7 @@ class RegimeSignStrategy(ProposalStrategy):
                     adx_pos          = adxp,
                     adx_neg          = adxn,
                     regime_bench_flw = rank_entry.bench_flw,
+                    regime_ev        = rank_entry.ev,
                     regime_dr        = rank_entry.dr,
                     regime_n         = rank_entry.n,
                 )
@@ -515,7 +548,7 @@ class RegimeSignStrategy(ProposalStrategy):
                 det = self._detectors.get((sign, code))
                 if det is None:
                     continue
-                result = det.detect(as_of, valid_bars=self._valid_bars)
+                result = det.detect(as_of, valid_bars=self._valid_bars_for(sign))
                 if result is None:
                     continue
 
@@ -532,16 +565,20 @@ class RegimeSignStrategy(ProposalStrategy):
                     adx_pos          = adxp,
                     adx_neg          = adxn,
                     regime_bench_flw = rank_entry.bench_flw,
+                    regime_ev        = rank_entry.ev,
                     regime_dr        = rank_entry.dr,
                     regime_n         = rank_entry.n,
                 ))
 
         # ── Sort and select ───────────────────────────────────────────────────
+        # Primary tiebreak after the N225-rank position is now expected value
+        # (DR×mag_flw − (1−DR)×mag_rev), so negative-EV cells (which are filtered
+        # out at ranking-build time anyway) never compete for the top slot.
         def _sort_n225(p: SignalProposal) -> tuple[int, float, float]:
-            return (n225_sign_rank.get(p.sign_type, 999), -p.regime_bench_flw, -p.sign_score)
+            return (n225_sign_rank.get(p.sign_type, 999), -p.regime_ev, -p.sign_score)
 
         def _sort_stock(p: SignalProposal) -> tuple[float, float]:
-            return (-p.regime_bench_flw, -p.sign_score)
+            return (-p.regime_ev, -p.sign_score)
 
         high_proposals.sort(key=_sort_n225)
         mid_proposals.sort(key=_sort_n225)

@@ -42,6 +42,13 @@ _SCORE_CAP     = 0.02    # gap magnitude at which score saturates to 1.0
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["div_gap"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "div_gap": (
+        "**Opening Gap Divergence** — "
+        "stock gaps up at the open on a day when N225 gaps down. "
+        "Strong independent buying interest."
+    ),
+}
 
 
 class DivGapDetector:

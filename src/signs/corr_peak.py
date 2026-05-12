@@ -36,6 +36,13 @@ _ZZ_MID_SIZE = 2
 
 SIGN_VALID: bool = False  # requires PeakCorrRun table not yet available
 SIGN_NAMES: list[str] = ["corr_peak"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "corr_peak": (
+        "**Peak Correlation Alignment** — "
+        "stock has a negative B-metric vs N225 DOWN peaks, meaning it historically rises "
+        "after N225 confirms a trough. Fires when N225 zigzag confirms a new LOW."
+    ),
+}
 
 
 class CorrPeakDetector:

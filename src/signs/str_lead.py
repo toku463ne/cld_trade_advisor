@@ -53,6 +53,14 @@ _ZZ_MID_SIZE     =  2
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["str_lead"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "str_lead": (
+        "**Post-Bottom Leader** — "
+        "stock's drawdown during the N225 decline is ≤50 % of the N225 drawdown, "
+        "and the N225 zigzag confirms a LOW. "
+        "Shows relative strength ahead of the index recovery."
+    ),
+}
 
 
 class StrLeadDetector:

@@ -55,6 +55,13 @@ _N225_DEPTH_CAP = 0.05
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["str_hold"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "str_hold": (
+        "**Relative Strength During Decline** — "
+        "stock stays flat (≤0.5% drop) while N225 drops ≥2% over 5 days. "
+        "Implies steady buying that absorbs the broad market fall."
+    ),
+}
 
 
 class StrHoldDetector:

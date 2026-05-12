@@ -34,7 +34,9 @@ class RankEntry:
     n:          int
     dr:         float  # direction rate (fraction of events where trend_direction == +1)
     mag_flw:    float  # mean magnitude for follow-through events
-    bench_flw:  float  # dr × mag_flw  (primary ranking metric)
+    mag_rev:    float  # mean magnitude for reverse events (0.0 if no reverse events)
+    bench_flw:  float  # dr × mag_flw  (legacy upside-only metric, kept for display)
+    ev:         float  # dr × mag_flw − (1−dr) × mag_rev  (PRIMARY ranking metric)
 
 
 # Signs whose ADX state is required to be "bear" (ADX≥20 and −DI > +DI).
@@ -51,8 +53,9 @@ _ADX_CHOPPY = 20.0
 def build_regime_ranking(
     session: Session,
     run_ids: list[int],
-    min_n:  int   = 30,
-    min_dr: float = 0.0,
+    min_n:    int   = 30,
+    min_dr:   float = 0.0,
+    min_ev:   float = 0.0,
 ) -> dict[tuple[str, int], RankEntry]:
     """Return {(sign_type, kumo_state): RankEntry} from benchmark event history.
 
@@ -60,13 +63,16 @@ def build_regime_ranking(
         session:  DB session.
         run_ids:  SignBenchmarkRun IDs to include (multi-year runs recommended).
         min_n:    Minimum events in a (sign, kumo) cell to include.
-        min_dr:   Minimum direction rate required to include a cell.  Cells
-                  where DR ≤ min_dr are excluded (near-random or negative-edge
-                  sign/regime combinations).  Default 0.0 (no filter).
+        min_dr:   Minimum direction rate (legacy filter; kept for back-compat).
+        min_ev:   Minimum expected value `dr×mag_flw − (1−dr)×mag_rev` required
+                  to include a cell.  Default 0.0 (only positive-EV cells —
+                  cells with negative or zero expected return per trade are
+                  silently dropped from the ranking).
 
     Returns:
-        Dict keyed by (sign_type, kumo_state).  Only cells with n >= min_n and
-        dr > min_dr are included; cells where mag_flw is undefined are skipped.
+        Dict keyed by (sign_type, kumo_state).  Only cells with n ≥ min_n,
+        dr > min_dr, and ev > min_ev are included; cells where mag_flw is
+        undefined are skipped.
     """
     # Load sign metadata
     runs = session.execute(
@@ -126,15 +132,23 @@ def build_regime_ranking(
         if dr <= min_dr:
             continue
 
-        flw_mags = [m for d, m in evts if d == 1 and m is not None and not math.isnan(m)]
+        flw_mags = [m for d, m in evts if d ==  1 and m is not None and not math.isnan(m)]
+        rev_mags = [m for d, m in evts if d == -1 and m is not None and not math.isnan(m)]
         if not flw_mags:
             continue
         mag_flw   = float(np.mean(flw_mags))
+        # mag_rev defaults to 0 if no reverse events with magnitude — produces
+        # an EV equal to bench_flw for those rare cells.
+        mag_rev   = float(np.mean(rev_mags)) if rev_mags else 0.0
         bench_flw = dr * mag_flw
+        ev        = dr * mag_flw - (1.0 - dr) * mag_rev
+        if ev <= min_ev:
+            continue
 
         result[(sign, kumo)] = RankEntry(
             sign_type=sign, kumo_state=kumo,
-            n=n, dr=dr, mag_flw=mag_flw, bench_flw=bench_flw,
+            n=n, dr=dr, mag_flw=mag_flw, mag_rev=mag_rev,
+            bench_flw=bench_flw, ev=ev,
         )
 
     return result
@@ -147,7 +161,11 @@ def rank_for_regime(
     adx_pos: float,
     adx_neg: float,
 ) -> list[RankEntry]:
-    """Return entries for *kumo_state*, sorted by bench_flw desc, with ADX veto applied.
+    """Return entries for *kumo_state*, sorted by **EV** desc, with ADX veto applied.
+
+    EV = dr × mag_flw − (1−dr) × mag_rev. This rewards signs that win often
+    AND whose wins are bigger than their losses, replacing the older bench_flw
+    metric which only counted upside.
 
     ADX veto: signs in ADX_VETO are excluded unless the current ADX state matches
     the required direction (e.g. str_lead requires ADX bear: ADX≥20 and −DI > +DI).
@@ -171,5 +189,5 @@ def rank_for_regime(
             continue
         entries.append(entry)
 
-    entries.sort(key=lambda e: -e.bench_flw)
+    entries.sort(key=lambda e: -e.ev)
     return entries

@@ -10,7 +10,9 @@ Score = min(stock_ret / 0.02, 1.0) × peer_down_fraction
   A stock rising strongly (+2 %) while all peers fall scores 1.0.
   A marginal rise (+0.5 %) while 60 % of peers are down scores 0.3 × 0.6 = 0.18.
 
-Valid for up to ``valid_bars`` *trading days* after firing (time-bounded only).
+Valid for up to ``valid_bars`` *trading days* after firing (default 1 — the
+underlying signal is a single-day close-to-close peer return, so a longer
+validity window would let stale fires linger past the period actually measured).
 """
 # ── Benchmark (classified2023 · 164 stocks · 2023-04-01–2025-03-31 · gran=1d) ──
 # uv run --env-file devenv python -m src.analysis.sign_benchmark \
@@ -41,6 +43,13 @@ _SCORE_RET_CAP  =  0.02    # stock return at which score saturates to 1.0
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["div_peer"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "div_peer": (
+        "**Intra-cluster Divergence** — "
+        "stock outperforms its correlation-cluster peers while the peers are declining. "
+        "Idiosyncratic buying not explained by sector moves."
+    ),
+}
 
 
 class DivPeerDetector:
@@ -117,11 +126,12 @@ class DivPeerDetector:
     def detect(
         self,
         as_of: datetime.datetime,
-        valid_bars: int = 3,
+        valid_bars: int = 1,
     ) -> SignResult | None:
         """Return the most recent valid div_peer sign at *as_of*, or None.
 
-        valid_bars counts *trading days*.
+        valid_bars counts *trading days*. Default is 1 because the underlying
+        peer-divergence test is a single-day close-to-close measurement.
         """
         idx = bisect.bisect_right(self._dts, as_of) - 1
         if idx < 0 or not self._fire_events:

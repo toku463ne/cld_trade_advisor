@@ -56,7 +56,7 @@ SIGNS = [
     "corr_flip", "corr_shift",
     "str_hold", "str_lead", "str_lag",
     "brk_sma", "brk_bol",
-    "rev_lo", "rev_hi", "rev_nhi", "rev_nlo",
+    "rev_lo", "rev_hi", "rev_nhi", "rev_nlo", "rev_nhold",
 ]
 
 
@@ -141,14 +141,28 @@ def phase_build() -> None:
 # Phase 2: analyze
 # ---------------------------------------------------------------------------
 
+# Per-regime cells with mag_flw / mag_rev / EV are masked unless both these
+# guardrails pass:
+#   - p < _CELL_P_MAX (direction-rate is not just sample noise)
+#   - min(n_flw, n_rev) >= _CELL_MIN_SUBSET_N (each magnitude is averaged
+#     over enough events that one outlier can't dominate)
+_CELL_P_MAX          = 0.05
+_CELL_MIN_SUBSET_N   = 10
+
+
 class _RegimeRow(NamedTuple):
     sign:    str
     regime:  str
     label:   str
     n:       int
+    n_flw:   int            # events where trend_direction == +1
+    n_rev:   int            # events where trend_direction == -1
     dr:      float
     p:       float
-    vs_all:  float   # overall DR for this sign across all events
+    mag_flw: float | None   # mean trend_magnitude on follow events (None if n_flw=0)
+    mag_rev: float | None   # mean trend_magnitude on reverse events (None if n_rev=0)
+    ev:      float | None   # DR × mag_flw − (1−DR) × mag_rev (None if either mag missing)
+    vs_all:  float          # overall DR for this sign across all events
 
 
 def _binom_p(n: int, k: int) -> float:
@@ -200,6 +214,7 @@ def phase_analyze() -> tuple[list[_RegimeRow], list[_RegimeRow]]:
             all_events.append({
                 "sign":        run_map[e.run_id],
                 "direction":   e.trend_direction,
+                "magnitude":   e.trend_magnitude,
                 "adx":         snap.adx        if snap else None,
                 "adx_pos":     snap.adx_pos    if snap else None,
                 "adx_neg":     snap.adx_neg    if snap else None,
@@ -208,6 +223,19 @@ def phase_analyze() -> tuple[list[_RegimeRow], list[_RegimeRow]]:
 
     df = pd.DataFrame(all_events)
     logger.info("Loaded {:,} events with outcome", len(df))
+
+    def _cell(sign: str, state: str, label: str, sub: pd.DataFrame, all_dr: float) -> _RegimeRow:
+        n     = len(sub)
+        flw   = sub[sub["direction"] ==  1]
+        rev   = sub[sub["direction"] == -1]
+        n_flw, n_rev = len(flw), len(rev)
+        dr    = n_flw / n if n else float("nan")
+        p     = _binom_p(n, n_flw)
+        # Magnitudes: only meaningful when each subset is non-empty.
+        mag_flw = float(flw["magnitude"].dropna().mean()) if n_flw > 0 and not flw["magnitude"].dropna().empty else None
+        mag_rev = float(rev["magnitude"].dropna().mean()) if n_rev > 0 and not rev["magnitude"].dropna().empty else None
+        ev = (dr * mag_flw - (1.0 - dr) * mag_rev) if (mag_flw is not None and mag_rev is not None) else None
+        return _RegimeRow(sign, state, label, n, n_flw, n_rev, dr, p, mag_flw, mag_rev, ev, all_dr)
 
     adx_rows:  list[_RegimeRow] = []
     kumo_rows: list[_RegimeRow] = []
@@ -223,24 +251,20 @@ def phase_analyze() -> tuple[list[_RegimeRow], list[_RegimeRow]]:
         # ── ADX split ──────────────────────────────────────────────────────
         valid = sdf[sdf["adx"].notna() & sdf["adx_pos"].notna() & sdf["adx_neg"].notna()].copy()
         valid["adx_state"] = "choppy"
-        valid.loc[(valid["adx"] >= _ADX_CHOPPY) & (valid["adx_pos"] > valid["adx_neg"]),  "adx_state"] = "bull"
+        valid.loc[(valid["adx"] >= _ADX_CHOPPY) & (valid["adx_pos"] >  valid["adx_neg"]), "adx_state"] = "bull"
         valid.loc[(valid["adx"] >= _ADX_CHOPPY) & (valid["adx_pos"] <= valid["adx_neg"]), "adx_state"] = "bear"
 
-        for state, label in [("choppy", "choppy (ADX<20)"), ("bull", "bull (ADX≥20,+DI>−DI)"), ("bear", "bear (ADX≥20,+DI≤−DI)")]:
-            sub = valid[valid["adx_state"] == state]
-            n = len(sub)
-            k = int((sub["direction"] == 1).sum())
-            dr = k / n if n else float("nan")
-            adx_rows.append(_RegimeRow(sign, state, label, n, dr, _binom_p(n, k), all_dr))
+        for state, label in [
+            ("choppy", "choppy (ADX<20)"),
+            ("bull",   "bull (ADX≥20,+DI>−DI)"),
+            ("bear",   "bear (ADX≥20,+DI≤−DI)"),
+        ]:
+            adx_rows.append(_cell(sign, state, label, valid[valid["adx_state"] == state], all_dr))
 
         # ── Kumo split ─────────────────────────────────────────────────────
         kdf = sdf[sdf["kumo_state"].notna()]
         for state, label in [(1, "above (+1)"), (0, "inside (0)"), (-1, "below (−1)")]:
-            sub = kdf[kdf["kumo_state"] == state]
-            n = len(sub)
-            k = int((sub["direction"] == 1).sum())
-            dr = k / n if n else float("nan")
-            kumo_rows.append(_RegimeRow(sign, str(state), label, n, dr, _binom_p(n, k), all_dr))
+            kumo_rows.append(_cell(sign, str(state), label, kdf[kdf["kumo_state"] == state], all_dr))
 
     return adx_rows, kumo_rows
 
@@ -249,22 +273,42 @@ def phase_analyze() -> tuple[list[_RegimeRow], list[_RegimeRow]]:
 # Phase 3: report
 # ---------------------------------------------------------------------------
 
+def _cell_passes_gate(r: _RegimeRow) -> bool:
+    """True iff (sign, regime) cell is reliable enough to display magnitudes/EV.
+
+    Requires direction-rate p < _CELL_P_MAX AND each magnitude subset has
+    at least _CELL_MIN_SUBSET_N events.
+    """
+    if math.isnan(r.p) or r.p >= _CELL_P_MAX:
+        return False
+    if min(r.n_flw, r.n_rev) < _CELL_MIN_SUBSET_N:
+        return False
+    return True
+
+
 def phase_report(adx_rows: list[_RegimeRow], kumo_rows: list[_RegimeRow]) -> None:
     """Append regime-split tables to benchmark.md."""
 
     def _table(rows: list[_RegimeRow], regime_col: str) -> str:
         lines = [
-            f"| Sign | {regime_col} | n | DR% | p | vs_all |",
-            "|------|" + "-" * (len(regime_col) + 2) + "|---|-----|---|--------|",
+            f"| Sign | {regime_col} | n | DR% | p | mag_flw | mag_rev | EV | vs_all |",
+            "|------|---|---|-----|---|---------|---------|----|--------|",
         ]
         current_sign = None
         for r in rows:
-            sep = "| " if r.sign == current_sign else f"| **{r.sign}** "
             current_sign = r.sign
-            dr_s   = f"{r.dr * 100:.1f}%" if not math.isnan(r.dr) else "—"
-            all_s  = f"{r.vs_all * 100:.1f}%"
+            dr_s  = f"{r.dr * 100:.1f}%" if not math.isnan(r.dr) else "—"
+            all_s = f"{r.vs_all * 100:.1f}%" if not math.isnan(r.vs_all) else "—"
+            if _cell_passes_gate(r):
+                flw_s = f"{r.mag_flw:.4f}" if r.mag_flw is not None else "—"
+                rev_s = f"{r.mag_rev:.4f}" if r.mag_rev is not None else "—"
+                ev_s  = f"{r.ev:+.4f}"     if r.ev      is not None else "—"
+            else:
+                flw_s = rev_s = ev_s = "—"
             lines.append(
-                f"| {r.sign:<10} | {r.label:<25} | {r.n:>6} | {dr_s:>6} | {_fmt_p(r.p):>8} | {all_s:>6} |"
+                f"| {r.sign:<10} | {r.label:<25} | {r.n:>6} | "
+                f"{dr_s:>6} | {_fmt_p(r.p):>8} | "
+                f"{flw_s:>7} | {rev_s:>7} | {ev_s:>8} | {all_s:>6} |"
             )
         return "\n".join(lines)
 
@@ -279,6 +323,11 @@ Indicators computed on ^N225 daily bars.
 ADX window=14; Ichimoku: tenkan=9, kijun=26, senkou_b=52 (cloud shift=26).
 Events: multi-year runs (FY2018–FY2024, run_ids≥{_MULTIYEAR_MIN_RUN_ID}).
 p: two-sided binomial vs H₀=50%.  vs_all: pooled DR for that sign across all regimes.
+mag_flw / mag_rev: mean trend_magnitude on follow / reverse events in this regime.
+EV = DR × mag_flw − (1−DR) × mag_rev — the regime-conditional expected return per trade.
+mag_flw / mag_rev / EV are masked ("—") unless the cell passes both:
+  - p < {_CELL_P_MAX}  (the direction rate is not just noise)
+  - min(n_flw, n_rev) ≥ {_CELL_MIN_SUBSET_N}  (each magnitude average is reliable)
 
 ### ADX Regime Split
 

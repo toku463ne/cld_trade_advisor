@@ -37,6 +37,13 @@ _VOL_RATIO_MIN =  2.0
 
 SIGN_VALID: bool = False  # fires intrabar; not suitable for daily regime_sign benchmark
 SIGN_NAMES: list[str] = ["div_vol"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "div_vol": (
+        "**Volume-Confirmed Bar Divergence** — "
+        "div_bar conditions plus volume exceeds 2× the 20-bar average. "
+        "High-volume divergence amplifies confidence in independent buying."
+    ),
+}
 
 
 class DivVolDetector:

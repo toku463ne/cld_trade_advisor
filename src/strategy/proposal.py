@@ -22,7 +22,9 @@ class SignalProposal:
         adx:              N225 ADX(14) at fired_at.
         adx_pos:          N225 +DI at fired_at.
         adx_neg:          N225 -DI at fired_at.
-        regime_bench_flw: Expected bench_flw for (sign, kumo_state) from benchmark history.
+        regime_bench_flw: Legacy bench_flw for (sign, kumo_state) — DR × mag_flw only (upside).
+        regime_ev:        Expected return per trade for (sign, kumo_state):
+                          DR × mag_flw − (1−DR) × mag_rev. Primary ranking metric.
         regime_dr:        Direction-rate for (sign, kumo_state) from benchmark history.
         regime_n:         Event count behind the benchmark estimate.
     """
@@ -39,6 +41,7 @@ class SignalProposal:
     adx_pos:          float
     adx_neg:          float
     regime_bench_flw: float
+    regime_ev:        float
     regime_dr:        float
     regime_n:         int
 
@@ -47,5 +50,5 @@ class SignalProposal:
             f"{self.sign_type:<12} {self.stock_code:<10} "
             f"score={self.sign_score:.3f}  corr={self.corr_mode}({self.corr_n225:+.2f})  "
             f"kumo={'▲' if self.kumo_state==1 else ('▼' if self.kumo_state==-1 else '~')}  "
-            f"adx={self.adx:.1f}  bench_flw={self.regime_bench_flw:.4f}  dr={self.regime_dr:.1%}"
+            f"adx={self.adx:.1f}  EV={self.regime_ev:+.4f}  dr={self.regime_dr:.1%}"
         )

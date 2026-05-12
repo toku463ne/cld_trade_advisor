@@ -71,6 +71,7 @@ from src.signs import (
     DivPeerDetector,
     DivVolDetector,
     RevNDayDetector,
+    RevNholdDetector,
     RevNloDetector,
     RevPeakDetector,
     StrHoldDetector,
@@ -231,6 +232,8 @@ def _eval_stock(
         detector = RevNDayDetector(cache_det, n_days=window, side="hi")
     elif sign_type == "rev_nlo":
         detector = RevNloDetector(cache_det, n225_cache_det)
+    elif sign_type == "rev_nhold":
+        detector = RevNholdDetector(cache_det, n225_cache_det)
     else:
         raise ValueError(f"Unknown sign_type: {sign_type!r}")
 
@@ -504,7 +507,7 @@ _SIGN_CHOICES = [
     "str_hold", "str_lead", "str_lag",
     "brk_sma", "brk_bol",
     "rev_lo", "rev_hi",
-    "rev_nhi", "rev_nlo",
+    "rev_nhi", "rev_nlo", "rev_nhold",
 ]
 
 

@@ -51,73 +51,26 @@ _LOOKBACK_DAYS = 230    # 200 warmup + 30 buffer
 _GRAN          = "1d"
 _CHART_BARS    = 160    # bars shown in chart (extra loaded for SMA warmup)
 
-# ── Sign descriptions (shown as tooltip on hover) ─────────────────────────────
+# ── Sign descriptions — loaded dynamically from each sign module ───────────────
 
-SIGN_DESCRIPTIONS: dict[str, str] = {
-    "str_hold": (
-        "**Relative Strength During Decline** — "
-        "stock stays flat (≤0.5% drop) while N225 drops ≥2% over 5 days. "
-        "Implies steady buying that absorbs the broad market fall."
-    ),
-    "str_lag": (
-        "**Delayed Trough Follower** — "
-        "stock has not recovered after N225 confirmed its trough. "
-        "Catch-up rally expected once the stock re-enters the uptrend."
-    ),
-    "str_lead": (
-        "**Post-Bottom Leader** *(ADX bear required)* — "
-        "stock already rising above its Ichimoku cloud before N225 confirms its bottom. "
-        "Shows independent strength ahead of the index."
-    ),
-    "brk_sma": (
-        "**SMA Breakout** — "
-        "price crosses from below to above the N-bar simple moving average. "
-        "Validates resumption of the uptrend."
-    ),
-    "brk_bol": (
-        "**Bollinger Band Breakout** — "
-        "price closes above the upper Bollinger Band. "
-        "Indicates volatility expansion in the upward direction."
-    ),
-    "div_gap": (
-        "**Opening Gap Divergence** — "
-        "stock gaps up at the open on a day when N225 gaps down. "
-        "Strong independent buying interest."
-    ),
-    "div_peer": (
-        "**Intra-cluster Divergence** — "
-        "stock outperforms its correlation-cluster peers while the peers are declining. "
-        "Idiosyncratic buying not explained by sector moves."
-    ),
-    "corr_flip": (
-        "**Correlation Flip** — "
-        "stock's 20-bar rolling correlation to N225 recently flipped from negative to positive, "
-        "suggesting re-entry into index-following mode at a bullish moment."
-    ),
-    "corr_shift": (
-        "**US Correlation Crossover** — "
-        "stock's rolling correlation to S&P 500 has risen above its N225 correlation. "
-        "Likely driven by a US-side catalyst."
-    ),
-    "rev_lo": (
-        "**N-Day Low Reversal** — "
-        "contrarian: stock touches a recent multi-day low; mean-reversion bounce expected."
-    ),
-    "rev_hi": (
-        "**N-Day High Breakout** — "
-        "stock touches a recent multi-day high; momentum continuation expected."
-    ),
-    "rev_nhi": (
-        "**New High in Bear Market** — "
-        "stock makes a new N-day high while N225 is in a downtrend. "
-        "Very strong relative strength."
-    ),
-    "rev_nlo": (
-        "**N-Day Low / ADX Bear** *(ADX bear required)* — "
-        "stock makes a new low inside a confirmed N225 bear trend; "
-        "sharp reversal expected with stop below the low."
-    ),
-}
+def _load_sign_descriptions() -> dict[str, str]:
+    import importlib
+    import pkgutil
+    import src.signs as _signs_pkg
+    result: dict[str, str] = {}
+    for mod_info in pkgutil.iter_modules(_signs_pkg.__path__):
+        if mod_info.name.startswith("_"):
+            continue
+        try:
+            mod = importlib.import_module(f"src.signs.{mod_info.name}")
+            desc = getattr(mod, "SIGN_DESCRIPTIONS", None)
+            if isinstance(desc, dict):
+                result.update(desc)
+        except Exception:
+            pass
+    return result
+
+SIGN_DESCRIPTIONS: dict[str, str] = _load_sign_descriptions()
 
 # ── Module-level strategy cache (keyed by (stock_set, date_str)) ──────────────
 
@@ -248,6 +201,7 @@ def _proposals_to_json(proposals: list[SignalProposal]) -> str:
             "kumo":      _kumo_text(p.kumo_state),
             "kumo_int":  p.kumo_state,
             "dr":        round(p.regime_dr, 4),
+            "ev":        round(p.regime_ev, 5),
             "bench_flw": round(p.regime_bench_flw, 5),
             "adx":       round(p.adx, 1),
             "adx_state": _adx_state_str(p.adx, p.adx_pos, p.adx_neg),
@@ -256,7 +210,7 @@ def _proposals_to_json(proposals: list[SignalProposal]) -> str:
         }
         for p in proposals
     ]
-    rows.sort(key=lambda r: (-r["bench_flw"], r["stock"]))
+    rows.sort(key=lambda r: (-r["ev"], r["stock"]))
     return json.dumps(rows)
 
 
@@ -871,6 +825,22 @@ def layout() -> html.Div:
                         children="",
                     ),
 
+                    # Proposals progress bar (hidden until Refresh fires)
+                    html.Div(
+                        id="daily-progress-section",
+                        style={"display": "none"},
+                        children=[
+                            html.Div(className="daily-progress-track"),
+                            html.Div(
+                                "Scanning proposals…",
+                                style={
+                                    "color": MUTED, "fontSize": "11px",
+                                    "marginTop": "4px", "letterSpacing": "0.3px",
+                                },
+                            ),
+                        ],
+                    ),
+
                     # N225 regime card
                     html.Div(
                         id="daily-regime-card",
@@ -897,6 +867,7 @@ def layout() -> html.Div:
                                     {"name": "Corr",      "id": "corr"},
                                     {"name": "Kumo",      "id": "kumo"},
                                     {"name": "DR%",       "id": "dr_pct"},
+                                    {"name": "EV",        "id": "ev"},
                                     {"name": "bench_flw", "id": "bench_flw"},
                                     {"name": "ADX",       "id": "adx"},
                                     {"name": "State",     "id": "adx_state"},
@@ -1126,6 +1097,11 @@ def register_callbacks() -> None:
         Output("daily-regime-card", "children"),
         Input("daily-refresh-btn", "n_clicks"),
         Input("daily-date", "date"),
+        running=[
+            (Output("daily-progress-section", "style"),
+             {"display": "block", "margin": "8px 0"},
+             {"display": "none"}),
+        ],
         prevent_initial_call=True,
     )
     def refresh_proposals(n_clicks: int, date_str: str | None) -> tuple:
@@ -1185,6 +1161,7 @@ def register_callbacks() -> None:
                 "corr":      r["corr"],
                 "kumo":      r["kumo"],
                 "dr_pct":    f"{r['dr']:.1%}",
+                "ev":        f"{r['ev']:+.4f}",
                 "bench_flw": f"{r['bench_flw']:.4f}",
                 "adx":       f"{r['adx']:.1f}",
                 "adx_state": r["adx_state"],
@@ -1564,3 +1541,4 @@ def register_callbacks() -> None:
         done  = msg.startswith("✓")
         style = _S_UPDATE_DONE if done else _S_UPDATE_RUN
         return msg, style, not running
+

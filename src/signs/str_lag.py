@@ -17,6 +17,13 @@ Conditions (all must hold):
      (N225_ZZ_SIZE bars have elapsed since the N225 low bar).
   3. N225 recovery from its confirmed low to the stock trough date
      ≤ N225_RECOVERY_MAX (5 %).
+  4. **Bull-regime gate**: the most recent confirmed N225 zigzag peak
+     (in either direction) knowable as of *fire_date* must be a LOW.
+     If a confirmed N225 HIGH has appeared since the LOW the rally has
+     matured and str_lag's "catching up to a bottoming index" thesis no
+     longer applies. The previous benchmark showed zero edge in bear
+     regime (DR 50.2 %, p 0.88) versus a real edge in bull (DR 53.6 %,
+     p 0.01); this gate concentrates fires in the productive regime.
 
 Score = lag_score × 0.4 + recovery_score × 0.4 + corr_score × 0.2
   lag_score      = 1 – (lag – LAG_MIN) / (LAG_MAX – LAG_MIN)  clipped [0.1, 1.0]
@@ -66,6 +73,13 @@ _N225_RECOVERY_MAX   =  0.05  # 5 % — gate out cases where N225 has already ra
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["str_lag"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "str_lag": (
+        "**Delayed Trough Follower** — "
+        "stock has not recovered after N225 confirmed its trough. "
+        "Catch-up rally expected once the stock re-enters the uptrend."
+    ),
+}
 
 
 class StrLagDetector:
@@ -108,24 +122,32 @@ class StrLagDetector:
         n225_lows_v = [n225_low[d]   for d in n225_dates]
 
         # ── N225 confirmed lows (real-time safe) ──────────────────────────────
-        # A confirmed low at index k is *knowable* only from n225_dates[k + N225_ZZ_SIZE].
+        # A confirmed peak at index k is *knowable* only from n225_dates[k + N225_ZZ_SIZE].
         n225_peaks = detect_peaks(n225_highs, n225_lows_v, size=_N225_ZZ_SIZE, middle_size=0)
 
         # List of (low_date, knowable_date, close_at_low), sorted by low_date
         n225_low_events: list[tuple[datetime.date, datetime.date, float]] = []
+        # All confirmed peaks (LOW + HIGH), sorted by knowable_date — used by
+        # the bull-regime gate ("most recent confirmed peak as of fire_date
+        # must be a LOW, not a HIGH").
+        n225_peak_events: list[tuple[datetime.date, int]] = []
         for p in n225_peaks:
-            if p.direction != -2:
+            if abs(p.direction) != 2:
                 continue
             k = p.bar_index
             know_k = k + _N225_ZZ_SIZE
             if know_k >= len(n225_dates):
                 continue
-            close_at_low = n225_close.get(n225_dates[k])
-            if close_at_low is None:
-                continue
-            n225_low_events.append((n225_dates[k], n225_dates[know_k], close_at_low))
+            n225_peak_events.append((n225_dates[know_k], p.direction))
+            if p.direction == -2:
+                close_at_low = n225_close.get(n225_dates[k])
+                if close_at_low is None:
+                    continue
+                n225_low_events.append((n225_dates[k], n225_dates[know_k], close_at_low))
         n225_low_events.sort(key=lambda e: e[0])
         n225_low_dates = [e[0] for e in n225_low_events]
+        n225_peak_events.sort(key=lambda e: e[0])
+        n225_peak_know_dates = [e[0] for e in n225_peak_events]
 
         # ── Build stock daily bars ────────────────────────────────────────────
         stock_low:  dict[datetime.date, float] = {}
@@ -165,6 +187,15 @@ class StrLagDetector:
             fire_date   = stock_dates[i + _STOCK_ZZ_MID]  # i+1
 
             if fire_date not in date_to_first:
+                continue
+
+            # ── Bull-regime gate ──────────────────────────────────────────────
+            # Most recent N225 zigzag peak knowable by fire_date must be a LOW.
+            # If a confirmed HIGH has appeared since (rally matured), skip.
+            pos = bisect.bisect_right(n225_peak_know_dates, fire_date) - 1
+            if pos < 0:
+                continue
+            if n225_peak_events[pos][1] != -2:
                 continue
 
             # ── Find the most recent N225 confirmed low before the trough ─────

@@ -1,7 +1,17 @@
 """brk_bol — Bollinger Band Breakout sign detector.
 
-Fires on the bar where close crosses from below to above the upper Bollinger Band
-(N-bar SMA + n_std × rolling σ).
+Fires on the bar where close *decisively* breaks above the upper Bollinger Band
+(N-bar SMA + n_std × rolling σ), i.e.:
+  - The previous ``min_below_bars`` bars all closed at-or-below the upper band
+    (volatility containment phase), AND
+  - The current bar closes above the upper band, AND
+  - The current bar's volume is at least ``volume_mult`` × the rolling-mean
+    volume over the BB window (default 1.5×). Without volume confirmation, a
+    "breakout" can simply be a quiet drift while σ stays small (the band moves
+    toward price, rather than price expanding through the band).
+
+A pure 1-bar crossover is rejected — we require sustained pre-crossover
+containment AND volume confirmation to filter noisy oscillation around the band.
 
 Score = min(0.5 + excess × 0.5, 1.0)
   excess = (close − upper_band) / σ   [how many σ above the upper band]
@@ -41,6 +51,13 @@ from src.simulator.cache import DataCache
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["brk_bol"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "brk_bol": (
+        "**Bollinger Band Breakout** — "
+        "price closes above the upper Bollinger Band. "
+        "Indicates volatility expansion in the upward direction."
+    ),
+}
 
 
 class BrkBolDetector:
@@ -51,9 +68,13 @@ class BrkBolDetector:
         stock_cache: DataCache,
         window: int  = 20,
         n_std: float = 2.0,
+        min_below_bars: int = 5,
+        volume_mult: float = 1.5,
     ) -> None:
-        self._stock_code = stock_cache.stock_code
-        self._dts        = [b.dt for b in stock_cache.bars]
+        self._stock_code     = stock_cache.stock_code
+        self._dts            = [b.dt for b in stock_cache.bars]
+        self._min_below_bars = min_below_bars
+        self._volume_mult    = volume_mult
 
         close_s   = pd.Series({b.dt: b.close for b in stock_cache.bars})
         min_p     = max(5, window // 2)
@@ -63,27 +84,52 @@ class BrkBolDetector:
         self._std    = std
         self._close  = close_s
 
+        vol_s         = pd.Series({b.dt: b.volume for b in stock_cache.bars}, dtype=float)
+        self._volume  = vol_s
+        self._vol_avg = vol_s.rolling(window, min_periods=min_p).mean()
+
         self._fire_events: list[tuple[int, float]] = self._scan()
 
     def _scan(self) -> list[tuple[int, float]]:
         events: list[tuple[int, float]] = []
         dts = self._dts
-        for i in range(1, len(dts)):
-            dt, prev_dt = dts[i], dts[i - 1]
+        N = self._min_below_bars
+        for i in range(N, len(dts)):
+            # Current bar must close above the upper band.
+            dt  = dts[i]
             c   = self._close.get(dt)
-            pc  = self._close.get(prev_dt)
             u   = self._upper.get(dt)
-            pu  = self._upper.get(prev_dt)
             sig = self._std.get(dt)
-            if any(x is None for x in [c, pc, u, pu, sig]):
+            if c is None or u is None or sig is None:
                 continue
-            c, pc, u, pu, sig = float(c), float(pc), float(u), float(pu), float(sig)
-            if any(pd.isna(x) for x in [c, pc, u, pu, sig]) or sig == 0:
+            c, u, sig = float(c), float(u), float(sig)
+            if pd.isna(c) or pd.isna(u) or pd.isna(sig) or sig == 0 or c <= u:
                 continue
-            if pc <= pu and c > u:
-                excess = (c - u) / sig
-                score  = min(0.5 + excess * 0.5, 1.0)
-                events.append((i, score))
+            # Volume confirmation: today's volume ≥ mult × rolling-mean volume.
+            v   = self._volume.get(dt)
+            v_a = self._vol_avg.get(dt)
+            if v is None or v_a is None:
+                continue
+            v, v_a = float(v), float(v_a)
+            if pd.isna(v) or pd.isna(v_a) or v_a <= 0 or v < self._volume_mult * v_a:
+                continue
+            # Prior N bars must all close at-or-below the upper band.
+            contained = True
+            for k in range(1, N + 1):
+                pj = self._close.get(dts[i - k])
+                uj = self._upper.get(dts[i - k])
+                if pj is None or uj is None:
+                    contained = False
+                    break
+                pj, uj = float(pj), float(uj)
+                if pd.isna(pj) or pd.isna(uj) or pj > uj:
+                    contained = False
+                    break
+            if not contained:
+                continue
+            excess = (c - u) / sig
+            score  = min(0.5 + excess * 0.5, 1.0)
+            events.append((i, score))
         return events
 
     def detect(

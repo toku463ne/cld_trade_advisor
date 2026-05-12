@@ -41,6 +41,13 @@ from src.simulator.cache import DataCache
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["corr_flip"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "corr_flip": (
+        "**Correlation Flip** — "
+        "stock's 20-bar rolling correlation to N225 recently flipped from negative to positive, "
+        "suggesting re-entry into index-following mode at a bullish moment."
+    ),
+}
 
 
 @dataclass

@@ -32,6 +32,13 @@ from src.simulator.cache import DataCache
 
 SIGN_VALID: bool = False  # fires intrabar; not suitable for daily regime_sign benchmark
 SIGN_NAMES: list[str] = ["div_bar"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "div_bar": (
+        "**Bar Divergence** — "
+        "stock rises (>0.3%) on a bar where N225 falls (>1.5%) and prior correlation is positive. "
+        "Independent buying absorbs the broad market fall."
+    ),
+}
 
 
 class DivBarDetector:

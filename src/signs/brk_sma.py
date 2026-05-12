@@ -1,6 +1,16 @@
 """brk_sma — SMA Breakout sign detector.
 
-Fires on the bar where close crosses from below to above the N-bar SMA.
+Fires on the bar where close crosses *decisively* above the N-bar SMA, i.e.:
+  - The previous ``min_below_bars`` bars all closed at-or-below the SMA
+    (consolidation / accumulation phase below the line), AND
+  - The current bar closes above the SMA, AND
+  - The current bar's volume is at least ``volume_mult`` × the rolling-mean
+    volume over the SMA window (default 1.5×) — classic breakout-confirmation
+    filter that separates real accumulation breakouts from low-conviction noise.
+
+A pure 1-bar crossover (close[i-1] ≤ SMA, close[i] > SMA) is not enough — we
+require sustained pre-crossover containment AND volume confirmation to filter
+noisy oscillation around the line.
 
 Score = min((close − SMA) / SMA, 0.02) / 0.02
   Normalised distance above SMA at the crossing bar; saturates at 2 %.
@@ -36,6 +46,13 @@ _SCORE_SMA_CAP = 0.02  # distance at which score saturates to 1.0
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["brk_sma"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "brk_sma": (
+        "**SMA Breakout** — "
+        "price crosses from below to above the N-bar simple moving average. "
+        "Validates resumption of the uptrend."
+    ),
+}
 
 
 class BrkSmaDetector:
@@ -45,34 +62,63 @@ class BrkSmaDetector:
         self,
         stock_cache: DataCache,
         window: int = 20,
+        min_below_bars: int = 5,
+        volume_mult: float = 1.5,
     ) -> None:
-        self._stock_code = stock_cache.stock_code
-        self._dts        = [b.dt for b in stock_cache.bars]
+        self._stock_code      = stock_cache.stock_code
+        self._dts             = [b.dt for b in stock_cache.bars]
+        self._min_below_bars  = min_below_bars
+        self._volume_mult     = volume_mult
 
         close_s    = pd.Series({b.dt: b.close for b in stock_cache.bars})
         min_p      = max(5, window // 2)
         self._sma  = close_s.rolling(window, min_periods=min_p).mean()
         self._close = close_s
 
+        vol_s         = pd.Series({b.dt: b.volume for b in stock_cache.bars}, dtype=float)
+        self._volume  = vol_s
+        self._vol_avg = vol_s.rolling(window, min_periods=min_p).mean()
+
         self._fire_events: list[tuple[int, float]] = self._scan()
 
     def _scan(self) -> list[tuple[int, float]]:
         events: list[tuple[int, float]] = []
         dts = self._dts
-        for i in range(1, len(dts)):
-            dt, prev_dt = dts[i], dts[i - 1]
+        N = self._min_below_bars
+        for i in range(N, len(dts)):
+            # Current bar must close above SMA.
+            dt = dts[i]
             c  = self._close.get(dt)
-            pc = self._close.get(prev_dt)
             s  = self._sma.get(dt)
-            ps = self._sma.get(prev_dt)
-            if any(x is None for x in [c, pc, s, ps]):
+            if c is None or s is None:
                 continue
-            c, pc, s, ps = float(c), float(pc), float(s), float(ps)
-            if any(pd.isna(x) for x in [c, pc, s, ps]) or s == 0:
+            c, s = float(c), float(s)
+            if pd.isna(c) or pd.isna(s) or s == 0 or c <= s:
                 continue
-            if pc <= ps and c > s:
-                score = min((c - s) / s, _SCORE_SMA_CAP) / _SCORE_SMA_CAP
-                events.append((i, score))
+            # Volume confirmation: today's volume ≥ mult × rolling-mean volume.
+            v   = self._volume.get(dt)
+            v_a = self._vol_avg.get(dt)
+            if v is None or v_a is None:
+                continue
+            v, v_a = float(v), float(v_a)
+            if pd.isna(v) or pd.isna(v_a) or v_a <= 0 or v < self._volume_mult * v_a:
+                continue
+            # Prior N bars must all close at-or-below SMA.
+            consolidated = True
+            for k in range(1, N + 1):
+                pj = self._close.get(dts[i - k])
+                sj = self._sma.get(dts[i - k])
+                if pj is None or sj is None:
+                    consolidated = False
+                    break
+                pj, sj = float(pj), float(sj)
+                if pd.isna(pj) or pd.isna(sj) or pj > sj:
+                    consolidated = False
+                    break
+            if not consolidated:
+                continue
+            score = min((c - s) / s, _SCORE_SMA_CAP) / _SCORE_SMA_CAP
+            events.append((i, score))
         return events
 
     def detect(

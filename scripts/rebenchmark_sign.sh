@@ -9,7 +9,8 @@
 #   2. Truncate auto-generated sections of benchmark.md (from "## Multi-Year Benchmark").
 #   3. Run benchmark → validate → report phases for the sign.
 #   4. Run sign_regime_analysis (build + analyze + report) for the sign.
-#   5. Run FY2025 out-of-sample backtest phase.
+#   5. Run sign_score_calibration (Spearman ρ + score-quartile EV table).
+#   6. Run FY2025 out-of-sample backtest phase.
 #
 # All commands use the devenv environment file.
 # Run from the project root directory.
@@ -72,17 +73,21 @@ print(f"  WARNING: marker '{marker}' not found — benchmark.md not truncated.",
 PYEOF
 
 # ── Step 3: Run benchmark → validate → report ─────────────────────────────────
-echo "[3/5] Running benchmark → validate → report for $SIGN ..."
+echo "[3/6] Running benchmark → validate → report for $SIGN ..."
 uv run --env-file devenv python -m src.analysis.sign_benchmark_multiyear \
   --phase benchmark validate report \
   --sign "$SIGN"
 
 # ── Step 4: Regime split analysis ─────────────────────────────────────────────
-echo "[4/5] Running sign_regime_analysis (build + analyze + report) ..."
+echo "[4/6] Running sign_regime_analysis (build + analyze + report) ..."
 uv run --env-file devenv python -m src.analysis.sign_regime_analysis
 
-# ── Step 5: FY2025 out-of-sample backtest ─────────────────────────────────────
-echo "[5/5] Running FY2025 out-of-sample backtest for $SIGN ..."
+# ── Step 5: Score calibration (sign_score → outcome correlation) ──────────────
+echo "[5/6] Running sign_score_calibration (Spearman ρ + quartile EV) ..."
+uv run --env-file devenv python -m src.analysis.sign_score_calibration
+
+# ── Step 6: FY2025 out-of-sample backtest ─────────────────────────────────────
+echo "[6/6] Running FY2025 out-of-sample backtest for $SIGN ..."
 uv run --env-file devenv python -m src.analysis.sign_benchmark_multiyear \
   --phase backtest \
   --sign "$SIGN"

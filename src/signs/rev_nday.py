@@ -41,10 +41,17 @@ from src.simulator.cache import DataCache
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["rev_nhi"]
+SIGN_DESCRIPTIONS: dict[str, str] = {
+    "rev_nhi": (
+        "**New High in Bear Market** — "
+        "stock makes a new N-day high while N225 is in a downtrend. "
+        "Very strong relative strength."
+    ),
+}
 
 
 class RevNDayDetector:
-    """Initialise once per stock hourly cache; call detect() per bar."""
+    """Initialise once per stock daily cache; call detect() per bar."""
 
     def __init__(
         self,

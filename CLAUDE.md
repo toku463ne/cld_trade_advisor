@@ -181,12 +181,14 @@ scripts/rebenchmark_sign.sh <sign_type>
 scripts/rebenchmark_sign.sh str_lead
 ```
 
-**What the script does (5 steps):**
+**What the script does (6 steps):**
 1. Deletes all `SignBenchmarkRun` rows (and cascaded events) for the sign from the dev DB.
 2. Truncates `benchmark.md` at the `## Multi-Year Benchmark` section header.
 3. Runs `sign_benchmark_multiyear --phase benchmark validate report --sign <sign>`.
 4. Runs `sign_regime_analysis` (rebuilds ADX+Kumo regime snapshots and report).
-5. Runs `sign_benchmark_multiyear --phase backtest --sign <sign>` (FY2025 OOS).
+5. Runs `sign_score_calibration` (Spearman ρ + score-quartile EV table — answers
+   "is `sign_score` actually informative?"; processes ALL signs from DB).
+6. Runs `sign_benchmark_multiyear --phase backtest --sign <sign>` (FY2025 OOS).
 
 **After the script completes:**
 - Review the new tables in `src/analysis/benchmark.md`.
@@ -194,8 +196,9 @@ scripts/rebenchmark_sign.sh str_lead
 - If the sign's regime behaviour changed, update the sign's note in `## Per-Sign Notes`.
 
 **Note**: The script only rebenchmarks the named sign; other signs in `benchmark.md`
-are preserved. Steps 4 (`sign_regime_analysis`) and 5 (backtest) process ALL signs
-found in the DB, so all regime tables are regenerated consistently each time.
+are preserved. Steps 4 (`sign_regime_analysis`), 5 (`sign_score_calibration`), and
+6 (backtest) process ALL signs found in the DB, so all regime / calibration tables
+are regenerated consistently each time.
 
 ## DB Schema Changes
 Always generate an Alembic migration file and get it reviewed before applying.
