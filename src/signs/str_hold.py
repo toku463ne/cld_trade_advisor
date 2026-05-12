@@ -9,10 +9,9 @@ Fires on the first hourly bar of a trading day when, over the rolling
 Daily returns are derived from hourly caches (last close of each date),
 so the detector accepts the same 1 h caches as div_bar / corr_flip.
 
-Score = rel_gap_norm × 0.5 + consistency × 0.3 + n225_depth_bonus × 0.2
-  rel_gap_norm     = min((stock_5d - n225_5d) / 0.05, 1.0)
-  consistency      = consistent_days / 5
-  n225_depth_bonus = min(|n225_5d_ret| / 0.05, 1.0)
+Score = rel_gap_norm × 0.6 + consistency × 0.4
+  rel_gap_norm = min((stock_5d - n225_5d) / 0.05, 1.0)
+  consistency  = consistent_days / 5
 
 Valid for up to ``valid_bars`` *trading days* after firing (time-bounded only).
 """
@@ -50,8 +49,7 @@ _N225_5D_MAX         = -0.02
 _STOCK_5D_MIN        = -0.005
 _MIN_DAYS_OUTPERFORM =  3
 
-_REL_GAP_CAP    = 0.05
-_N225_DEPTH_CAP = 0.05
+_REL_GAP_CAP = 0.05
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["str_hold"]
@@ -133,10 +131,9 @@ class StrHoldDetector:
             if consistent_days < _MIN_DAYS_OUTPERFORM:
                 continue
 
-            rel_gap_norm     = min((s5 - n5) / _REL_GAP_CAP, 1.0)
-            consistency_sc   = consistent_days / 5.0
-            n225_depth_bonus = min(abs(n5) / _N225_DEPTH_CAP, 1.0)
-            score = rel_gap_norm * 0.5 + consistency_sc * 0.3 + n225_depth_bonus * 0.2
+            rel_gap_norm   = min((s5 - n5) / _REL_GAP_CAP, 1.0)
+            consistency_sc = consistent_days / 5.0
+            score = rel_gap_norm * 0.6 + consistency_sc * 0.4
 
             self._fire_events.append((date_to_first[d], d, score))
 

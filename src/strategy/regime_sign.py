@@ -110,16 +110,13 @@ def _rolling_corr(
     ref_cache:   DataCache,
     window: int = _CORR_WINDOW,
 ) -> dict[datetime.date, float]:
-    """Return {date: rolling_corr} for the stock vs ref using daily closes."""
-    sc = {b.dt.date(): b.close for b in stock_cache.bars}
-    rc = {b.dt.date(): b.close for b in ref_cache.bars}
-    common = sorted(set(sc) & set(rc))
-    if len(common) < window:
-        return {}
-    df = pd.DataFrame({"s": [sc[d] for d in common], "r": [rc[d] for d in common]},
-                      index=common)
-    corr = df["s"].rolling(window).corr(df["r"])
-    return {d: float(v) for d, v in corr.items() if not math.isnan(v)}
+    """Return {date: rolling_corr_of_returns} for the stock vs ref.
+
+    Delegates to _rolling_corr_series — both must use daily-return
+    correlation (raw-close correlation is upward-biased in trending tape).
+    """
+    series = _rolling_corr_series(stock_cache, ref_cache, window)
+    return {d: float(v) for d, v in series.items() if not math.isnan(v)}
 
 
 def _rolling_corr_series(

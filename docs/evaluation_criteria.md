@@ -121,3 +121,25 @@ Final verdicts are one of:
 
 The judge MUST state confidence (H / M / L) and the single piece of
 evidence that would flip the verdict — this keeps the rubric falsifiable.
+
+---
+
+## 8. Iterated Debate Protocol
+
+When a sign/strategy decision is non-trivial, the agent cycle can run
+multiple times via the `/sign-debate <topic>` slash command (see
+`.claude/commands/sign-debate.md` for the full spec).
+
+Per iteration: `analyst → proposer → critic → judge`. If the judge
+returns "Insufficient evidence," the **Next action** field is executed
+autonomously — running an existing analysis script, reading the relevant
+benchmark section, or writing a small new one-off script — and the
+resulting evidence is fed into the next iteration. The cycle stops on
+Accept, Reject, max iterations (default 3), or when the next action
+falls outside the autonomous scope (e.g. modifying detector code or
+running a full rebench).
+
+This protocol exists so single-round "we need decomposition data first"
+verdicts do not stall the workflow on the user's manual intervention.
+The judge still produces falsifiers; the harness just resolves the
+falsifier autonomously when it can.

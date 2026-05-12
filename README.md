@@ -158,6 +158,70 @@ uv run --env-file devenv python -m src.analysis.corr_ui 8052
 
 See [src/analysis/readme_stock_corrs.md](src/analysis/readme_stock_corrs.md) for methodology and interpretation.
 
+## Sign / Strategy Debate Cycle
+
+Multi-step decisions about sign detectors and strategy parameters (revert a
+gate? loosen a threshold? redesign a score?) run through a debate cycle
+defined in `.claude/agents/` and `.claude/commands/sign-debate.md`.
+
+### Starting a debate
+
+From Claude Code in this repo:
+
+```
+/sign-debate <topic>                       # default: up to 3 iterations
+/sign-debate <topic> --max-iter 5          # cap iterations explicitly
+```
+
+Examples:
+
+```
+/sign-debate revert corr_shift state machine
+/sign-debate loosen str_lag bull-regime gate
+/sign-debate improve str_hold sign_score informativity
+```
+
+### What happens
+
+Each iteration runs five agents in order:
+
+| Agent | Role |
+|---|---|
+| `analyst`   | Reads benchmark.md / calibration / regime tables. No opinion — just numbers. |
+| `historian` | Searches memory + git log + sign module headers for prior attempts. |
+| `proposer`  | Frames one concrete change (Goal / Change / Expected impact / Evidence / Risks / Rebench scope). |
+| `critic`    | Stress-tests the proposal against `docs/evaluation_criteria.md` § 5 failure modes. |
+| `judge`     | Verdict: Accept / Reject / Insufficient evidence — with confidence (H/M/L) and a falsifier. |
+
+If the judge returns **Insufficient evidence**, the harness autonomously
+executes the judge's "Next action" — running an existing analysis script,
+querying the DB, or writing a small one-off script under
+`src/analysis/` — and loops with the new evidence. The cycle stops on
+Accept, Reject, max iterations, or when the next action falls outside the
+autonomous scope (e.g. modifying detector code, running a full rebench).
+
+### Rules and rubric
+
+All five agents share one rubric: **`docs/evaluation_criteria.md`**.
+Defines:
+- Evidence sources, weighted (§ 1)
+- Materiality thresholds (§ 3) — when a ΔDR or Δρ is worth acting on
+- Decision matrix for DR × n_events outcomes (§ 4)
+- Seven common failure modes the critic checks (§ 5)
+- Iteration protocol (§ 8)
+
+Edit the rubric when the team's bar changes; the agents pick up the new
+thresholds the next time `/sign-debate` is invoked.
+
+### What the harness will NOT do autonomously
+
+- Modify detector / strategy / portfolio code.
+- Mutate the DB (rebench writes, migrations).
+- Run a full `scripts/rebenchmark_sign.sh` — always confirmed by the user first.
+- Anything that reaches outside the repo (network calls, credentials).
+
+These stop the cycle and are reported back as recommendations.
+
 ## DB Schema Changes
 
 Always generate an Alembic migration and review before applying:
