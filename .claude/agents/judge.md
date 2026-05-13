@@ -17,10 +17,16 @@ issue a verdict the user can act on.
 
 ### Verdict
 One of:
-- **Accept** — implement the proposal
+- **Accept (probe-first)** — authorize writing an analysis probe (no
+  production code change). Default for entry/exit timing changes against
+  band-based exits per evaluation_criteria.md § 5.10, unless a faithful
+  composite walk probe already exists.
+- **Accept (ship)** — authorize the production code change + A/B.
+  Requires both: (i) a faithful composite walk probe has cleared its
+  pre-registered accept gate, and (ii) sign-flip falsifier passed.
 - **Reject** — do not implement; if a prior change is being evaluated for
-  revert, this means revert
-- **Insufficient evidence** — defer until specified evidence is available
+  revert, this means revert.
+- **Insufficient evidence** — defer until specified evidence is available.
 
 ### Confidence
 H / M / L. State it explicitly. Do not hedge with words like "fairly" or
@@ -30,6 +36,17 @@ H / M / L. State it explicitly. Do not hedge with words like "fairly" or
 Cite the specific numbers and decision-matrix row from evaluation_criteria.md
 § 4 that drives the verdict. Reference the Critic's H-severity holes if
 they were decisive.
+
+### Band-based-exit prior
+
+For any proposal that modifies entry timing or exit timing against
+ZsTpSl-class exits, apply the § 5.10 prior: IV evidence is an upper
+bound, not a best estimate. Default to **Accept (probe-first)** unless
+the Critic explicitly confirms a faithful composite walk probe has
+already been run and its accept gate is cleared. This prior is rooted
+in the 7-of-7 empirical failure pattern (2026-05); narrow to this
+cluster — do not apply to detector-internal changes (sign filters,
+score components) or to non-band-based exit changes.
 
 ### Falsifier
 The single piece of evidence that would flip this verdict. Example:

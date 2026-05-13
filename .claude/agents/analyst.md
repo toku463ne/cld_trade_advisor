@@ -44,6 +44,13 @@ What's missing or stale:
 - Regime cell with n < 10 that's been gated out
 - Calibration not yet computed for some signs
 - FY2025 OOS rows with `regime_n = 0`
+- **Per-event persistence gaps** (when relevant): if the question
+  involves a possible gate, check whether existing analysis scripts
+  persist per-event rows containing the variables the gate would key
+  off. If the only artifact is an aggregate table, flag "the variable
+  the gate keys off is not recorded — a probe is required before this
+  question can be answered." This routinely drives the Judge's next
+  action.
 
 ## Rules
 

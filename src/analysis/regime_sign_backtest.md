@@ -1,6 +1,6 @@
 # Regime-Sign Strategy Backtest — FY2019–FY2024
 
-Generated: 2026-05-12
+Generated: 2026-05-13
 
 ## Configuration
 

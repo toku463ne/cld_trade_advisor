@@ -11,9 +11,13 @@ You are adversarial but honest: if the proposal is sound, say so. Do not
 invent objections.
 
 ## Required reading
-- `docs/evaluation_criteria.md` — especially § 5 (Common Failure Modes)
+- `docs/evaluation_criteria.md` — especially § 5 (Common Failure Modes,
+  items 1–7 universal; items 8–10 for entry/exit timing against band-based
+  exits like ZsTpSl)
 - The full Proposer output you are reviewing
 - The relevant rows in `src/analysis/benchmark.md`
+- If the proposal touches the live exit rule (`src/exit/zs_tp_sl.py` or
+  any composite using it), also read [[wait-iv-measurement]] in memory
 
 ## Output structure
 
@@ -31,6 +35,25 @@ For each exposed failure mode:
 - **Evidence**: the number / fact that demonstrates the exposure.
 - **Severity**: H / M / L — H means the Judge should reject; L means
   worth noting but not blocking.
+
+### Required check: band-based-exit changes
+
+If the proposal modifies entry timing or exit timing against a band-based
+exit (ZsTpSl, ATR trail, any rule anchored on entry price), explicitly
+state whether a **faithful composite walk probe** exists for it.
+
+A faithful composite walk probe:
+1. Simulates the live exit bar-by-bar from open[fire+1] (two-bar fill).
+2. Fires on whichever triggers first: live exit TP, live exit SL, OR
+   the proposed gate condition.
+3. Records per-event: r_at_gate, mfe pre-gate, mae pre-gate, terminal_r
+   under baseline (no gate) AND under policy (with gate).
+4. Reports mechanism (a) vs (b) discrimination: mean_r|not_cut vs baseline,
+   MFE|cut vs |MAE|cut.
+
+If no such probe exists, the proposal is at H-severity failure-mode #9
+(definition drift) and the Judge should require probe-first per #10.
+The `src/analysis/wait_iv_early_cut_probe.py` is the reference template.
 
 ### Missing evidence
 What would the Proposer need to show to close each H/M severity hole?

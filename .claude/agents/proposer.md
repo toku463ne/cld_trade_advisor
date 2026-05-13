@@ -38,6 +38,23 @@ better in the chart" are not evidence.
 Three failure modes from § 5 of evaluation_criteria.md that this proposal
 is most exposed to. Be honest — flag the things the Critic will find.
 
+### Implementation path
+Pick ONE and justify:
+- **Path (a) — direct change + A/B**: only valid if (i) the proposal
+  does not affect entry/exit timing against a band-based exit, OR
+  (ii) a faithful composite walk probe has already been run and
+  cleared its accept gate.
+- **Path (b) — probe first**: required default per
+  evaluation_criteria.md § 5.10 for entry/exit timing changes against
+  band-based exits. Name the probe script path and the pre-registered
+  accept gate (Δmean_r threshold, frac_acted bounds, mechanism check,
+  sign-flip falsifier cell). Reference template:
+  `src/analysis/wait_iv_early_cut_probe.py`.
+
+If you pick (a) for a band-based-exit change without an existing probe,
+expect the Critic to flag it as H-severity § 5.9 and the Judge to
+convert to Accept (probe-first).
+
 ### Rebench scope
 Which signs need re-running (`scripts/rebenchmark_sign.sh <sign>`), and
 roughly how long the rebench will take.

@@ -1031,3 +1031,83 @@ Detects whether K_dyn lift is selectivity (drops are losers) or survivorship (dr
 | **str_lead** | high |   364 |  +0.0666 |  +0.0571 |  +0.0605 |
 |              | mid  |   509 |  +0.0635 |  +0.0540 |  +0.0594 |
 |              | low  |   229 |  +0.0622 |  +0.0444 |  +0.0558 |
+
+---
+
+## div_gap TP-within-K Probe (FY2018–FY2024)
+
+Generated: 2026-05-13  
+Probes the §5.3 definition-drift risk for the proposed `_WAIT_BARS = {('div_gap','high'):3, ('div_gap','mid'):2}` change.  
+For each multi-year div_gap event: simulate `ZsTpSl(tp=2.0, sl=2.0, α=0.3)` from K=0 entry (open of fire+1) using zigzag leg history at fire_date; walk forward up to 12 bars; report fraction of events whose TP or SL fires within K bars.  
+
+If a large fraction of K=0 trades exit at TP within 3 bars, the proposed wait converts those wins into missed entries — the same mechanism that cost Sharpe 3.25→1.13 in the 2026-05-12 score-retire A/B.  
+
+Judge falsifier gate: TP-within-3-bars fraction:  **<5% → Accept Phase 2  |  5–15% → Insufficient evidence  |  ≥15% → Reject**.  
+
+| corr_mode | n | TP≤K=1 | TP≤K=2 | TP≤K=3 | TP≤K=5 | TP≤K=10 | SL≤K=1 | SL≤K=2 | SL≤K=3 | SL≤K=5 | SL≤K=10 | no_exit |
+|-----------|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
+| **high** | 516 | 0.4% | 2.5% | 3.9% | 5.6% | 9.9% | 1.2% | 2.7% | 4.3% | 5.2% | 6.4% | 81.6% |
+| **mid** | 1065 | 0.3% | 1.1% | 1.8% | 3.8% | 9.2% | 1.3% | 2.2% | 3.0% | 4.3% | 7.1% | 80.8% |
+| **low** | 1062 | 0.8% | 1.5% | 2.4% | 4.0% | 9.7% | 0.7% | 1.6% | 2.6% | 4.2% | 6.9% | 79.4% |
+
+**Verdict by gate** (TP-within-3-bars):  
+- **div_gap high**: TP≤3 = 3.9% → ✅ <5% — Accept Phase 2 (env-gated A/B)  
+- **div_gap mid**: TP≤3 = 1.8% → ✅ <5% — Accept Phase 2 (env-gated A/B)  
+
+---
+
+## Wait-IV Early-Cut Probe (FY2018–FY2024)
+
+Generated: 2026-05-14  
+Faithful composite walk of `ZsTpSl(tp=2.0, sl=2.0, α=0.3)` plus a K=3-close gate that exits at open of bar 4 (two-bar fill) if signed_return at K=3 close ≤ θ.  
+Long-only — matches `regime_sign_backtest` which builds `EntryCandidate` without a direction field.  
+ZsTpSl TP/SL is checked on bars 1..3 each bar; whichever fires first (TP, SL, or gate) determines the exit. baseline = no gate; policy = with gate.  
+
+### Per-cell × θ table
+
+| sign | corr | Q | n | θ | frac_cut | baseline_r | policy_r | Δmean_r | MFE\|cut | MAE\|cut | not_cut_r | role |
+|------|------|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|------|
+| div_gap | mid | Q4 | 266 | -1% | 31.6% | +1.83pp | +1.30pp | **-0.53pp** | +0.10pp | -5.65pp | +3.76pp | PRIMARY |
+| div_gap | mid | Q4 | 266 | -2% | 24.4% | +1.83pp | +1.53pp | **-0.30pp** | -0.31pp | -6.10pp | +3.51pp | PRIMARY |
+| div_gap | mid | Q4 | 266 | -3% | 15.4% | +1.83pp | +1.60pp | **-0.23pp** | -1.32pp | -7.65pp | +3.01pp | PRIMARY |
+| div_gap | high | Q4 | 129 | -1% | 28.7% | +4.29pp | +2.44pp | **-1.85pp** | -0.36pp | -8.08pp | +5.25pp | confirm |
+| div_gap | high | Q4 | 129 | -2% | 23.3% | +4.29pp | +2.79pp | **-1.51pp** | -0.85pp | -8.91pp | +5.24pp | confirm |
+| div_gap | high | Q4 | 129 | -3% | 17.8% | +4.29pp | +3.02pp | **-1.27pp** | -1.52pp | -10.65pp | +4.98pp | confirm |
+| div_gap | mid | Q3 | 266 | -1% | 33.8% | +2.16pp | +1.39pp | **-0.77pp** | +0.63pp | -5.82pp | +4.11pp | confirm |
+| div_gap | mid | Q3 | 266 | -2% | 25.2% | +2.16pp | +1.51pp | **-0.65pp** | +0.25pp | -6.67pp | +3.66pp | confirm |
+| div_gap | mid | Q3 | 266 | -3% | 18.8% | +2.16pp | +1.55pp | **-0.61pp** | +0.19pp | -7.67pp | +3.17pp | confirm |
+| div_gap | high | Q3 | 129 | -1% | 40.3% | +3.06pp | +0.59pp | **-2.48pp** | +0.28pp | -5.18pp | +3.48pp | confirm |
+| div_gap | high | Q3 | 129 | -2% | 31.8% | +3.06pp | +1.22pp | **-1.84pp** | -0.12pp | -5.93pp | +3.79pp | confirm |
+| div_gap | high | Q3 | 129 | -3% | 23.3% | +3.06pp | +1.77pp | **-1.29pp** | -0.09pp | -6.64pp | +3.81pp | confirm |
+| rev_nlo | low | Q4 | 43 | -1% | 51.2% | +3.17pp | +2.19pp | **-0.98pp** | +0.24pp | -4.85pp | +8.95pp | sign-flip |
+| rev_nlo | low | Q4 | 43 | -2% | 44.2% | +3.17pp | +2.54pp | **-0.63pp** | +0.31pp | -5.07pp | +8.27pp | sign-flip |
+| rev_nlo | low | Q4 | 43 | -3% | 20.9% | +3.17pp | +3.56pp | **+0.39pp** | -0.42pp | -7.50pp | +6.24pp | sign-flip |
+
+### Accept gate — div_gap × mid × Q4 (PRIMARY)
+
+Required (all four): Δmean_r ≥ +0.30pp; frac_cut ∈ [5%, 25%]; MFE_03 < |MAE_03| in cut cohort; mean_r|not_cut ≥ baseline − 0.10pp.  
+
+- θ=-3%: Δmean_r=-0.23pp (✗), frac_cut=15.4% (✓), MFE<|MAE| (✓), not_cut≥baseline−0.10pp (✓)
+- θ=-2%: Δmean_r=-0.30pp (✗), frac_cut=24.4% (✓), MFE<|MAE| (✓), not_cut≥baseline−0.10pp (✓)
+- θ=-1%: Δmean_r=-0.53pp (✗), frac_cut=31.6% (✗), MFE<|MAE| (✓), not_cut≥baseline−0.10pp (✓)
+- no θ cleared all four
+
+**Primary verdict: REJECT**  
+
+### Sign-flip falsifier — rev_nlo × low × Q4
+
+If rev_nlo × low × Q4 also lifts Δmean_r ≥ +0.20pp at any θ, the gate is generic noise reduction (not a div_gap cohort identifier) → overall REJECT.  
+
+- θ=-3%: Δmean_r=+0.39pp (generic filter)
+
+**Sign-flip falsifier: FAIL**  
+
+### Overall: **REJECT — generic noise filter, not cohort-specific**
+
+---
+
+## USDJPY Corr-Axis Probe (FY2021–FY2025) — 2026-05-14
+
+Probe-only. Full table at `data/analysis/usdjpy_corr_axis/probe_2026-05-14.md`.  
+Verdict: **ACCEPT (proceed to prototype `corr_mode_tuple` extension)**  
+Best cell ΔDR: +27.35pp (shuffle p=0.0000, 1000 perms)

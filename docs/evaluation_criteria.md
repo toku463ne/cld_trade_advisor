@@ -71,6 +71,10 @@ For a sign change being evaluated against rebench results:
 
 ## 5. Common Failure Modes (the Critic's checklist)
 
+Failure modes 1–7 apply to all changes. Items 8–10 apply specifically to
+changes that touch entry/exit timing against band-based exits (ZsTpSl,
+ATR trail) — the cluster where 7-of-7 May 2026 A/Bs failed.
+
 1. **Sample-size illusion**: n < 100 events in a cell is too noisy to read DR
    from. Aggregate before drawing a conclusion.
 2. **Regime overfit**: a gate trained on a bull-heavy window will look great
@@ -88,6 +92,33 @@ For a sign change being evaluated against rebench results:
 7. **Forward-looking leakage**: a regime label that uses any data from after
    `fire_date` will inflate DR. Confirm regime snapshot is built strictly
    from history.
+8. **Wait-IV survivor-inflation trap**: when an IV measures "remaining
+   move to the original target" (e.g. peak − entry_K), a positive K>0
+   lift can come from either (a) survivor magnitude inflation — events
+   that drop out by K had small original magnitudes — or (b) the dropped
+   cohort being identifiable in real time. Only (b) supports a live gate.
+   Discriminate by asking: under the live exit, what does the "would-be-
+   dropped" cohort earn vs the "would-be-kept" cohort? If the dropped
+   cohort recovers under the live exit, mechanism (a) dominates and the
+   IV's lift is not ship-able.
+9. **Band-based exit definition drift**: any IV that measures alpha
+   against a fixed target (peak, original_signed_return, fixed-horizon
+   return) over-counts the alpha available to a band-based exit
+   (ZsTpSl, ATR trail). The live exit truncates the path at TP/SL on
+   intermediate bars — alpha after the band fires is unrealisable. Any
+   change against a band-based exit MUST be validated via a faithful
+   composite walk probe (simulate the live exit bar-by-bar with the
+   proposed gate) before A/B is authorized. The TP-within-K probe
+   alone is NECESSARY BUT NOT SUFFICIENT — it shows whether the band
+   pre-empts the gate, but not whether the cohort the gate selects is
+   actually doomed under the live exit.
+10. **IV-to-A/B optimism on entry/exit timing**: empirical prior from
+    7-of-7 failed A/Bs in 2026-05 — Wait-K-style IV lifts for div_gap
+    and the 5 May entry-side detector changes all over-predicted live
+    A/B performance by 0.2–1.5pp Δmean_r. Treat IV evidence for
+    entry-timing or exit-timing changes against ZsTpSl-class exits as
+    *upper bound* on live impact, not best estimate. Probe-first is
+    the default path; direct-to-A/B requires explicit justification.
 
 ---
 
