@@ -83,8 +83,8 @@ echo "[4/6] Running sign_regime_analysis (build + analyze + report) ..."
 uv run --env-file devenv python -m src.analysis.sign_regime_analysis
 
 # ── Step 5: Score calibration (sign_score → outcome correlation) ──────────────
-echo "[5/6] Running sign_score_calibration (Spearman ρ + quartile EV) ..."
-uv run --env-file devenv python -m src.analysis.sign_score_calibration
+echo "[5/6] Running sign_score_calibration (Spearman ρ + quartile EV + by-regime) ..."
+uv run --env-file devenv python -m src.analysis.sign_score_calibration --by-regime
 
 # ── Step 6: FY2025 out-of-sample backtest ─────────────────────────────────────
 echo "[6/6] Running FY2025 out-of-sample backtest for $SIGN ..."
