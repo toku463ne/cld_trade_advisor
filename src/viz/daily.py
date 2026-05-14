@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import json
 import math
+import os
 import threading
 from typing import Any
 
@@ -23,6 +24,7 @@ from ta.trend import ADXIndicator
 
 from src.analysis.models import SignBenchmarkRun
 from src.data.db import get_session
+from src.data.models import Stock
 from src.indicators.ichimoku import calc_ichimoku
 from src.indicators.moving_corr import compute_moving_corr
 from src.indicators.zigzag import detect_peaks
@@ -36,7 +38,7 @@ from src.portfolio.crud import (
 from src.portfolio.models import Position
 from src.simulator.cache import DataCache
 from src.strategy.proposal import SignalProposal
-from src.strategy.regime_sign import RegimeSignStrategy
+from src.strategy.regime_sign import _CERTIFIED_SECTOR_BONUS, RegimeSignStrategy
 from src.viz.palette import ACCENT, BG, BORDER, CARD_BG, GREEN, MUTED, RED, SIDEBAR_BG, TEXT
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -50,6 +52,60 @@ _MIN_DR        = 0.52
 _LOOKBACK_DAYS = 230    # 200 warmup + 30 buffer
 _GRAN          = "1d"
 _CHART_BARS    = 160    # bars shown in chart (extra loaded for SMA warmup)
+
+# ── Decision factors (Daily tab factor panel) ─────────────────────────────────
+# Per evaluation_criteria.md §5.11: every factor shown must carry measured
+# strength + sample size + provenance, and no A/B-negative factor is displayed.
+#
+# Sector decision factor — v1 display set. Certified by sign_sector_axis_probe
+# (data/analysis/sign_sector_axis/probe_2026-05-14.md): per-cell shuffle p<0.05,
+# OOS test n≥100 with positive ΔDR, passed dual-axis orthogonality gate.
+# rev_nhi×銀行 was also probe-certified but is EXCLUDED here — the strategy A/B
+# (ab_2026-05-14.md) showed it loses money live (−1.42% mean_r), and §5.11
+# forbids showing an A/B-negative factor on the decision surface.
+_SECTOR_FACTOR_DISPLAY: dict[tuple[str, str], dict[str, Any]] = {
+    ("str_hold", "不動産"):     {"delta_ev": 0.0128, "oos_test_n": 109, "oos_ddr": "+4.8pp"},
+    ("rev_nlo",  "電機・精密"): {"delta_ev": 0.0142, "oos_test_n": 140, "oos_ddr": "+2.8pp"},
+}
+_SECTOR_PROVENANCE  = "data/analysis/sign_sector_axis/probe_2026-05-14.md"
+_REGIME_MIN_READ_N  = 100   # §5.1 — below this a cell DR is too noisy to read
+
+# Kumo informativeness per sign — DR spread across (above/inside/below) kumo
+# states, from benchmark.md § Regime-Split (Ichimoku Kumo table, FY2018–FY2024).
+# Kumo is the lookup key for the regime cell already shown — this caption tells
+# the reader whether that key actually differentiates outcomes for the sign, or
+# is flat noise (e.g. brk_bol: 0.6pp spread). Not a standalone factor (§5.11) —
+# it lives in the context block as a caption on the regime cell.
+_KUMO_INFORMATIVENESS: dict[str, str] = {
+    "str_lead":   "strong — 25pp DR spread across kumo states",
+    "div_peer":   "strong — 20pp DR spread",
+    "rev_nlo":    "strong — 20pp DR spread",
+    "str_hold":   "strong — 10pp DR spread ('above' is ~a coin flip)",
+    "rev_hi":     "strong — 8pp DR spread ('above' is noise)",
+    "brk_sma":    "moderate — 9pp spread but n-thin",
+    "div_gap":    "moderate — 8pp DR spread",
+    "rev_lo":     "moderate — 6pp DR spread",
+    "corr_flip":  "flat — all 3 states are noise (sign itself weak)",
+    "str_lag":    "flat — 3pp spread, all states noise",
+    "rev_nhi":    "flat — 3pp DR spread",
+    "brk_bol":    "flat — 0.6pp spread, kumo says nothing here",
+    "corr_shift": "flat — spread is noise-driven, 2/3 states not significant",
+    "rev_nhold":  "unknown — n too thin to read",
+}
+
+_sector_map_cache: dict[str, str] = {}
+
+
+def _load_sector_map() -> dict[str, str]:
+    """{stock_code: sector17} — cached; populated from the stocks master table."""
+    if not _sector_map_cache:
+        with get_session() as session:
+            for code, sector in session.execute(
+                select(Stock.code, Stock.sector17)
+            ).all():
+                if sector:
+                    _sector_map_cache[code] = sector
+    return _sector_map_cache
 
 # ── Sign descriptions — loaded dynamically from each sign module ───────────────
 
@@ -193,24 +249,42 @@ def _adx_state_str(adx: float, adx_pos: float, adx_neg: float) -> str:
 
 
 def _proposals_to_json(proposals: list[SignalProposal]) -> str:
+    sector_map = _load_sector_map()
     rows = [
         {
             "stock":     p.stock_code,
             "sign":      p.sign_type,
             "corr":      p.corr_mode,
+            "corr_n225": (None if p.corr_n225 is None or math.isnan(p.corr_n225)
+                          else round(p.corr_n225, 3)),
             "kumo":      _kumo_text(p.kumo_state),
             "kumo_int":  p.kumo_state,
             "dr":        round(p.regime_dr, 4),
             "ev":        round(p.regime_ev, 5),
             "bench_flw": round(p.regime_bench_flw, 5),
+            "regime_n":  p.regime_n,
             "adx":       round(p.adx, 1),
             "adx_state": _adx_state_str(p.adx, p.adx_pos, p.adx_neg),
             "score":     round(p.sign_score, 3),
+            "sector":    sector_map.get(p.stock_code),
             "fired_at":  p.fired_at.strftime("%Y-%m-%d"),
         }
         for p in proposals
     ]
-    rows.sort(key=lambda r: (-r["ev"], r["stock"]))
+    # Order by the strategy's own recommendation composite, not raw EV alone.
+    # regime_ev is a (sign, kumo)-cell aggregate, so a raw-EV sort leaves many
+    # stocks tied (identical EV for every stock firing that sign in that
+    # regime). The strategy's _sort_stock/_sort_n225 break those ties with
+    # (EV + certified-sector tilt) then sign_score — this matches that key so
+    # the table stops discarding the ranking the strategy already computed.
+    sector_on = bool(os.environ.get("RS_SECTOR_FACTOR"))
+
+    def _rec_key(r: dict[str, Any]) -> tuple[float, float, str]:
+        bonus = (_CERTIFIED_SECTOR_BONUS.get((r["sign"], r["sector"]), 0.0)
+                 if sector_on else 0.0)
+        return (-(r["ev"] + bonus), -r["score"], r["stock"])
+
+    rows.sort(key=_rec_key)
     return json.dumps(rows)
 
 
@@ -753,6 +827,119 @@ def _regime_card(
     ]
 
 
+# ── Decision factor panel ─────────────────────────────────────────────────────
+
+def _factor_panel(row: dict[str, Any]) -> list:
+    """Per-stock decision-factor panel for a selected proposal row.
+
+    Implements docs/evaluation_criteria.md §5.11: every factor carries measured
+    strength + sample size + provenance; cell-level aggregates live in a
+    separate "context, not stock-specific" block; no A/B-negative factor shown.
+    """
+    sign   = row["sign"]
+    stock  = row["stock"]
+    sector = row.get("sector")
+
+    def _header(text: str) -> html.Div:
+        return html.Div(
+            text,
+            style={"color": MUTED, "fontSize": "10px", "textTransform": "uppercase",
+                   "letterSpacing": "0.5px", "marginTop": "8px", "marginBottom": "4px"},
+        )
+
+    def _factor_row(label: str, body: str, *, tier: str, caption: str) -> html.Div:
+        border = f"3px solid {GREEN}" if tier == "production" else f"3px dashed {MUTED}"
+        return html.Div(
+            style={"borderLeft": border, "padding": "3px 0 3px 8px", "marginBottom": "6px"},
+            children=[
+                html.Div([
+                    html.Span(f"{label}: ", style={"color": MUTED, "fontSize": "12px"}),
+                    html.Span(body, style={"color": TEXT, "fontSize": "12px",
+                                           "fontWeight": "600"}),
+                ]),
+                html.Div(caption, style={"color": MUTED, "fontSize": "10px",
+                                         "fontStyle": "italic"}),
+            ],
+        )
+
+    children: list = [
+        html.Div(
+            f"Decision Factors — {stock} · {sign}",
+            style={"color": ACCENT, "fontWeight": "600", "fontSize": "12px"},
+        ),
+        html.Div(
+            "Nothing here is a guarantee — each factor shows its measured "
+            "strength and evidence source.",
+            style={"color": MUTED, "fontSize": "10px", "marginBottom": "4px"},
+        ),
+        _header("Per-stock factors"),
+    ]
+
+    # ── Corr mode (production) ──
+    cm = row.get("corr") or "?"
+    cn = row.get("corr_n225")
+    cn_txt = f"ρ={cn:+.2f} vs N225" if cn is not None else "ρ unavailable"
+    cm_interp = {
+        "high": "index proxy — take one bet only (CLAUDE.md high-corr rule)",
+        "low":  "independent alpha — genuine diversification",
+        "mid":  "neither proxy nor clearly independent",
+    }.get(cm, "")
+    children.append(_factor_row(
+        "Corr mode", f"{cm}  ({cn_txt})",
+        tier="production",
+        caption=f"{cm_interp}  ·  src: regime_sign 20-bar rolling corr",
+    ))
+
+    # ── Sector factor (experimental) ──
+    cell = _SECTOR_FACTOR_DISPLAY.get((sign, sector)) if sector else None
+    if cell:
+        children.append(_factor_row(
+            "Sector",
+            f"{sector} — certified for {sign}: +{cell['delta_ev'] * 100:.2f}pp ΔEV",
+            tier="experimental",
+            caption=(f"OOS test n={cell['oos_test_n']} (≥100), OOS ΔDR {cell['oos_ddr']}  ·  "
+                     f"src: {_SECTOR_PROVENANCE}"),
+        ))
+    else:
+        children.append(_factor_row(
+            "Sector", f"{sector or 'unknown'} — no certified factor for {sign} here",
+            tier="experimental",
+            caption=f"only 2 (sign, sector) cells are certified  ·  src: {_SECTOR_PROVENANCE}",
+        ))
+
+    # ── Context block — NOT stock-specific ──
+    children.append(_header("Context — not stock-specific"))
+    rn = row.get("regime_n") or 0
+    dr = row.get("dr") or 0.0
+    ev = row.get("ev") or 0.0
+    cell_txt = (f"({sign}, kumo {row.get('kumo', '?')}) cell: "
+                f"DR {dr:.1%}, EV {ev:+.4f}, n={rn}")
+    if rn < _REGIME_MIN_READ_N:
+        cell_caption = (f"n<{_REGIME_MIN_READ_N} — too small to read reliably (§5.1)  ·  "
+                        "aggregate over every stock firing this sign in this regime")
+        cell_color = MUTED
+    else:
+        cell_caption = ("aggregate over every stock firing this sign in this regime — "
+                        "does NOT distinguish stocks  ·  src: benchmark.md § Regime-Split")
+        cell_color = TEXT
+    kumo_info = _KUMO_INFORMATIVENESS.get(sign, "unrated")
+    children.append(html.Div(
+        style={"borderLeft": f"3px dotted {MUTED}", "padding": "3px 0 3px 8px"},
+        children=[
+            html.Div(cell_txt, style={"color": cell_color, "fontSize": "12px"}),
+            html.Div(cell_caption, style={"color": MUTED, "fontSize": "10px",
+                                          "fontStyle": "italic"}),
+            html.Div(
+                f"Kumo as a factor for {sign}: {kumo_info}  ·  "
+                "src: benchmark.md § Regime-Split",
+                style={"color": MUTED, "fontSize": "10px", "fontStyle": "italic",
+                       "marginTop": "2px"},
+            ),
+        ],
+    ))
+    return children
+
+
 # ── Styles ────────────────────────────────────────────────────────────────────
 
 _S_CARD: dict[str, Any] = {
@@ -928,6 +1115,13 @@ def layout() -> html.Div:
 
                     dcc.Store(id="daily-proposals-store"),
                     dcc.Store(id="daily-pos-selected-store"),
+
+                    # Decision factors panel (shown when a row is selected)
+                    html.Div(
+                        id="daily-factor-panel",
+                        style={"display": "none"},
+                        children=[],
+                    ),
 
                     # ── Register form (shown when a row is selected) ──────────
                     html.Div(
@@ -1179,6 +1373,28 @@ def register_callbacks() -> None:
             for r in rows
         ]
         return table_rows, tooltip_data
+
+    @callback(
+        Output("daily-factor-panel", "children"),
+        Output("daily-factor-panel", "style"),
+        Input("daily-table", "selected_rows"),
+        Input("daily-proposals-store", "data"),
+    )
+    def update_factor_panel(
+        selected_rows: list[int], store_data: str | None
+    ) -> tuple:
+        hidden = {"display": "none"}
+        visible = {
+            "display": "block", "marginTop": "12px",
+            "background": CARD_BG, "border": f"1px solid {BORDER}",
+            "borderRadius": "6px", "padding": "12px",
+        }
+        if not selected_rows or not store_data:
+            return [], hidden
+        rows = json.loads(store_data)
+        if selected_rows[0] >= len(rows):
+            return [], hidden
+        return _factor_panel(rows[selected_rows[0]]), visible
 
     @callback(
         Output("daily-chart", "figure"),

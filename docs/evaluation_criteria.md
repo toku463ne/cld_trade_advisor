@@ -119,6 +119,30 @@ ATR trail) — the cluster where 7-of-7 May 2026 A/Bs failed.
     entry-timing or exit-timing changes against ZsTpSl-class exits as
     *upper bound* on live impact, not best estimate. Probe-first is
     the default path; direct-to-A/B requires explicit justification.
+11. **Multi-factor display dilution**: a UI that shows several weak factors
+    side-by-side invites the reader to average them as equal evidence. A
+    per-stock decision-factor display (e.g. the Daily tab factor panel) is
+    honest only if every factor obeys all of:
+    - **Measured strength shown** — each factor renders with its effect
+      size (ΔEV / ΔDR / ρ), never a bare label.
+    - **Sample size shown; n ≥ 100 to read as a factor** — a factor backed
+      by n < 100 (§5.1) renders greyed and captioned "too small to read",
+      not silently dropped and not shown at full strength.
+    - **Provenance link** — each factor names the `benchmark.md` section or
+      `data/analysis/` artifact it comes from. No factor renders without it.
+    - **No per-stock claim for cell-level aggregates** — regime EV/DR, sign
+      calibration ρ, and any (sign, kumo) cell statistic are NOT per-stock;
+      they must sit in a visually separate "context, not stock-specific"
+      block, never listed as a factor that distinguishes one stock from
+      another firing the same sign.
+    - **No A/B-negative factor** — a factor that lost money in a faithful
+      strategy A/B (e.g. `rev_nhi×銀行`, −1.42% mean_r, `ab_2026-05-14.md`)
+      is not shown on the decision surface at all. Presence in a "decision
+      factors" panel is implicit endorsement; a warning label is not a
+      counterweight. "We tested it and it loses" belongs in `benchmark.md`.
+    - **Production vs experimental tier** — factors validated OOS render in
+      the production tier; in-sample-only or mixed-evidence factors render
+      in a visually distinct experimental tier.
 
 ---
 
