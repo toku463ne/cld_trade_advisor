@@ -107,6 +107,22 @@ def _load_sector_map() -> dict[str, str]:
                     _sector_map_cache[code] = sector
     return _sector_map_cache
 
+
+_name_map_cache: dict[str, str] = {}
+
+
+def _load_name_map() -> dict[str, str]:
+    """{stock_code: company name} — cached; from the stocks master table."""
+    if not _name_map_cache:
+        with get_session() as session:
+            for code, name in session.execute(
+                select(Stock.code, Stock.name)
+            ).all():
+                if name:
+                    _name_map_cache[code] = name
+    return _name_map_cache
+
+
 # ── Sign descriptions — loaded dynamically from each sign module ───────────────
 
 def _load_sign_descriptions() -> dict[str, str]:
@@ -265,9 +281,11 @@ def _proposals_to_json(
     ranking_evs: list[float] | None = None,
 ) -> str:
     sector_map = _load_sector_map()
+    name_map   = _load_name_map()
     rows = [
         {
             "stock":     p.stock_code,
+            "name":      name_map.get(p.stock_code),
             "sign":      p.sign_type,
             "corr":      p.corr_mode,
             "corr_n225": (None if p.corr_n225 is None or math.isnan(p.corr_n225)
@@ -899,6 +917,10 @@ def _factor_panel(row: dict[str, Any]) -> list:
 
     children: list = [
         html.Div(
+            row.get("name") or stock,
+            style={"color": TEXT, "fontWeight": "700", "fontSize": "15px"},
+        ),
+        html.Div(
             f"Decision Factors — {stock} · {sign}",
             style={"color": ACCENT, "fontWeight": "600", "fontSize": "12px"},
         ),
@@ -1170,7 +1192,7 @@ def layout() -> html.Div:
                                 ],
                                 sort_action="native",
                                 sort_mode="single",
-                                page_size=10,
+                                page_size=5,
                             ),
                         ],
                     ),
