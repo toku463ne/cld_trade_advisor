@@ -25,8 +25,8 @@
     "deny": [
       "Bash(pip:*)",
       "Bash(rm -rf /*)",
-      "Bash(curl:*sbi-securities*)",
-      "Bash(curl:*rakuten-sec*)"
+      "Bash(curl*sbi-securities*)",
+      "Bash(curl*rakuten-sec*)"
     ]
   }
 }
