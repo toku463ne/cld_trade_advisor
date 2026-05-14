@@ -53,6 +53,7 @@ from __future__ import annotations
 import datetime
 import math
 import os
+import random
 from collections import defaultdict
 from typing import Any, NamedTuple
 
@@ -100,6 +101,12 @@ _CERTIFIED_SECTOR_BONUS: dict[tuple[str, str], float] = {
     ("str_hold", "不動産"):     0.0128,
     ("rev_nlo",  "電機・精密"): 0.0142,
 }
+
+# Pick-mode robustness probe instrumentation (env gate RS_PICK_MODE).
+# Only mutated when the gate is on — counts how often the daily top-EV group
+# had >1 tied candidate (i.e. how often the sign_score tiebreak actually had
+# something to break). Read+reset by src/analysis/sign_pick_robustness.py.
+_PICK_STATS: dict[str, int] = {"picks": 0, "tied_picks": 0}
 
 # Ichimoku periods
 _TENKAN_P = 9
@@ -436,6 +443,17 @@ class RegimeSignStrategy(ProposalStrategy):
         }
         logger.info("Sector labels loaded: {} stocks", len(self._sector_map))
 
+        # ── Pick-mode robustness probe (env-gated; default = argmax) ──────────
+        # RS_PICK_MODE="random_evtie" → pick uniformly at random from the
+        # EV-tied top group of each corr bucket instead of the sign_score
+        # argmax. RS_PICK_SEED makes the walk-forward reproducible. Default
+        # (unset) is byte-identical to the original argmax behaviour.
+        self._pick_mode = os.environ.get("RS_PICK_MODE", "")
+        self._pick_rng = (
+            random.Random(int(os.environ.get("RS_PICK_SEED", "0")))
+            if self._pick_mode else None
+        )
+
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _valid_bars_for(self, sign: str) -> int:
@@ -617,13 +635,29 @@ class RegimeSignStrategy(ProposalStrategy):
         mid_proposals.sort(key=_sort_n225)
         low_proposals.sort(key=_sort_stock)
 
+        # Default: take the argmax ([0]) of the sorted list. Under the
+        # RS_PICK_MODE robustness probe: pick uniformly at random from the
+        # EV-tied top group — i.e. all candidates sharing the max
+        # (regime_ev + sector_bonus) — to test whether the sign_score tiebreak
+        # below EV-granularity carries signal or is noise.
+        def _pick(props: list[SignalProposal]) -> SignalProposal:
+            if not self._pick_mode or self._pick_rng is None:
+                return props[0]
+            top = props[0].regime_ev + _sector_bonus(props[0])
+            tied = [p for p in props
+                    if p.regime_ev + _sector_bonus(p) == top]
+            _PICK_STATS["picks"] += 1
+            if len(tied) > 1:
+                _PICK_STATS["tied_picks"] += 1
+            return self._pick_rng.choice(tied)
+
         result_list: list[SignalProposal] = []
         if high_proposals:
-            result_list.append(high_proposals[0])
+            result_list.append(_pick(high_proposals))
 
         if effective_mode == "backtest":
             if low_proposals:
-                result_list.append(low_proposals[0])
+                result_list.append(_pick(low_proposals))
         else:  # trade: all low + all mid as extra context
             result_list.extend(low_proposals)
             result_list.extend(mid_proposals)
