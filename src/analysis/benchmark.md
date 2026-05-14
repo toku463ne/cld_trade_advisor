@@ -1120,3 +1120,19 @@ Probe-only. Full table at `data/analysis/usdjpy_corr_axis/oos_holdout_2026-05-14
 Verdict: **FAIL — OOS holdout does not reproduce**  
 Train-discovered cells: 16; OOS reproduce ΔDR>0: 10/16 (62%); mean OOS ΔDR -1.39pp.  
 Pooled test DR(U=L)−DR(U=H): +2.06pp; test shuffle p=0.0620.
+
+---
+
+## Sign × Sector Axis Probe — 2026-05-14
+
+Probe-only. Full table at `data/analysis/sign_sector_axis/probe_2026-05-14.md`.  
+Verdict: **ACCEPT (probe-first) — sector is a non-redundant per-sign factor**  
+Discovered train cells: 28; accepted (shuffle ∧ OOS ∧ orthogonality): 11; redundant with corr_mode: 0.
+
+---
+
+## Sign × Sector Axis Probe — 2026-05-14
+
+Probe-only. Full table at `data/analysis/sign_sector_axis/probe_2026-05-14.md`.  
+Verdict: **ACCEPT (probe-first) — sector is a non-redundant per-sign factor**  
+Discovered train cells: 28; accepted (shuffle ∧ OOS ∧ orthogonality): 3; redundant with corr_mode: 0.

@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import datetime
 import math
+import os
 from collections import defaultdict
 from typing import Any, NamedTuple
 
@@ -63,6 +64,7 @@ from sqlalchemy.orm import Session
 from src.analysis.models import N225RegimeSnapshot, StockClusterMember, StockClusterRun
 from src.analysis.regime_ranking import ADX_VETO, RankEntry, build_regime_ranking, rank_for_regime
 from src.data.db import get_session
+from src.data.models import Stock
 from src.simulator.cache import DataCache
 from src.signs.brk_bol import BrkBolDetector
 from src.signs.brk_sma import BrkSmaDetector
@@ -87,6 +89,17 @@ _GRAN = "1d"
 _CORR_WINDOW         = 20
 _HIGH_CORR_THRESHOLD = 0.6
 _LOW_CORR_THRESHOLD  = 0.3
+
+# Sector confidence factor (env-gated A/B — set RS_SECTOR_FACTOR=1 to enable).
+# The (sign, sector17) cells below were certified by sign_sector_axis_probe
+# (2026-05-14): per-cell shuffle p<0.05, OOS test n≥100 with positive ΔDR, and
+# a passed dual-axis (N225/USDJPY corr) orthogonality gate. The value is the
+# cell's train ΔEV — added to regime_ev as a ranking tilt, never a hard gate.
+_CERTIFIED_SECTOR_BONUS: dict[tuple[str, str], float] = {
+    ("rev_nhi",  "銀行"):       0.0096,
+    ("str_hold", "不動産"):     0.0128,
+    ("rev_nlo",  "電機・精密"): 0.0142,
+}
 
 # Ichimoku periods
 _TENKAN_P = 9
@@ -413,6 +426,16 @@ class RegimeSignStrategy(ProposalStrategy):
         }
         logger.info("Regime snapshots loaded: {} dates", len(self._snap_map))
 
+        # ── Sector labels (for the env-gated sector confidence factor) ────────
+        self._sector_map: dict[str, str] = {
+            code: sector
+            for code, sector in session.execute(
+                select(Stock.code, Stock.sector17)
+            ).all()
+            if sector
+        }
+        logger.info("Sector labels loaded: {} stocks", len(self._sector_map))
+
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _valid_bars_for(self, sign: str) -> int:
@@ -571,11 +594,24 @@ class RegimeSignStrategy(ProposalStrategy):
         # Primary tiebreak after the N225-rank position is now expected value
         # (DR×mag_flw − (1−DR)×mag_rev), so negative-EV cells (which are filtered
         # out at ranking-build time anyway) never compete for the top slot.
+        # The sector confidence factor (env-gated) tilts EV by a certified
+        # (sign, sector17) cell's ΔEV — see _CERTIFIED_SECTOR_BONUS.
+        _sector_factor_on = bool(os.environ.get("RS_SECTOR_FACTOR"))
+
+        def _sector_bonus(p: SignalProposal) -> float:
+            if not _sector_factor_on:
+                return 0.0
+            sector = self._sector_map.get(p.stock_code)
+            if sector is None:
+                return 0.0
+            return _CERTIFIED_SECTOR_BONUS.get((p.sign_type, sector), 0.0)
+
         def _sort_n225(p: SignalProposal) -> tuple[int, float, float]:
-            return (n225_sign_rank.get(p.sign_type, 999), -p.regime_ev, -p.sign_score)
+            return (n225_sign_rank.get(p.sign_type, 999),
+                    -(p.regime_ev + _sector_bonus(p)), -p.sign_score)
 
         def _sort_stock(p: SignalProposal) -> tuple[float, float]:
-            return (-p.regime_ev, -p.sign_score)
+            return (-(p.regime_ev + _sector_bonus(p)), -p.sign_score)
 
         high_proposals.sort(key=_sort_n225)
         mid_proposals.sort(key=_sort_n225)
