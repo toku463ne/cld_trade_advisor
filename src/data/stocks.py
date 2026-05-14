@@ -22,7 +22,7 @@ JPX_URL = (
 )
 
 _JPX_COLUMN_MAP = {
-    "銘柄コード": "code_raw",
+    "コード": "code_raw",
     "銘柄名": "name",
     "市場・商品区分": "market",
     "33業種区分": "sector33",
@@ -103,8 +103,8 @@ class StockManager:
     def _parse_jpx_df(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         # Keep only columns we care about (ignore any extras)
         available = {c: v for c, v in _JPX_COLUMN_MAP.items() if c in df.columns}
-        if "銘柄コード" not in available:
-            logger.error("Expected column '銘柄コード' not found in JPX file")
+        if "コード" not in available:
+            logger.error("Expected column 'コード' not found in JPX file")
             return []
 
         df = df[list(available.keys())].rename(columns=available)
