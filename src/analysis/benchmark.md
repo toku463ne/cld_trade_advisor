@@ -1111,3 +1111,12 @@ If rev_nlo × low × Q4 also lifts Δmean_r ≥ +0.20pp at any θ, the gate is g
 Probe-only. Full table at `data/analysis/usdjpy_corr_axis/probe_2026-05-14.md`.  
 Verdict: **ACCEPT (proceed to prototype `corr_mode_tuple` extension)**  
 Best cell ΔDR: +27.35pp (shuffle p=0.0000, 1000 perms)
+
+---
+
+## USDJPY Corr-Axis — OOS Holdout — 2026-05-14
+
+Probe-only. Full table at `data/analysis/usdjpy_corr_axis/oos_holdout_2026-05-14.md`.  
+Verdict: **FAIL — OOS holdout does not reproduce**  
+Train-discovered cells: 16; OOS reproduce ΔDR>0: 10/16 (62%); mean OOS ΔDR -1.39pp.  
+Pooled test DR(U=L)−DR(U=H): +2.06pp; test shuffle p=0.0620.
