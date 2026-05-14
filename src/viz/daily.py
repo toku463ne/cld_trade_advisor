@@ -238,8 +238,20 @@ def _get_strategy(target_date: datetime.date) -> RegimeSignStrategy:
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
-def _kumo_text(state: int) -> str:
-    return {1: "▲ above", 0: "≈ inside", -1: "▼ below"}.get(state, "?")
+def _kumo_text(state: int, corr_mode: str | None = None) -> str:
+    """Kumo state text, annotated with *whose* kumo it is.
+
+    regime_sign attaches the N225's kumo to high/mid-corr proposals (they are
+    index proxies) and the stock's own kumo to low-corr proposals. Without the
+    suffix, "▲ above" on a high-corr row reads as "this stock is above its
+    cloud" — which is not what it means and won't match the stock's own chart.
+    """
+    base = {1: "▲ above", 0: "≈ inside", -1: "▼ below"}.get(state, "?")
+    if corr_mode == "low":
+        return f"{base} (own)"
+    if corr_mode in ("high", "mid"):
+        return f"{base} (N225)"
+    return base
 
 
 def _adx_state_str(adx: float, adx_pos: float, adx_neg: float) -> str:
@@ -260,7 +272,7 @@ def _proposals_to_json(
             "corr":      p.corr_mode,
             "corr_n225": (None if p.corr_n225 is None or math.isnan(p.corr_n225)
                           else round(p.corr_n225, 3)),
-            "kumo":      _kumo_text(p.kumo_state),
+            "kumo":      _kumo_text(p.kumo_state, p.corr_mode),
             "kumo_int":  p.kumo_state,
             "dr":        round(p.regime_dr, 4),
             "ev":        round(p.regime_ev, 5),
@@ -1134,11 +1146,11 @@ def layout() -> html.Div:
                                         "border": f"1px solid {ACCENT}",
                                     },
                                     {
-                                        "if": {"filter_query": '{kumo} = "▲ above"'},
+                                        "if": {"filter_query": '{kumo} contains "above"'},
                                         "color": GREEN,
                                     },
                                     {
-                                        "if": {"filter_query": '{kumo} = "▼ below"'},
+                                        "if": {"filter_query": '{kumo} contains "below"'},
                                         "color": RED,
                                     },
                                     {
