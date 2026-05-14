@@ -248,7 +248,10 @@ def _adx_state_str(adx: float, adx_pos: float, adx_neg: float) -> str:
     return "bull" if adx_pos > adx_neg else "bear"
 
 
-def _proposals_to_json(proposals: list[SignalProposal]) -> str:
+def _proposals_to_json(
+    proposals: list[SignalProposal],
+    ranking_evs: list[float] | None = None,
+) -> str:
     sector_map = _load_sector_map()
     rows = [
         {
@@ -285,6 +288,26 @@ def _proposals_to_json(proposals: list[SignalProposal]) -> str:
         return (-(r["ev"] + bonus), -r["score"], r["stock"])
 
     rows.sort(key=_rec_key)
+
+    # Recommendation tier chip (Daily factor-panel context block, §5.11).
+    # Derived from regime_ev ALONE — never ev+bonus: the sector bonus includes
+    # an A/B-negative cell (rev_nhi×銀行), and §5.11 bars an A/B-negative factor
+    # from feeding the decision surface. Cutoff = 75th pct of the strategy
+    # ranking's positive cell EVs — the exact population the live regime_ev
+    # values are drawn from (not benchmark.md, which can drift). Cell-level,
+    # NOT per-stock: every stock firing the same sign in the same regime shares
+    # the tier — it is shown in the "context, not stock-specific" block only.
+    pos_evs = [e for e in (ranking_evs or []) if e > 0]
+    strong_cut = float(np.percentile(pos_evs, 75)) if pos_evs else None
+    for r in rows:
+        if strong_cut is None:
+            r["tier"] = None
+        elif r["ev"] >= strong_cut:
+            r["tier"] = "strong"
+        elif r["ev"] > 0:
+            r["tier"] = "moderate"
+        else:
+            r["tier"] = "marginal"
     return json.dumps(rows)
 
 
@@ -909,6 +932,33 @@ def _factor_panel(row: dict[str, Any]) -> list:
 
     # ── Context block — NOT stock-specific ──
     children.append(_header("Context — not stock-specific"))
+
+    # Recommendation tier — derived from regime_ev alone; cell-level, shared by
+    # every stock firing this sign in this regime (kept out of the per-stock
+    # factor list per §5.11).
+    tier = row.get("tier")
+    if tier:
+        tier_color = {"strong": GREEN, "moderate": "#ff9800",
+                      "marginal": MUTED}.get(tier, MUTED)
+        children.append(html.Div(
+            style={"borderLeft": f"3px dotted {MUTED}", "padding": "3px 0 3px 8px",
+                   "marginBottom": "4px"},
+            children=[
+                html.Div([
+                    html.Span("Recommendation tier: ",
+                              style={"color": MUTED, "fontSize": "12px"}),
+                    html.Span(tier.upper(), style={"color": tier_color,
+                              "fontSize": "12px", "fontWeight": "600"}),
+                ]),
+                html.Div(
+                    "from regime_ev alone — top quartile of all regime cells = "
+                    "strong  ·  cell-level, shared by every stock firing this "
+                    "sign in this regime",
+                    style={"color": MUTED, "fontSize": "10px", "fontStyle": "italic"},
+                ),
+            ],
+        ))
+
     rn = row.get("regime_n") or 0
     dr = row.get("dr") or 0.0
     ev = row.get("ev") or 0.0
@@ -1337,7 +1387,8 @@ def register_callbacks() -> None:
 
         regime = _regime_from_proposals(proposals)
         card   = _regime_card(target, regime, len(proposals))
-        return _proposals_to_json(proposals), card
+        ranking_evs = [e.ev for e in strategy._ranking.values()]
+        return _proposals_to_json(proposals, ranking_evs), card
 
     @callback(
         Output("daily-table", "data"),
