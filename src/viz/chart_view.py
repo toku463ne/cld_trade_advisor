@@ -20,7 +20,7 @@ from sqlalchemy import select
 from ta.trend import ADXIndicator
 
 from src.data.db import get_session
-from src.data.models import Stock
+from src.data.models import Ohlcv1d, Stock
 from src.indicators.ichimoku import calc_ichimoku
 from src.indicators.moving_corr import compute_moving_corr
 from src.indicators.zigzag import detect_peaks
@@ -169,12 +169,19 @@ def register_callbacks() -> None:
     )
     def _load_stocks(_: Any) -> tuple[list[dict], Any]:
         with get_session() as s:
+            codes_with_bars = set(
+                s.execute(select(Ohlcv1d.stock_code).distinct()).scalars().all()
+            )
             rows = s.execute(
                 select(Stock.code, Stock.name)
                 .where(Stock.is_active.is_(True))
                 .order_by(Stock.code)
             ).all()
-        opts = [{"label": f"{c}  {n}", "value": c} for c, n in rows]
+        opts = [
+            {"label": f"{c}  {n}", "value": c}
+            for c, n in rows
+            if c in codes_with_bars
+        ]
         # Always include common indices for convenience.
         for code in ("^N225", "^GSPC"):
             if not any(o["value"] == code for o in opts):
