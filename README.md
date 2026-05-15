@@ -156,7 +156,7 @@ uv run --env-file devenv python -m src.analysis.corr_ui 8052
 - **Pair table** — sortable; columns: stock_a, stock_b, mean_corr, std_corr, n_windows
 - **Heatmap** — mean correlation matrix for the top-40 most-involved stocks
 
-See [src/analysis/readme_stock_corrs.md](src/analysis/readme_stock_corrs.md) for methodology and interpretation.
+See [docs/analysis/stock_corrs.md](docs/analysis/stock_corrs.md) for methodology and interpretation.
 
 ## Sign / Strategy Debate Cycle
 
