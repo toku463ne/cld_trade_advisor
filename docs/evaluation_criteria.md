@@ -84,8 +84,32 @@ ATR trail) — the cluster where 7-of-7 May 2026 A/Bs failed.
 4. **Filter masquerading as signal**: cutting events 65% and keeping DR flat
    means the filter caught nothing useful — and may have removed real signal
    by chance.
-5. **Score worship**: if Spearman ρ ≈ 0, `sign_score` is noise and should not
-   be in the ranking key — ordering by `EV` alone is more honest.
+5. **Score-calibration over-reading**: low Spearman ρ in `benchmark.md`
+   § Score Calibration is **necessary but not sufficient** to retire
+   `sign_score` from the ranking key. Two independent 2026-05 measurements
+   contradict the older "ρ≈0 → drop score" rule:
+   - **Retire A/B (2026-05-12)** — `SCORE_INFORMATIVE={"rev_nlo"}` (only
+     sign with ρ > 0.05) vs uniform `−sign_score`: Sharpe **3.25 → 1.13**,
+     mean_r **+2.20% → +0.63%**, win **61.4% → 49.7%**. Damage concentrated
+     in the high-corr bucket where one-slot-per-day means the tiebreak
+     directly picks the winner.
+   - **Sign-pick robustness probe (2026-05-14,
+     `src/analysis/sign_pick_robustness.py`)** — `regime_ev` is a
+     (sign, kumo)-cell aggregate, so the daily top-EV group is tied in
+     **60.7%** of picks. argmax (sign_score-best of tied) vs uniform pick
+     from the EV-tied group, 4 seeds, FY2019–FY2025: argmax Sharpe **3.25**
+     cleared the entire random spread (1.69 / 2.71 / 2.85 / 2.76); argmax
+     mean_r +2.20% vs random mean +1.66%. Caveat: edge concentrates in
+     FY2021–FY2022 and reverses FY2023–FY2024 (decay/regime/small-n).
+   Likely cause: calibration ρ measures direction-to-next-confirmed-zigzag-
+   peak, but the live strategy exits via `ZsTpSl` (TP/SL multipliers).
+   `sign_score` appears to encode magnitude-related information that
+   direction-ρ misses.
+   **Rule:** treat ρ ≈ 0 as a *flag to investigate*, not a green light to
+   drop `sign_score`. Any score-retirement proposal MUST clear an A/B
+   falsifier — |ΔSharpe| ≥ 0.05 with positive sign across FY2019–FY2025 —
+   before shipping. The honest ranking is `EV` *then* `sign_score`, not
+   `EV` alone.
 6. **Compounded gates**: stacking state-machine + persistence + hysteresis +
    crossover gates makes any single bad gate hard to detect. Add gates one
    at a time and rebench after each.
