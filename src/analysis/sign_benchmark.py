@@ -39,10 +39,12 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import math
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -87,6 +89,41 @@ _GSPC        = "^GSPC"
 _TREND_CAP   = 30
 _ZZ_SIZE     = 5
 _ZZ_MID_SIZE = 2
+
+# Sign-type → source-module mapping for staleness hashing. Most signs are 1:1
+# with their module stem; a few modules host multiple sign_types.
+_SIGN_MODULE_MAP: dict[str, str] = {
+    "div_bar":    "div_bar",
+    "div_vol":    "div_vol",
+    "div_gap":    "div_gap",
+    "div_peer":   "div_peer",
+    "corr_flip":  "corr_flip",
+    "corr_shift": "corr_shift",
+    "corr_peak":  "corr_peak",
+    "str_hold":   "str_hold",
+    "str_lead":   "str_lead",
+    "str_lag":    "str_lag",
+    "brk_sma":    "brk_sma",
+    "brk_bol":    "brk_bol",
+    "rev_lo":     "rev_peak",
+    "rev_hi":     "rev_peak",
+    "rev_nhi":    "rev_nday",
+    "rev_nlo":    "rev_nlo",
+    "rev_nhold":  "rev_nhold",
+}
+
+_SIGNS_DIR = Path(__file__).resolve().parent.parent / "signs"
+
+
+def compute_sign_code_hash(sign_type: str) -> str | None:
+    """SHA256 of the sign's source module. Returns None for unknown sign types."""
+    stem = _SIGN_MODULE_MAP.get(sign_type)
+    if stem is None:
+        return None
+    path = _SIGNS_DIR / f"{stem}.py"
+    if not path.exists():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 # ── Per-event result ──────────────────────────────────────────────────────────
@@ -478,6 +515,7 @@ def run_benchmark(
         zz_size=zz_size, zz_mid_size=zz_mid_size, trend_cap_days=trend_cap_days,
         n_stocks=len(stock_codes), n_events=len(all_events),
         created_at=datetime.datetime.now(datetime.timezone.utc),
+        code_hash=compute_sign_code_hash(sign_type),
         **agg,
     )
     session.add(run)

@@ -1,6 +1,12 @@
 otherproj/*
 reports/*
 
+# Runtime marker files (written by viz/maintenance OHLCV download)
+data/.ohlcv_last_download
+
+# Large reproducible probe artifacts (regenerated from src/analysis/*_probe.py)
+data/analysis/peak5_shape/fire_table_*.csv
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

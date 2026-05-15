@@ -11,17 +11,22 @@ from __future__ import annotations
 
 import datetime
 import threading
+from pathlib import Path
 from typing import Any
 
 import dash
 from dash import Input, Output, State, callback, dcc, html
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from src.analysis.cluster import FISCAL_YEARS
 from src.analysis.models import SignBenchmarkRun, StockClusterMember, StockClusterRun
 from src.analysis.regime_sign_backtest import RS_FY_CONFIGS
+from src.analysis.sign_benchmark import compute_sign_code_hash
 from src.data.db import get_session
+from src.data.models import Ohlcv1d
 from src.maintenance.registry import all_valid_sign_names
+
+_OHLCV_MARKER = Path(__file__).resolve().parent.parent.parent / "data" / ".ohlcv_last_download"
 from src.viz.palette import (
     ACCENT as _ACCENT, BG as _BG, BORDER as _BORDER, CARD_BG as _CARD_BG,
     GREEN as _GREEN, MUTED as _MUTED, RED as _RED, SIDEBAR_BG as _SIDEBAR_BG,
@@ -67,19 +72,104 @@ def _load_stock_sets() -> list[dict]:
         ]
 
 
-def _load_coverage() -> dict[tuple[str, str], bool]:
-    """Return {(sign_type, stock_set): True} for existing SignBenchmarkRun rows."""
+def _load_coverage() -> dict[tuple[str, str], tuple[datetime.date, bool]]:
+    """Return {(sign_type, stock_set): (latest_date, is_stale)} for existing runs.
+
+    `is_stale` is True when the most recent run's stored `code_hash` differs
+    from the current SHA256 of the sign's source module (or when the stored
+    hash is NULL — legacy rows count as stale until rerun).
+    """
     with get_session() as session:
+        # Pick the latest row per (sign, set) by created_at, then read its hash.
+        # SQL: SELECT sign_type, stock_set, MAX(created_at), latest-hash
+        # but we can't pull the hash off the MAX directly in pure GROUP BY;
+        # take a two-step: collect candidates, then for each (sign, set) keep
+        # the row with max created_at.
         rows = session.execute(
-            select(SignBenchmarkRun.sign_type, SignBenchmarkRun.stock_set).distinct()
+            select(
+                SignBenchmarkRun.sign_type,
+                SignBenchmarkRun.stock_set,
+                SignBenchmarkRun.created_at,
+                SignBenchmarkRun.code_hash,
+            )
         ).all()
-    return {(r.sign_type, r.stock_set): True for r in rows}
+    latest: dict[tuple[str, str], tuple[datetime.datetime, str | None]] = {}
+    for sign_type, stock_set, created_at, code_hash in rows:
+        if created_at is None:
+            continue
+        key = (sign_type, stock_set)
+        prev = latest.get(key)
+        if prev is None or created_at > prev[0]:
+            latest[key] = (created_at, code_hash)
+
+    out: dict[tuple[str, str], tuple[datetime.date, bool]] = {}
+    hash_cache: dict[str, str | None] = {}
+    for key, (created_at, code_hash) in latest.items():
+        sign_type = key[0]
+        if sign_type not in hash_cache:
+            hash_cache[sign_type] = compute_sign_code_hash(sign_type)
+        current_hash = hash_cache[sign_type]
+        is_stale = (code_hash is None) or (current_hash is not None and code_hash != current_hash)
+        out[key] = (created_at.date(), is_stale)
+    return out
 
 
 # fiscal years that map to RS_FY_CONFIGS stock sets (classified20XX)
 _CLUSTER_FY_YEARS: list[str] = sorted(
     {cfg.stock_set.replace("classified", "") for cfg in RS_FY_CONFIGS}
 )
+
+
+def _load_ohlcv_status() -> dict[str, Any]:
+    """Return summary of OHLCV bars in the DB + last-download timestamp."""
+    with get_session() as session:
+        row = session.execute(
+            select(func.min(Ohlcv1d.ts), func.max(Ohlcv1d.ts),
+                   func.count(func.distinct(Ohlcv1d.stock_code)))
+        ).one()
+    min_ts, max_ts, n_codes = row
+    last_dl: datetime.datetime | None = None
+    if _OHLCV_MARKER.exists():
+        try:
+            txt = _OHLCV_MARKER.read_text(encoding="utf-8").strip()
+            last_dl = datetime.datetime.fromisoformat(txt)
+        except Exception:
+            last_dl = None
+    return {
+        "period_start": min_ts.date() if min_ts else None,
+        "period_end":   max_ts.date() if max_ts else None,
+        "n_codes":      int(n_codes or 0),
+        "last_download": last_dl,
+    }
+
+
+def _ohlcv_status_block(status: dict[str, Any]) -> html.Div:
+    """Two-line label: bars period + last-download timestamp."""
+    rows = []
+    if status["period_start"] and status["period_end"]:
+        rows.append((
+            "Bars in DB",
+            f"{status['period_start']} → {status['period_end']}  "
+            f"({status['n_codes']} codes)",
+        ))
+    else:
+        rows.append(("Bars in DB", "no bars yet"))
+    if status["last_download"]:
+        dl = status["last_download"]
+        dl_local = dl.astimezone() if dl.tzinfo else dl
+        rows.append(("Last download", dl_local.strftime("%Y-%m-%d %H:%M %Z").strip()))
+    else:
+        rows.append(("Last download", "no record (run the button once to start tracking)"))
+    return html.Div(style={"fontSize": "12px", "marginBottom": "10px",
+                           "display": "grid",
+                           "gridTemplateColumns": "auto 1fr",
+                           "columnGap": "10px", "rowGap": "2px"},
+                    children=[
+        c for label, value in rows for c in (
+            html.Span(label + ":", style={"color": _MUTED}),
+            html.Span(value, style={"fontFamily": "monospace", "color": _TEXT}),
+        )
+    ])
 
 
 def _load_cluster_status() -> dict[str, int]:
@@ -215,19 +305,23 @@ def _cluster_table(status: dict[str, int]) -> html.Table:
 
 # ── Grid helpers ───────────────────────────────────────────────────────────────
 
-def _grid_cell(ok: bool | None) -> html.Td:
-    if ok:
-        bg, fg, txt = "#1a3a1a", _GREEN, "✓"
-    elif ok is False:
+def _grid_cell(value: tuple[datetime.date, bool] | None) -> html.Td:
+    if value is None:
         bg, fg, txt = "#3a1a1a", _RED, "✗"
     else:
-        bg, fg, txt = "#1a1a1a", _MUTED, "—"
-    return html.Td(txt, style={**_S_TD, "textAlign": "center", "background": bg, "color": fg})
+        date, is_stale = value
+        if is_stale:
+            bg, fg = "#3a2e0d", "#f0c050"  # amber: code changed since this run
+        else:
+            bg, fg = "#1a3a1a", _GREEN
+        txt = date.isoformat()
+    return html.Td(txt, style={**_S_TD, "textAlign": "center", "background": bg, "color": fg,
+                                "fontFamily": "monospace"})
 
 
 def _make_grid(
     sign_names: list[str],
-    coverage: dict[tuple[str, str], bool],
+    coverage: dict[tuple[str, str], tuple[datetime.date, bool]],
 ) -> html.Table:
     fy_labels = [c.label    for c in RS_FY_CONFIGS]
     fy_sets   = [c.stock_set for c in RS_FY_CONFIGS]
@@ -282,6 +376,8 @@ def layout() -> html.Div:
                 "After download, rebuilds N225 regime snapshots.",
                 style={"fontSize": "12px", "color": _MUTED, "margin": "0 0 10px 0"},
             ),
+            html.Div(id="maint-ohlcv-status",
+                     children=_ohlcv_status_block(_load_ohlcv_status())),
             html.Button("⬇  Download OHLCV", id="maint-dl-btn", style=_S_BTN),
         ]),
 
@@ -323,7 +419,7 @@ def layout() -> html.Div:
         # ── Benchmark Grid ──────────────────────────────────────────────────
         html.Div(style=_S_CARD, children=[
             html.Div(style={"display": "flex", "alignItems": "center", "marginBottom": "10px"}, children=[
-                html.H2("Sign Benchmark Coverage  (✓ = run exists)",
+                html.H2("Sign Benchmark Coverage  (date = fresh; amber = stale; ✗ = missing)",
                         style={**_S_H2, "marginBottom": "0", "flex": "1"}),
                 html.Button("⟳ Refresh", id="maint-grid-refresh-btn",
                             style={**_S_BTN, "background": "transparent",
@@ -333,7 +429,7 @@ def layout() -> html.Div:
             html.Div(id="maint-grid", style={"overflowX": "auto"},
                      children=_make_grid(sign_names, coverage)),
             html.Div(style={"marginTop": "10px"}, children=[
-                html.Button("▶  Run Missing Benchmarks", id="maint-bench-btn", style=_S_BTN),
+                html.Button("▶  Run Missing & Stale Benchmarks", id="maint-bench-btn", style=_S_BTN),
             ]),
         ]),
 
@@ -382,6 +478,15 @@ def _run_ohlcv_download() -> None:
         except Exception as exc:
             _log(f"[OHLCV] Regime build error: {exc}")
 
+        try:
+            _OHLCV_MARKER.parent.mkdir(parents=True, exist_ok=True)
+            _OHLCV_MARKER.write_text(
+                datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            _log(f"[OHLCV] marker write failed: {exc}")
+
         _log("[OHLCV] Done.")
     finally:
         with _task_lock:
@@ -396,16 +501,21 @@ def _run_benchmarks() -> None:
         sign_names = all_valid_sign_names()
         coverage   = _load_coverage()
 
-        missing: list[tuple[str, Any]] = [
-            (sign, cfg)
-            for cfg in RS_FY_CONFIGS
-            for sign in sign_names
-            if (sign, cfg.stock_set) not in coverage
-        ]
-        _log(f"[BENCH] {len(missing)} missing (sign, FY) pairs.")
+        targets: list[tuple[str, Any, str]] = []
+        for cfg in RS_FY_CONFIGS:
+            for sign in sign_names:
+                key = (sign, cfg.stock_set)
+                if key not in coverage:
+                    targets.append((sign, cfg, "missing"))
+                elif coverage[key][1]:  # is_stale
+                    targets.append((sign, cfg, "stale"))
+        n_missing = sum(1 for _, _, why in targets if why == "missing")
+        n_stale   = sum(1 for _, _, why in targets if why == "stale")
+        _log(f"[BENCH] {len(targets)} (sign, FY) pairs to run: "
+             f"{n_missing} missing + {n_stale} stale.")
 
-        for sign, cfg in missing:
-            _log(f"[BENCH] {sign} × {cfg.stock_set} ({cfg.label}) …")
+        for sign, cfg, why in targets:
+            _log(f"[BENCH] {sign} × {cfg.stock_set} ({cfg.label})  [{why}] …")
             try:
                 with get_session() as session:
                     codes: list[str] = session.execute(
@@ -417,6 +527,20 @@ def _run_benchmarks() -> None:
                 if not codes:
                     _log(f"[BENCH] {cfg.stock_set}: no members — skip")
                     continue
+
+                # Stale rerun: delete the old run rows (events cascade) so the
+                # downstream ranking doesn't pool stale + fresh events.
+                if why == "stale":
+                    with get_session() as session:
+                        old_runs = session.execute(
+                            select(SignBenchmarkRun)
+                            .where(SignBenchmarkRun.sign_type == sign,
+                                   SignBenchmarkRun.stock_set == cfg.stock_set)
+                        ).scalars().all()
+                        for r in old_runs:
+                            session.delete(r)
+                        session.commit()
+                    _log(f"[BENCH] {sign} × {cfg.stock_set}: deleted {len(old_runs)} old run(s)")
 
                 start_dt = datetime.datetime(
                     cfg.start.year, cfg.start.month, cfg.start.day,
@@ -520,6 +644,7 @@ def register_callbacks() -> None:
         Output("maint-grid",     "children"),
         Output("maint-sets",     "children"),
         Output("maint-cluster",  "children"),
+        Output("maint-ohlcv-status", "children"),
         Output("maint-interval", "disabled",  allow_duplicate=True),
         Input("maint-interval",  "n_intervals"),
         prevent_initial_call=True,
@@ -533,7 +658,8 @@ def register_callbacks() -> None:
         grid    = _make_grid(sign_names, coverage)
         sets    = _sets_table(_load_stock_sets())
         cluster = _cluster_table(_load_cluster_status())
-        return log, grid, sets, cluster, not still_running
+        ohlcv   = _ohlcv_status_block(_load_ohlcv_status())
+        return log, grid, sets, cluster, ohlcv, not still_running
 
     def _refresh_all() -> tuple:
         sign_names = all_valid_sign_names()
@@ -542,12 +668,14 @@ def register_callbacks() -> None:
             _make_grid(sign_names, coverage),
             _sets_table(_load_stock_sets()),
             _cluster_table(_load_cluster_status()),
+            _ohlcv_status_block(_load_ohlcv_status()),
         )
 
     @callback(
         Output("maint-grid",    "children"),
         Output("maint-sets",    "children"),
         Output("maint-cluster", "children"),
+        Output("maint-ohlcv-status", "children"),
         Input("maint-load",     "n_intervals"),
     )
     def _on_page_load(n: int) -> tuple:
@@ -557,6 +685,7 @@ def register_callbacks() -> None:
         Output("maint-grid",    "children", allow_duplicate=True),
         Output("maint-sets",    "children", allow_duplicate=True),
         Output("maint-cluster", "children", allow_duplicate=True),
+        Output("maint-ohlcv-status", "children", allow_duplicate=True),
         Input("maint-grid-refresh-btn", "n_clicks"),
         prevent_initial_call=True,
     )

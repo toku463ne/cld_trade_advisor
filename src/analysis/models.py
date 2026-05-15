@@ -174,6 +174,7 @@ class SignBenchmarkRun(Base):
     benchmark_flw:   Mapped[float | None] = mapped_column(Float, nullable=True)
     benchmark_rev:   Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at:      Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    code_hash:       Mapped[str | None]        = mapped_column(String(64), nullable=True)
 
     events: Mapped[list["SignBenchmarkEvent"]] = relationship(
         "SignBenchmarkEvent", back_populates="run", cascade="all, delete-orphan"
