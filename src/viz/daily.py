@@ -1339,6 +1339,42 @@ def _regime_card(
 
 # ── Decision factor panel ─────────────────────────────────────────────────────
 
+def _cluster_size_for_stock(
+    stock_code: str,
+    stock_set: str = _CURRENT_STOCK_SET,
+) -> tuple[int, list[str]] | None:
+    """Return (cluster_size, peer_codes) for *stock_code* in the latest
+    StockClusterRun for *stock_set*, or None if the lookup fails."""
+    from src.analysis.models import StockClusterMember, StockClusterRun
+    from sqlalchemy import select
+    try:
+        with get_session() as session:
+            run_id = session.execute(
+                select(StockClusterRun.id)
+                .where(StockClusterRun.fiscal_year == stock_set)
+                .order_by(StockClusterRun.created_at.desc()).limit(1)
+            ).scalar_one_or_none()
+            if run_id is None:
+                return None
+            cluster_id = session.execute(
+                select(StockClusterMember.cluster_id)
+                .where(StockClusterMember.run_id == run_id,
+                       StockClusterMember.stock_code == stock_code)
+            ).scalar_one_or_none()
+            if cluster_id is None:
+                return None
+            members = list(session.execute(
+                select(StockClusterMember.stock_code)
+                .where(StockClusterMember.run_id == run_id,
+                       StockClusterMember.cluster_id == cluster_id)
+            ).scalars().all())
+        peers = [m for m in members if m != stock_code]
+        return len(members), peers
+    except Exception as exc:
+        logger.warning("_cluster_size_for_stock failed for {}: {}", stock_code, exc)
+        return None
+
+
 def _factor_panel(row: dict[str, Any]) -> list:
     """Per-stock decision-factor panel for a selected proposal row.
 
@@ -1403,6 +1439,36 @@ def _factor_panel(row: dict[str, Any]) -> list:
         tier="production",
         caption=f"{cm_interp}  ·  src: regime_sign 20-bar rolling corr",
     ))
+
+    # ── Cluster size (experimental, div_peer only) ──
+    # Per project_div_peer_cluster_size_reject.md: size=2 carries weak edge
+    # (pooled EV +1.2%, threshold trivially satisfied); size=3 moderate
+    # (+3.5%); size≥4 strongest (+4.3%). Live universe (classified2024) only
+    # has 3 multi-stock clusters covering 7 stocks, so most div_peer fires
+    # are size=2 — display this so the operator can apply judgment.
+    if sign == "div_peer":
+        csz = _cluster_size_for_stock(stock)
+        if csz is None:
+            cs_body = "unknown"
+            cs_caption = "no cluster lookup available for this stock"
+        else:
+            size, peers = csz
+            peer_str = ", ".join(peers) if len(peers) <= 3 else f"{len(peers)} peers"
+            cs_body = f"size {size}  (peers: {peer_str})"
+            if size <= 2:
+                cs_caption = ("size=2: WEAKEST evidence band — pooled EV "
+                              "+1.2% (peer_down_frac=100% trivially satisfied)")
+            elif size == 3:
+                cs_caption = ("size=3: MODERATE band — pooled EV +3.5% "
+                              "(needs 2/3 peers down)")
+            else:
+                cs_caption = ("size≥4: STRONGEST band — pooled EV +4.3%")
+        children.append(_factor_row(
+            "Cluster size", cs_body,
+            tier="experimental",
+            caption=(f"{cs_caption}  ·  src: stock_cluster_members "
+                     f"({_CURRENT_STOCK_SET}) / div_peer_cluster_size_probe.py"),
+        ))
 
     # ── Sector factor (experimental) ──
     cell = _SECTOR_FACTOR_DISPLAY.get((sign, sector)) if sector else None
