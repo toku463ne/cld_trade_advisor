@@ -71,15 +71,29 @@ def compute_exit_levels(
     stock_code: str,
     entry_price: float,
     fired_at: datetime.date,
+    direction: str = "long",
 ) -> tuple[float | None, float | None]:
     """Return (tp_price, sl_price) using ZsTpSl(2.0, 2.0, 0.3).
+
+    For ``direction="long"`` (default): TP is above entry, SL is below.
+    For ``direction="short"``: TP is below entry, SL is above — the
+    profit-direction inversion applied to the symmetric band ZsTpSl
+    returns from preview_levels.
 
     Returns (None, None) if zigzag history cannot be built.
     """
     try:
         legs = _build_zs_legs(stock_code, fired_at)
-        tp, sl = _EXIT_RULE.preview_levels(entry_price, legs)
-        return round(tp, 0), round(sl, 0)
+        tp_long, sl_long = _EXIT_RULE.preview_levels(entry_price, legs)
+        if direction == "short":
+            # Swap relative to entry: short TP is below entry by the same band,
+            # short SL is above entry by the same band.
+            band_tp = tp_long - entry_price  # >0 (long TP distance above)
+            band_sl = entry_price - sl_long  # >0 (long SL distance below)
+            tp = entry_price - band_tp       # short TP below entry
+            sl = entry_price + band_sl       # short SL above entry
+            return round(tp, 0), round(sl, 0)
+        return round(tp_long, 0), round(sl_long, 0)
     except Exception as exc:
         logger.warning("compute_exit_levels failed for {}: {}", stock_code, exc)
         return None, None

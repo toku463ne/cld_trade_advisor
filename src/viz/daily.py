@@ -2288,6 +2288,7 @@ def register_callbacks() -> None:
         Input("daily-proposals-store",     "data"),
         Input("daily-pos-selected-store",  "data"),
         Input("daily-entry-price",         "value"),
+        Input("daily-direction",           "value"),
     )
     def update_charts(
         date_str: str | None,
@@ -2295,6 +2296,7 @@ def register_callbacks() -> None:
         store_data: str | None,
         pos_data: dict | None,
         entry_price: float | None,
+        direction: str | None,
     ) -> go.Figure:
         """Single combined figure — stock + N225 share one x-axis (no sync needed)."""
         target = (
@@ -2320,6 +2322,7 @@ def register_callbacks() -> None:
                         fired = datetime.date.fromisoformat(row["fired_at"])
                         tp, sl = compute_exit_levels(
                             row["stock"], float(entry_price), fired,
+                            direction=direction or "long",
                         )
                     except Exception:
                         logger.exception("update_charts TP/SL preview failed")
@@ -2331,11 +2334,12 @@ def register_callbacks() -> None:
     # ── Portfolio: show register panel when row selected ─────────────────────
 
     @callback(
-        Output("daily-register-panel", "style"),
+        Output("daily-register-panel",       "style"),
         Output("daily-register-stock-label", "children"),
-        Output("daily-entry-price", "value"),
-        Input("daily-table", "selected_rows"),
-        Input("daily-proposals-store", "data"),
+        Output("daily-entry-price",          "value"),
+        Output("daily-direction",            "value"),
+        Input("daily-table",                 "selected_rows"),
+        Input("daily-proposals-store",       "data"),
     )
     def show_register_panel(
         selected_rows: list[int], store_data: str | None
@@ -2347,10 +2351,10 @@ def register_callbacks() -> None:
             "borderRadius": "6px", "padding": "12px",
         }
         if not selected_rows or not store_data:
-            return hidden, "", None
+            return hidden, "", None, "long"
         rows = json.loads(store_data)
         if selected_rows[0] >= len(rows):
-            return hidden, "", None
+            return hidden, "", None, "long"
         row  = rows[selected_rows[0]]
         # Default entry price = next bar's open after fired_at (two-bar fill rule).
         # Falls back to close-on-fired then latest if no next bar exists.
@@ -2359,12 +2363,17 @@ def register_callbacks() -> None:
             price = get_entry_price_for_fire(row["stock"], fired)
         except Exception:
             price = get_latest_price(row["stock"])
+        # Sign-implied direction: rev_hi / rev_nhi are short signals
+        # (price expected to reverse DOWN from resistance); everything else
+        # defaults to long.  Operator can still override via the dropdown.
+        short_signs = {"rev_hi", "rev_nhi"}
+        default_dir = "short" if row.get("sign") in short_signs else "long"
         label = (
             f"{row['stock']}  ·  {row['sign']}  ·  "
             f"corr={row['corr']}  kumo={row['kumo']}  "
             f"fired={row['fired_at']}"
         )
-        return visible, label, price
+        return visible, label, price, default_dir
 
     @callback(
         Output("daily-existing-review-label", "children"),
@@ -2433,14 +2442,16 @@ def register_callbacks() -> None:
 
     @callback(
         Output("daily-tp-sl-preview", "children"),
-        Input("daily-entry-price", "value"),
-        Input("daily-table", "selected_rows"),
+        Input("daily-entry-price",     "value"),
+        Input("daily-table",           "selected_rows"),
         Input("daily-proposals-store", "data"),
+        Input("daily-direction",       "value"),
     )
     def preview_tp_sl(
         entry_price: float | None,
         selected_rows: list[int],
         store_data: str | None,
+        direction: str | None,
     ) -> str:
         if entry_price is None or not selected_rows or not store_data:
             return ""
@@ -2449,7 +2460,8 @@ def register_callbacks() -> None:
             return ""
         row    = rows[selected_rows[0]]
         fired  = datetime.date.fromisoformat(row["fired_at"])
-        tp, sl = compute_exit_levels(row["stock"], float(entry_price), fired)
+        tp, sl = compute_exit_levels(row["stock"], float(entry_price), fired,
+                                      direction=direction or "long")
         if tp is None:
             return "TP/SL: could not compute (insufficient zigzag history)"
         return f"TP: {tp:,.0f}  ·  SL: {sl:,.0f}  (ZsTpSl 2.0/2.0/0.3)"
@@ -2554,7 +2566,8 @@ def register_callbacks() -> None:
             return "Enter price and units first.", err_style
         try:
             today     = datetime.date.fromisoformat(date_str[:10]) if date_str else datetime.date.today()
-            tp, sl    = compute_exit_levels(row["stock"], float(entry_price), fired)
+            tp, sl    = compute_exit_levels(row["stock"], float(entry_price), fired,
+                                             direction=direction or "long")
             with get_session() as session:
                 pos = register_position(
                     session     = session,
