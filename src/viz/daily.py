@@ -25,6 +25,7 @@ from ta.trend import ADXIndicator
 from src.analysis.models import SignBenchmarkRun
 from src.data.db import get_session
 from src.data.models import Stock
+from src.indicators.bb import calc_bb
 from src.indicators.ichimoku import calc_ichimoku
 from src.indicators.moving_corr import compute_moving_corr
 from src.indicators.zigzag import detect_peaks
@@ -932,6 +933,41 @@ def _build_combined_chart(
             fig.add_trace(go.Scatter(x=dates, y=s_sma75, mode="lines", name="SMA75",
                                      line=dict(color="#ab47bc", width=1.2),
                                      hovertemplate="SMA75: %{y:,.0f}<extra></extra>"), row=1, col=1)
+
+            # Bollinger Bands overlay — only when the selected proposal is
+            # a brk_bol fire (the sign that uses these levels).  Uses the
+            # detector's defaults (period=20, nstd=2.0).
+            if stock_row and stock_row.get("sign") == "brk_bol":
+                _stock_closes = [b.close for b in stock_all_bars]  # full history for warmup
+                _bb_lo, _bb_mid, _bb_up = calc_bb(_stock_closes, period=20, nstd=2.0)
+                _bb_ds = [b.dt.strftime("%Y-%m-%d") for b in stock_all_bars]
+                _bb_lo_map  = dict(zip(_bb_ds, _bb_lo))
+                _bb_mid_map = dict(zip(_bb_ds, _bb_mid))
+                _bb_up_map  = dict(zip(_bb_ds, _bb_up))
+                def _clean(v: float | None) -> float | None:
+                    if v is None: return None
+                    if isinstance(v, float) and math.isnan(v): return None
+                    return v
+                bb_u = [_clean(_bb_up_map.get(d))  for d in dates]
+                bb_m = [_clean(_bb_mid_map.get(d)) for d in dates]
+                bb_l = [_clean(_bb_lo_map.get(d))  for d in dates]
+                fig.add_trace(go.Scatter(
+                    x=dates, y=bb_u, mode="lines", name="BB upper (20, 2σ)",
+                    line=dict(color="#ffd54f", width=1, dash="dot"),
+                    hovertemplate="BB upper: %{y:,.0f}<extra></extra>",
+                ), row=1, col=1)
+                fig.add_trace(go.Scatter(
+                    x=dates, y=bb_m, mode="lines", name="BB mid (SMA20)",
+                    line=dict(color="#ffd54f", width=1, dash="dash"),
+                    opacity=0.55,
+                    hovertemplate="BB mid: %{y:,.0f}<extra></extra>",
+                ), row=1, col=1)
+                fig.add_trace(go.Scatter(
+                    x=dates, y=bb_l, mode="lines", name="BB lower",
+                    line=dict(color="#ffd54f", width=1, dash="dot"),
+                    hovertemplate="BB lower: %{y:,.0f}<extra></extra>",
+                ), row=1, col=1)
+
             if s_conf_hi:
                 hx, hy = zip(*s_conf_hi)
                 fig.add_trace(go.Scatter(x=list(hx), y=list(hy), mode="markers", name="ZZ high",
