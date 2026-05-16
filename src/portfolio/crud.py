@@ -597,3 +597,79 @@ def get_latest_price(stock_code: str, gran: str = "1d") -> float | None:
     except Exception as exc:
         logger.warning("get_latest_price failed for {}: {}", stock_code, exc)
         return None
+
+
+def evaluate_position_as_of(
+    stock_code: str,
+    entry_date: datetime.date,
+    as_of:      datetime.date,
+    tp_price:   float | None,
+    sl_price:   float | None,
+    direction:  str = "long",
+    gran:       str = "1d",
+) -> tuple[float | None, str, datetime.date | None]:
+    """Evaluate an open position as of *as_of* date.
+
+    Returns ``(close_at_as_of, status, hit_date)``.
+
+    Walks daily bars in ``[entry_date, as_of]`` chronologically and
+    checks H/L against TP/SL with simulator convention (TP-first when
+    both could fire on the same bar — matches
+    ``src/exit/zs_tp_sl.py:should_exit``).
+
+    For ``direction="long"``: TP fires when ``high >= tp_price``;
+    SL fires when ``low <= sl_price``.
+
+    For ``direction="short"``: TP fires when ``low <= tp_price``
+    (profit-direction inverted); SL fires when ``high >= sl_price``.
+
+    ``status`` is one of ``"tp_hit"``, ``"sl_hit"``, ``"hold"``.
+    ``hit_date`` is the date of the first TP/SL hit, or None.
+    ``close_at_as_of`` is the close of the latest bar at or before
+    ``as_of`` (lets the UI render an "as-of" Cur price rather than
+    today's live price).
+    """
+    model = OHLCV_MODEL_MAP.get(gran)
+    if model is None:
+        return None, "hold", None
+    try:
+        with get_session() as session:
+            rows = session.execute(
+                select(model.ts, model.high_price, model.low_price, model.close_price)
+                .where(model.stock_code == stock_code)
+                .where(func.date(model.ts) >= entry_date)
+                .where(func.date(model.ts) <= as_of)
+                .order_by(model.ts.asc())
+            ).all()
+    except Exception as exc:
+        logger.warning("evaluate_position_as_of failed for {}: {}", stock_code, exc)
+        return None, "hold", None
+
+    if not rows:
+        return None, "hold", None
+
+    close_at_as_of = float(rows[-1].close_price)
+    status: str = "hold"
+    hit_date: datetime.date | None = None
+
+    is_long = direction != "short"
+    for r in rows:
+        hi = float(r.high_price)
+        lo = float(r.low_price)
+        bar_date = r.ts.date() if hasattr(r.ts, "date") else r.ts
+        if is_long:
+            if tp_price is not None and hi >= tp_price:
+                status, hit_date = "tp_hit", bar_date
+                break
+            if sl_price is not None and lo <= sl_price:
+                status, hit_date = "sl_hit", bar_date
+                break
+        else:
+            if tp_price is not None and lo <= tp_price:
+                status, hit_date = "tp_hit", bar_date
+                break
+            if sl_price is not None and hi >= sl_price:
+                status, hit_date = "sl_hit", bar_date
+                break
+
+    return close_at_as_of, status, hit_date

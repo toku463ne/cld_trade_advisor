@@ -40,6 +40,7 @@ from src.portfolio.crud import (
     register_review,
     update_memo,
     compute_exit_levels,
+    evaluate_position_as_of,
     get_latest_price,
     get_open_positions,
     register_position,
@@ -2681,8 +2682,16 @@ def register_callbacks() -> None:
         Input("daily-positions-refresh-btn", "n_clicks"),
         Input("daily-register-btn", "n_clicks"),
         Input("active-account-id", "data"),
+        Input("daily-date",         "date"),
     )
-    def refresh_positions(_r: int, _reg: int, account_id: int | None) -> list:
+    def refresh_positions(
+        _r: int, _reg: int, account_id: int | None, date_str: str | None,
+    ) -> list:
+        # as-of date = Daily date picker (the session day the operator is
+        # reviewing).  Position status / Cur price are evaluated against
+        # bars in [entry_date, as_of], not against today's live price.
+        as_of = (datetime.date.fromisoformat(date_str[:10])
+                 if date_str else datetime.date.today())
         try:
             with get_session() as session:
                 positions = get_open_positions(session, account_id=account_id)
@@ -2693,7 +2702,7 @@ def register_callbacks() -> None:
                         "stock":        p.stock_code,
                         "sign":         p.sign_type,
                         "direction":    getattr(p, "direction", "long"),
-                        "entry_date":   str(p.entry_date),
+                        "entry_date":   p.entry_date,
                         "entry_price":  float(p.entry_price),
                         "units":        p.units,
                         "tp":           float(p.tp_price) if p.tp_price else None,
@@ -2708,19 +2717,32 @@ def register_callbacks() -> None:
         if not rows:
             return [html.Span("No open positions.", style={"color": MUTED})]
 
-        # Enrich with current price
+        # Enrich with as-of price + status sweep over [entry_date, as_of] bars.
         items = []
         for r in rows:
-            cur = get_latest_price(r["stock"])
-            if cur and r["entry_price"]:
-                pnl_pct = (cur / r["entry_price"] - 1.0) * 100.0
+            cur, status, hit_date = evaluate_position_as_of(
+                stock_code = r["stock"],
+                entry_date = r["entry_date"],
+                as_of      = as_of,
+                tp_price   = r["tp"],
+                sl_price   = r["sl"],
+                direction  = r["direction"],
+            )
+            if cur is not None and r["entry_price"]:
+                # P&L direction-aware: short positions profit when price drops.
+                if r["direction"] == "short":
+                    pnl_pct = (r["entry_price"] / cur - 1.0) * 100.0
+                else:
+                    pnl_pct = (cur / r["entry_price"] - 1.0) * 100.0
             else:
                 pnl_pct = None
 
-            if cur and r["tp"] and cur >= r["tp"]:
-                status_text, status_color = "TP hit", GREEN
-            elif cur and r["sl"] and cur <= r["sl"]:
-                status_text, status_color = "SL hit", RED
+            if status == "tp_hit":
+                hit_lbl = f"TP hit ({hit_date})" if hit_date else "TP hit"
+                status_text, status_color = hit_lbl, GREEN
+            elif status == "sl_hit":
+                hit_lbl = f"SL hit ({hit_date})" if hit_date else "SL hit"
+                status_text, status_color = hit_lbl, RED
             else:
                 status_text, status_color = "Hold", ACCENT
 
@@ -2787,11 +2809,28 @@ def register_callbacks() -> None:
                                 ),
                             ],
                         ),
-                        # Close button + reason dropdown — separate div so clicks don't bubble to pos-card
+                        # Close button + reason dropdown — separate div so clicks don't bubble to pos-card.
+                        # Right-aligned (under the ×units column) to keep it
+                        # away from the card-click selection area so the
+                        # button isn't fat-fingered on selection.
                         html.Div(
                             style={"marginTop": "6px", "display": "flex",
-                                   "gap": "6px", "alignItems": "center"},
+                                   "gap": "6px", "alignItems": "center",
+                                   "justifyContent": "flex-end"},
                             children=[
+                                dcc.Dropdown(
+                                    id={"type": "close-reason", "index": r["id"]},
+                                    options=[
+                                        {"label": "manual",    "value": "manual"},
+                                        {"label": "tp_hit",    "value": "tp_hit"},
+                                        {"label": "sl_hit",    "value": "sl_hit"},
+                                        {"label": "time_stop", "value": "time_stop"},
+                                    ],
+                                    value="manual",
+                                    clearable=False,
+                                    style={"width": "120px", "fontSize": "11px",
+                                           "color": "#000"},
+                                ),
                                 html.Button(
                                     "Close Position",
                                     id={"type": "close-pos-btn", "index": r["id"]},
@@ -2805,19 +2844,6 @@ def register_callbacks() -> None:
                                         "cursor": "pointer",
                                         "fontSize": "11px",
                                     },
-                                ),
-                                dcc.Dropdown(
-                                    id={"type": "close-reason", "index": r["id"]},
-                                    options=[
-                                        {"label": "manual",    "value": "manual"},
-                                        {"label": "tp_hit",    "value": "tp_hit"},
-                                        {"label": "sl_hit",    "value": "sl_hit"},
-                                        {"label": "time_stop", "value": "time_stop"},
-                                    ],
-                                    value="manual",
-                                    clearable=False,
-                                    style={"width": "120px", "fontSize": "11px",
-                                           "color": "#000"},
                                 ),
                             ],
                         ),
@@ -2859,12 +2885,14 @@ def register_callbacks() -> None:
         State({"type": "close-reason", "index": ALL}, "value"),
         State({"type": "close-reason", "index": ALL}, "id"),
         State("active-account-id", "data"),
+        State("daily-date",         "date"),
         prevent_initial_call=True,
     )
     def close_position_btn(n_clicks_list: list[int],
                             reasons: list[str | None],
                             reason_ids: list[dict],
-                            account_id: int | None) -> list:
+                            account_id: int | None,
+                            date_str:   str | None) -> list:
         triggered = callback_context.triggered
         if not triggered or not any(n for n in (n_clicks_list or []) if n):
             return no_update  # type: ignore[return-value]
@@ -2883,7 +2911,7 @@ def register_callbacks() -> None:
                                 exit_reason=chosen_reason)
         except Exception as exc:
             logger.exception("close_position error for id={}", pos_id)
-        return refresh_positions(0, 0, account_id)
+        return refresh_positions(0, 0, account_id, date_str)
 
     # ── Memos panel ──────────────────────────────────────────────────────────
 
