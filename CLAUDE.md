@@ -87,7 +87,7 @@ Reference lines on ρ panel: ±0.6 (dotted) and 0.0 (bold solid).
 | `rev_peak`   | Reversal from peak |
 
 ## Exit Rules (`src/exit/`)
-Best rule by FY2018–FY2024 benchmark: **`adx_trail_d8.0`** (mean_r +0.93%, Sharpe 1.28, win% 50%, hold 26.7 bars).
+Best point-estimate by FY2018–FY2024 benchmark: **`adx_trail_d8.0`** (mean_r +0.93%, Sharpe 1.28, win% 50%, hold 26.7 bars). A FY2020–FY2024 bootstrap (10k iters, 2026-05-16) did not find statistically significant separation between top exit rules on the verifiable cohort — see `src/exit/benchmark.md` and memory `project_timestop40_bootstrap_reject.md`.
 Full benchmark results in `src/exit/benchmark.md`.
 
 | Rule | Notes |

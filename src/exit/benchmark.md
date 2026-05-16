@@ -2,6 +2,17 @@
 
 Generated: 2026-05-09
 
+> **Bootstrap caveat (2026-05-16)**: a 10,000-iteration bootstrap of
+> `time_40b` vs `zs_tp2.0_sl2.0_a0.3` on the FY2020–FY2024 subset
+> (dev DB ^N225 starts 2020-05-11, so FY2018/FY2019 cannot be
+> re-verified) returned a Sharpe-difference 95% CI of [−2.89, +4.74]
+> — straddling zero. The high-corr-mode Sharpe gap **sign-flipped**
+> (+2.37 in this table → −0.446 in the bootstrap). The point-estimate
+> rankings below are real, but **statistical separation between top
+> exit rules is not established** on the verifiable cohort. See
+> `src/analysis/exit_sharpe_bootstrap.py` and memory
+> `project_timestop40_bootstrap_reject.md`.
+
 ## Configuration
 
 - Stock sets: each FY uses the classified set from the *previous* year
@@ -39,6 +50,17 @@ Real candidates: 10404  |  Oracle candidates: 16672
 # Exit-Rule Benchmark Report
 
 Generated: 2026-05-09
+
+> **Bootstrap caveat (2026-05-16)**: a 10,000-iteration bootstrap of
+> `time_40b` vs `zs_tp2.0_sl2.0_a0.3` on the FY2020–FY2024 subset
+> (dev DB ^N225 starts 2020-05-11, so FY2018/FY2019 cannot be
+> re-verified) returned a Sharpe-difference 95% CI of [−2.89, +4.74]
+> — straddling zero. The high-corr-mode Sharpe gap **sign-flipped**
+> (+2.37 in this table → −0.446 in the bootstrap). The point-estimate
+> rankings below are real, but **statistical separation between top
+> exit rules is not established** on the verifiable cohort. See
+> `src/analysis/exit_sharpe_bootstrap.py` and memory
+> `project_timestop40_bootstrap_reject.md`.
 
 ## Configuration
 
