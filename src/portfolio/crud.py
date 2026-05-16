@@ -106,6 +106,7 @@ def register_position(
     corr_frac:   float | None = None,
     reason:      str | None = None,
     account_id:  int | None = None,
+    tags:        str | None = None,
 ) -> Position:
     """Create and persist a new open position.
 
@@ -153,6 +154,7 @@ def register_position(
         sma_frac    = sma_frac,
         corr_frac   = corr_frac,
         account_id  = account_id,
+        tags        = tags,
     )
     session.add(review)
     session.flush()
@@ -178,6 +180,7 @@ def register_review(
     sma_frac:    float | None = None,
     corr_frac:   float | None = None,
     account_id:  int | None = None,
+    tags:        str | None = None,
 ) -> ReviewedCandidate:
     """Persist a reviewed-candidate row.
 
@@ -215,6 +218,7 @@ def register_review(
             existing.revn_frac   = revn_frac
             existing.sma_frac    = sma_frac
             existing.corr_frac   = corr_frac
+            existing.tags        = tags
             existing.reviewed_at = datetime.datetime.now(datetime.timezone.utc)
             session.flush()
             logger.info("Updated skip review id={} {} {} (acct={})",
@@ -236,11 +240,30 @@ def register_review(
         sma_frac    = sma_frac,
         corr_frac   = corr_frac,
         account_id  = account_id,
+        tags        = tags,
     )
     session.add(review)
     session.flush()
     logger.info("Registered review id={} {} action={}", review.id, stock_code, action)
     return review
+
+
+def get_distinct_tags(session: Session) -> list[str]:
+    """Return all distinct tags ever used, sorted by frequency (desc) then alphabetically.
+
+    Tags are stored comma-separated; this helper splits and aggregates.
+    """
+    from collections import Counter
+    rows = session.execute(
+        select(ReviewedCandidate.tags).where(ReviewedCandidate.tags.is_not(None))
+    ).scalars().all()
+    counter: Counter[str] = Counter()
+    for raw in rows:
+        for tag in (raw or "").split(","):
+            t = tag.strip()
+            if t:
+                counter[t] += 1
+    return [t for t, _ in counter.most_common()]
 
 
 def get_reviews_for_date(

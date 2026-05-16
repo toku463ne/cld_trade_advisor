@@ -135,6 +135,10 @@ class ReviewedCandidate(Base):
         nullable=True,
     )
     reason:      Mapped[str | None]   = mapped_column(Text, nullable=True)
+    # Comma-separated free-form tags (e.g. "bear-trend,near-peak").  Lets the
+    # operator categorize decisions and surfaces past tags in the UI for
+    # quick re-selection on future decisions.
+    tags:        Mapped[str | None]   = mapped_column(Text, nullable=True)
 
     revn_frac:   Mapped[float | None] = mapped_column(Float, nullable=True)
     sma_frac:    Mapped[float | None] = mapped_column(Float, nullable=True)

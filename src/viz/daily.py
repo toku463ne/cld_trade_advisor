@@ -32,6 +32,7 @@ from src.portfolio.crud import (
     close_position,
     create_memo,
     delete_memo,
+    get_distinct_tags,
     get_entry_price_for_fire,
     get_memos_for_date,
     list_accounts,
@@ -1080,19 +1081,34 @@ def _build_combined_chart(
                 )
 
                 # div_peer trigger annotation — no price level to draw,
-                # but render the stock_ret + peer_down_count as a stacked
-                # text block near the fire marker.
+                # but render stock_ret + peer_down_count + the actual peer
+                # codes/names (capped at 5; "+N more" suffix if larger).
                 if sign_name == "div_peer":
                     dp = _div_peer_reference(stock_row["stock"], fired_str)
                     if dp is not None and fired_str in dates:
                         stock_ret, n_down, n_total, _prev = dp
                         peer_pct = 100.0 * n_down / n_total if n_total else 0.0
+                        lines = [
+                            f" stock {stock_ret*100:+.2f}%",
+                            f" peers {n_down}/{n_total} down ({peer_pct:.0f}%)",
+                        ]
+                        cluster_info = _cluster_size_for_stock(stock_row["stock"])
+                        if cluster_info is not None:
+                            _, peer_codes = cluster_info
+                            name_map = _load_name_map()
+                            for code in peer_codes[:5]:
+                                nm = name_map.get(code, "")
+                                if len(nm) > 14:
+                                    nm = nm[:13] + "…"
+                                lines.append(f" {code} {nm}".rstrip())
+                            extra = len(peer_codes) - 5
+                            if extra > 0:
+                                lines.append(f" (+{extra} more)")
                         fig.add_annotation(
-                            x=fired_str, y=0.84, xref="x", yref="paper",
-                            text=(f" stock {stock_ret*100:+.2f}%"
-                                  f"<br> peers {n_down}/{n_total} down "
-                                  f"({peer_pct:.0f}%)"),
-                            showarrow=False, xanchor="left", align="left",
+                            x=fired_str, y=0.93, xref="x", yref="paper",
+                            text="<br>".join(lines),
+                            showarrow=False, xanchor="left", yanchor="top",
+                            align="left",
                             font=dict(size=10, color="#29b6f6"),
                             bgcolor="rgba(0,0,0,0.6)",
                         )
@@ -1112,8 +1128,7 @@ def _build_combined_chart(
                         row=1, col=1,
                     )
                 title_text = (
-                    f"{stock_row['stock']}  —  {stock_row['sign']}  "
-                    f"|  fired {fired_str}  ·  viewing {target_str}"
+                    f"{stock_row['stock']}  —  {stock_row['sign']}"
                 )
 
             fig.update_layout(
@@ -1872,6 +1887,31 @@ def layout() -> html.Div:
                                     ),
                                 ],
                             ),
+                            # Tags row: text input + clickable chips of past tags
+                            html.Div(
+                                style={"marginTop": "6px"},
+                                children=[
+                                    dcc.Input(
+                                        id="daily-decision-tags",
+                                        type="text",
+                                        placeholder="tags (comma-separated, optional)",
+                                        debounce=True,
+                                        style={
+                                            "width": "100%", "background": BG,
+                                            "color": TEXT, "border": f"1px solid {BORDER}",
+                                            "borderRadius": "4px",
+                                            "padding": "4px 8px", "fontSize": "12px",
+                                            "boxSizing": "border-box",
+                                        },
+                                    ),
+                                    html.Div(
+                                        id="daily-decision-tag-chips",
+                                        style={"marginTop": "4px",
+                                               "display": "flex", "gap": "4px",
+                                               "flexWrap": "wrap"},
+                                    ),
+                                ],
+                            ),
                             html.Span(id="daily-register-msg",
                                       style={"marginLeft": "10px", "fontSize": "12px"}),
                         ],
@@ -2021,6 +2061,59 @@ def layout() -> html.Div:
 # ── Callbacks ─────────────────────────────────────────────────────────────────
 
 def register_callbacks() -> None:
+
+    # ── Decision tag chips — render past distinct tags as clickable badges ──
+    @callback(
+        Output("daily-decision-tag-chips", "children"),
+        Input("daily-register-msg",        "children"),   # re-render after each save
+        Input("daily-table",               "selected_rows"),  # re-render on row change
+    )
+    def render_tag_chips(_msg: object, _selected: object) -> list:
+        try:
+            with get_session() as session:
+                tags = get_distinct_tags(session)
+        except Exception as exc:
+            logger.warning("render_tag_chips lookup failed: {}", exc)
+            return []
+        if not tags:
+            return [html.Span(
+                "No past tags yet — type comma-separated tags above to start.",
+                style={"color": MUTED, "fontSize": "10px", "fontStyle": "italic"},
+            )]
+        return [
+            html.Button(
+                t,
+                id={"type": "daily-tag-chip", "tag": t},
+                n_clicks=0,
+                style={
+                    "background": "transparent", "color": MUTED,
+                    "border": f"1px solid {BORDER}",
+                    "borderRadius": "10px",
+                    "padding": "1px 8px", "fontSize": "10px",
+                    "cursor": "pointer",
+                },
+            )
+            for t in tags[:30]   # cap at 30 most-recent / most-frequent
+        ]
+
+    @callback(
+        Output("daily-decision-tags", "value"),
+        Input({"type": "daily-tag-chip", "tag": ALL}, "n_clicks"),
+        State("daily-decision-tags",   "value"),
+        prevent_initial_call=True,
+    )
+    def append_tag_chip(n_clicks_list: list[int], current: str | None) -> str:
+        triggered = callback_context.triggered_id
+        if not triggered or not any(n for n in (n_clicks_list or []) if n):
+            return no_update  # type: ignore[return-value]
+        chip_tag = triggered.get("tag", "")
+        if not chip_tag:
+            return no_update  # type: ignore[return-value]
+        current_tags = [t.strip().lower() for t in (current or "").split(",") if t.strip()]
+        if chip_tag in current_tags:
+            return no_update  # type: ignore[return-value]
+        current_tags.append(chip_tag)
+        return ", ".join(current_tags)
 
     # ── Account selector — populate options and two-way sync with Store ───
     @callback(
@@ -2374,6 +2467,7 @@ def register_callbacks() -> None:
         State("daily-date",              "date"),
         State("daily-regime-snapshot",   "data"),
         State("daily-decision-reason",   "value"),
+        State("daily-decision-tags",     "value"),
         State("active-account-id",       "data"),
         prevent_initial_call=True,
     )
@@ -2388,6 +2482,7 @@ def register_callbacks() -> None:
         date_str:      str | None,
         regime_snap:   dict | None,
         reason:        str | None,
+        tags:          str | None,
         account_id:    int | None,
     ) -> tuple:
         ok_style    = {"marginLeft": "10px", "fontSize": "12px", "color": GREEN}
@@ -2420,6 +2515,14 @@ def register_callbacks() -> None:
         except (TypeError, ValueError):
             corr_n225_v = None
         clean_reason = (reason or "").strip() or None
+        # Normalize tags: lowercase, strip whitespace, dedupe, comma-join.
+        if tags:
+            clean_tags = ",".join(sorted({
+                t.strip().lower()
+                for t in tags.split(",") if t.strip()
+            })) or None
+        else:
+            clean_tags = None
         fired = datetime.date.fromisoformat(row["fired_at"])
 
         if trig == "daily-skip-btn":
@@ -2440,6 +2543,7 @@ def register_callbacks() -> None:
                         sma_frac   = sma_f,
                         corr_frac  = corr_f,
                         account_id = account_id,
+                        tags       = clean_tags,
                     )
                 return f"Skipped {row['stock']} (review id={rv.id})", skip_style
             except Exception as exc:
@@ -2472,6 +2576,7 @@ def register_callbacks() -> None:
                     corr_frac   = corr_f,
                     reason      = clean_reason,
                     account_id  = account_id,
+                    tags        = clean_tags,
                 )
             tp_s = f"{tp:,.0f}" if tp is not None else "—"
             sl_s = f"{sl:,.0f}" if sl is not None else "—"
