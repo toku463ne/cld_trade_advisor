@@ -72,13 +72,12 @@ _CHART_BARS    = 160    # bars shown in chart (extra loaded for SMA warmup)
 # = Jan 7 08:59 JST → Jan 7's bar gets pulled in).
 _JST           = datetime.timezone(datetime.timedelta(hours=9))
 
-# Signs visually demoted to "factor-only" in the proposals table.
-# Operator may still select these rows (they are not filtered out) but a
-# "factor-only" note in the Note column + dimmed row styling signal that
-# the standalone-entry edge is weak.  Production ranking is unchanged —
-# this is a UI-only salvage path (see docs/analysis/rev_nhi_remove_from_ranking.md
-# and docs/followups.md).
-_FACTOR_ONLY_SIGNS: frozenset[str] = frozenset({"rev_nhi"})
+# Signs hidden from the Daily-tab proposals table.  Production ranking
+# is unchanged — the strategy still proposes them — but the table drops
+# them so the operator isn't scrolling past rows whose standalone-entry
+# edge is weak.  See docs/analysis/rev_nhi_remove_from_ranking.md and
+# docs/followups.md for the rev_nhi-specific reasoning + revisit gate.
+_HIDDEN_PROPOSAL_SIGNS: frozenset[str] = frozenset({"rev_nhi"})
 
 # ── Decision factors (Daily tab factor panel) ─────────────────────────────────
 # Per evaluation_criteria.md §5.11: every factor shown must carry measured
@@ -384,9 +383,9 @@ def _proposals_to_json(
             "score":     round(p.sign_score, 3),
             "sector":    sector_map.get(p.stock_code),
             "fired_at":  p.fired_at.strftime("%Y-%m-%d"),
-            "note":      "factor-only" if p.sign_type in _FACTOR_ONLY_SIGNS else "",
         }
         for p in proposals
+        if p.sign_type not in _HIDDEN_PROPOSAL_SIGNS
     ]
     # Order by the strategy's own recommendation composite, not raw EV alone.
     # regime_ev is a (sign, kumo)-cell aggregate, so a raw-EV sort leaves many
@@ -1758,7 +1757,6 @@ def layout() -> html.Div:
                                     {"name": "ADX",       "id": "adx"},
                                     {"name": "State",     "id": "adx_state"},
                                     {"name": "Fired",     "id": "fired_at"},
-                                    {"name": "Note",      "id": "note"},
                                 ],
                                 data=[],
                                 row_selectable="single",
@@ -1804,22 +1802,6 @@ def layout() -> html.Div:
                                             "column_id": "adx_state",
                                         },
                                         "color": GREEN,
-                                    },
-                                    # Factor-only rows (rev_nhi today) — dim the
-                                    # whole row so the operator sees them but
-                                    # knows the standalone-entry edge is weak.
-                                    {
-                                        "if": {"filter_query": '{note} = "factor-only"'},
-                                        "color": MUTED,
-                                        "fontStyle": "italic",
-                                    },
-                                    {
-                                        "if": {
-                                            "filter_query": '{note} = "factor-only"',
-                                            "column_id": "note",
-                                        },
-                                        "color": "#ff9800",
-                                        "fontWeight": "600",
                                     },
                                 ],
                                 sort_action="native",
@@ -2280,7 +2262,8 @@ def register_callbacks() -> None:
         revn_snap = _snap_or_none(_get_revn_regime, "RevNRegime")
         sma_snap  = _snap_or_none(_get_sma_regime,  "SMARegime")
         corr_snap = _snap_or_none(_get_corr_regime, "CorrRegime")
-        card   = _regime_card(target, regime, len(proposals),
+        n_shown = sum(1 for p in proposals if p.sign_type not in _HIDDEN_PROPOSAL_SIGNS)
+        card   = _regime_card(target, regime, n_shown,
                               revn_snap=revn_snap, sma_snap=sma_snap, corr_snap=corr_snap)
         ranking_evs = [e.ev for e in strategy._ranking.values()]
 

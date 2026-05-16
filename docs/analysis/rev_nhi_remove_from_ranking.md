@@ -150,14 +150,20 @@ just doesn't certify it.
 ## Final decision — UI-only salvage
 
 1. **Production ranking unchanged.**  `EXCLUDE_SIGNS` stays `frozenset()`;
-   `RegimeSignStrategy` continues to surface `rev_nhi` proposals.
-2. **Daily-tab visual demotion.**  Added `_FACTOR_ONLY_SIGNS` constant
-   in `src/viz/daily.py` (currently `{"rev_nhi"}`) + a new "Note"
-   column showing `factor-only` for matching rows + dimmed/italic row
-   styling.  Operator may still select and register positions from
-   these rows, but the visual demotion signals the weak standalone edge.
+   `RegimeSignStrategy` continues to surface `rev_nhi` proposals
+   internally, so the backtest path and metrics are untouched.
+2. **Hidden from Daily-tab proposals table.**  Added
+   `_HIDDEN_PROPOSAL_SIGNS = frozenset({"rev_nhi"})` constant in
+   `src/viz/daily.py`; the table filter drops these rows and the
+   "N proposals" header count reflects the visible (post-filter) count.
+   First iteration (commit `9b22b51`) used a "factor-only" badge with
+   dimmed styling but kept the rows in the table; operator feedback was
+   that rev_nhi rows still cluttered the proposal list, so the second
+   iteration removes them outright.
 3. **Revisit gate registered** in `docs/followups.md`.  Re-run the
-   bootstrap probe when FY2026 completes or the universe expands.
+   bootstrap probe when FY2026 completes, when the universe expands, or
+   when the `rev_nhi` detector itself changes.  At that point either
+   the ranking-change ships or `_HIDDEN_PROPOSAL_SIGNS` is shrunk.
 
 ## Files
 

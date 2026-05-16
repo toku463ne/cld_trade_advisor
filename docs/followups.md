@@ -40,12 +40,15 @@ shipped (with a date) or **Dropped** when intentionally abandoned.
   - A revised `rev_nhi` detector (different gate, different params)
     produces a re-benchmarked `SignBenchmarkRun` that materially
     changes the regime-ranking cell EVs.
-- **In-the-meantime mitigation (already shipped 2026-05-16)** —
-  Daily tab marks `rev_nhi` proposal rows with a "factor-only"
-  badge in the Note column + dimmed/italic row styling.  Operator
-  may still register positions from these rows, but the visual
-  demotion signals weak standalone edge.  See
-  `_FACTOR_ONLY_SIGNS` in `src/viz/daily.py`.
+- **In-the-meantime mitigation (shipped 2026-05-16)** —
+  Daily tab hides `rev_nhi` proposal rows entirely via
+  `_HIDDEN_PROPOSAL_SIGNS = {"rev_nhi"}` in `src/viz/daily.py`.
+  Production ranking is unchanged (backtest still includes rev_nhi);
+  only the operator-facing proposals table drops them so the proposal
+  list isn't cluttered with rows whose standalone-entry edge is weak.
+  First iteration used a "factor-only" badge + dimmed styling but
+  rev_nhi rows still cluttered the list — second iteration removes
+  them outright.
 - **Owner** — operator.
 - **Links**:
   - Analysis doc: `docs/analysis/rev_nhi_remove_from_ranking.md`
