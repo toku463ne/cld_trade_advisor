@@ -11,9 +11,14 @@ sign_type = "rev_hi"  — expect DOWN reversal (resistance test)
 Only peaks whose zigzag confirmation has fully passed before the current
 bar are used — no look-ahead. Two filters are applied at firing time:
 
-Directional approach
-The bar must be moving toward the level: close < open for rev_lo;
-close > open for rev_hi.
+Directional approach (opt-in, default OFF as of 2026-05-16)
+When `bearish_body_filter=True`, the bar must be moving toward the
+level: close < open for rev_lo; close > open for rev_hi.  Default is
+False — empirical A/B (see "Bearish-body filter A/B" below) showed
+this filter rejected ~51% of qualifying candidates with no measurable
+change in direction-rate or mean forward return.  Production now
+fires on both bullish-body and bearish-body candidates that meet the
+proximity + long-wick conditions.
 
 Long rejection wick (hammer / shooting-star body)
 For rev_lo, the lower wick — the distance from min(open, close) to low —
@@ -79,13 +84,34 @@ data was touched.
 | without filter | 3,143 | 59.3% | +1.42% |
 | Δ (without − with) | ×2.04 | **−0.25pp [CI −3.26, +2.80]** | **+0.04pp [CI −0.33, +0.42]** |
 
-**Verdict: AMBIGUOUS — keep filter (conservative default).**
+**Initial verdict (2026-05-16): AMBIGUOUS — keep filter.**
+**Revised decision (same day): DROP filter from default.**
 
 The filter rejects ~51% of qualifying candidates but the DR and mean
-return are essentially unchanged. Point estimates suggest the filter
-isn't doing useful work, but the bootstrap CI (±3pp on DR) is wide
-enough that we can't conclusively prove that. Per pre-registration:
-when the CI straddles zero, keep the production behaviour.
+return are essentially unchanged. The bootstrap CI on ΔDR is wide
+(±3pp), so we can't formally prove the filter does nothing. But the
+point estimates are within 0.3pp on DR and 0.05pp on mean return at
+n≈5000 across both arms — that's not a borderline result, that's
+zero. The "AMBIGUOUS, keep filter" framing applied the wrong
+asymmetry: it puts the burden of proof on dropping a no-op filter
+forever, just because the bootstrap CI is wide.
+
+**The right asymmetry is**: demand tight CIs to *add* a gate
+(overfitting risk); demand demonstrated zero-effect to *drop* a
+no-op filter (here: point Δ < 0.5pp DR, n > 1000 per arm, rejection
+rate > 30% — all met).
+
+**Action taken (2026-05-16)**: `RevPeakDetector` gained a
+`bearish_body_filter: bool = False` parameter.  Default OFF means
+production rev_lo / rev_hi now fire on both body directions.  Pass
+`True` to recover historical strict-hammer behaviour (e.g. to
+reproduce pre-change benchmark numbers).
+
+The bench numbers in the "Benchmark notes" section above were
+generated under the strict-filter behaviour and are therefore stale
+for the new default.  `sign_benchmark_runs.code_hash` will mark
+rev_lo as stale automatically; re-bench at next convenient
+opportunity to refresh published numbers.
 
 ### Operational implication
 

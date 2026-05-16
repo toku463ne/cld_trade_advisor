@@ -32,16 +32,34 @@ class RevPeakDetector:
     def __init__(
         self,
         stock_cache: DataCache,
-        proximity_pct: float = 0.005,
-        side: str            = "lo",
-        n_peaks: int         = 2,
-        wick_min: float      = 0.4,
+        proximity_pct: float        = 0.005,
+        side: str                   = "lo",
+        n_peaks: int                = 2,
+        wick_min: float             = 0.4,
+        bearish_body_filter: bool   = False,
     ) -> None:
+        """Initialise the detector.
+
+        Args:
+            bearish_body_filter:
+                If True, require the bar's body to align with the
+                expected reversal direction (rev_lo: close < open;
+                rev_hi: close > open).  **Default False** — empirical
+                A/B (2026-05-16, n≈5000 across both arms) showed the
+                filter rejects ~51% of qualifying candidates with no
+                measurable change in direction-rate or mean forward
+                return.  See ``docs/signs/rev_peak.md`` §
+                "Bearish-body filter A/B".  Pass ``True`` for the
+                historical strict-hammer / strict-shooting-star
+                behaviour (e.g. when reproducing pre-2026-05-16
+                benchmark numbers).
+        """
         assert side in ("lo", "hi"), "side must be 'lo' or 'hi'"
         self._stock_code = stock_cache.stock_code
         self._side       = side
         self._proximity  = proximity_pct
         self._wick_min   = wick_min
+        self._bearish_body_filter = bearish_body_filter
         bars             = stock_cache.bars
         self._dts        = [b.dt for b in bars]
         self._sign_type  = "rev_lo" if side == "lo" else "rev_hi"
@@ -85,13 +103,15 @@ class RevPeakDetector:
             if not known or idx == 0:
                 continue
 
-            # Directional approach filter: price must be moving toward the level.
-            # rev_lo: current bar's close < open (declining into support)
-            # rev_hi: current bar's close > open (rising into resistance)
-            if self._side == "lo" and bar.close >= bar.open:
-                continue
-            if self._side == "hi" and bar.close <= bar.open:
-                continue
+            # Directional approach filter (opt-in via bearish_body_filter):
+            # rev_lo: require close < open (declining into support)
+            # rev_hi: require close > open (rising into resistance)
+            # Default OFF — A/B showed no edge from this filter; see docs.
+            if self._bearish_body_filter:
+                if self._side == "lo" and bar.close >= bar.open:
+                    continue
+                if self._side == "hi" and bar.close <= bar.open:
+                    continue
 
             # Long rejection wick: ≥ wick_min × range on the test side.
             bar_range = bar.high - bar.low
