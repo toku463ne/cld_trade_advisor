@@ -438,6 +438,48 @@ def _empty_chart(msg: str) -> go.Figure:
     return fig
 
 
+def _rev_nday_reference(
+    stock_bars: list | None,
+    sign_type:  str,
+    fired_str:  str,
+    n_days:     int = 20,
+) -> tuple[float, str] | None:
+    """Compute the (reference_price, reference_date) for rev_nhi / rev_nlo fires.
+
+    Mirrors ``RevNDayDetector``'s reference-level calculation: the max/min
+    of the prior N complete trading days before fired_str.  Returns the
+    most recent date among ties so the annotation points at the proximal
+    peak.  Returns None for non-rev_nday signs or insufficient history.
+    """
+    if sign_type not in ("rev_nhi", "rev_nlo"):
+        return None
+    if not stock_bars:
+        return None
+    try:
+        fired_date = datetime.date.fromisoformat(fired_str)
+    except Exception:
+        return None
+    # Build daily high/low (collapse intraday bars to one per date)
+    daily_hi: dict[datetime.date, float] = {}
+    daily_lo: dict[datetime.date, float] = {}
+    for b in stock_bars:
+        d = b.dt.date()
+        if d not in daily_hi or b.high > daily_hi[d]:
+            daily_hi[d] = float(b.high)
+        if d not in daily_lo or b.low  < daily_lo[d]:
+            daily_lo[d] = float(b.low)
+    prior_dates = sorted(d for d in daily_hi if d < fired_date)
+    if len(prior_dates) < n_days:
+        return None
+    window = prior_dates[-n_days:]
+    if sign_type == "rev_nhi":
+        ref_date = max(window, key=lambda d: daily_hi[d])
+        return daily_hi[ref_date], ref_date.isoformat()
+    else:
+        ref_date = min(window, key=lambda d: daily_lo[d])
+        return daily_lo[ref_date], ref_date.isoformat()
+
+
 def _build_combined_chart(
     target_date: datetime.date,
     stock_row: dict | None = None,
@@ -837,15 +879,53 @@ def _build_combined_chart(
                                   xref="x", yref="paper",
                                   line=dict(width=1.5, dash="dot", color="#00e676"))
                     fig.add_annotation(x=fired_str, y=0.98, xref="x", yref="paper",
-                                       text=f" {stock_row['sign']}", showarrow=False,
-                                       xanchor="left", font=dict(size=10, color="#00e676"))
+                                       text=f" {stock_row['sign']} fired", showarrow=False,
+                                       xanchor="left", font=dict(size=10, color="#00e676"),
+                                       bgcolor="rgba(0,0,0,0.6)")
+                # "Today" marker — only render when it differs from fired_str so it
+                # doesn't overlap; helps distinguish "where the sign originated" from
+                # "the date currently being viewed / would be acted on".  Stacked at
+                # y=0.92 so it doesn't collide with the fired-label at 0.98 when the
+                # two dates render close together.
+                target_str = target_date.isoformat()
+                if target_str in dates and target_str != fired_str:
+                    fig.add_shape(type="line", x0=target_str, x1=target_str, y0=0, y1=1,
+                                  xref="x", yref="paper",
+                                  line=dict(width=1.2, dash="dash", color="#29b6f6"))
+                    fig.add_annotation(x=target_str, y=0.92, xref="x", yref="paper",
+                                       text=" today", showarrow=False,
+                                       xanchor="right", font=dict(size=10, color="#29b6f6"),
+                                       bgcolor="rgba(0,0,0,0.6)")
+                # Reference peak annotation for rev_nhi / rev_nlo — show the
+                # prior-N-day reference level the bar tested + the date that
+                # high/low was set.  (rev_lo / rev_hi would need detector
+                # changes to expose which zigzag peak was matched — deferred.)
+                ref_info = _rev_nday_reference(
+                    stock_bars, stock_row["sign"], fired_str,
+                )
+                if ref_info is not None:
+                    ref_price, ref_date_str = ref_info
+                    is_hi = stock_row["sign"] == "rev_nhi"
+                    color = "#ef5350" if is_hi else "#26a69a"
+                    label_side = "HIGH" if is_hi else "LOW"
+                    fig.add_hline(
+                        y=ref_price, line_dash="dot", line_color=color,
+                        line_width=1.0, opacity=0.7,
+                        annotation_text=f"ref {label_side} {ref_price:,.0f}<br>{ref_date_str}",
+                        annotation_position="right",
+                        annotation=dict(font=dict(color=color, size=10),
+                                        bgcolor="rgba(0,0,0,0.6)",
+                                        align="left"),
+                        row=1, col=1,
+                    )
                 title_text = (
-                    f"{stock_row['stock']}  —  {stock_row['sign']}  |  fired {fired_str}"
+                    f"{stock_row['stock']}  —  {stock_row['sign']}  "
+                    f"|  fired {fired_str}  ·  viewing {target_str}"
                 )
 
             fig.update_layout(
                 template="plotly_dark", paper_bgcolor=BG, plot_bgcolor="#0d1117",
-                margin=dict(l=60, r=20, t=36, b=10),
+                margin=dict(l=60, r=90, t=36, b=10),
                 title=dict(
                     text=title_text,
                     font=dict(size=13, color=MUTED), x=0.01,
@@ -899,7 +979,7 @@ def _build_combined_chart(
 
             fig.update_layout(
                 template="plotly_dark", paper_bgcolor=BG, plot_bgcolor="#0d1117",
-                margin=dict(l=60, r=20, t=30, b=10),
+                margin=dict(l=60, r=90, t=30, b=10),
                 title=dict(text="^N225", font=dict(size=13, color=MUTED), x=0.01),
                 dragmode="pan", hovermode="x unified",
                 yaxis_title="Price", yaxis2_title="ADX", yaxis3_title="Vol",
