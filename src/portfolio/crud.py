@@ -99,6 +99,89 @@ def compute_exit_levels(
         return None, None
 
 
+def _upsert_review(
+    session: Session,
+    *,
+    account_id:  int | None,
+    fired_at:    datetime.date,
+    trade_date:  datetime.date,
+    stock_code:  str,
+    sign_type:   str,
+    action:      str,
+    sign_score:  float | None,
+    corr_mode:   str | None,
+    corr_n225:   float | None,
+    kumo_state:  int | None,
+    position_id: int | None,
+    reason:      str | None,
+    revn_frac:   float | None,
+    sma_frac:    float | None,
+    corr_frac:   float | None,
+    tags:        str | None,
+) -> ReviewedCandidate:
+    """Upsert one reviewed_candidates row keyed by the decision tuple.
+
+    Key = (account_id, stock_code, fired_at, trade_date, sign_type) —
+    matches the uq_reviewed_candidates_decision unique constraint.
+
+    On hit: updates all mutable fields (including action and
+    position_id) and bumps reviewed_at.  On miss: inserts a new row.
+
+    Note on position_id: a Skip after a Register would normally clear
+    position_id and leave an orphan Position row.  The Daily UI shows
+    an "Already registered" banner to discourage that flow; we keep
+    the upsert mechanically simple and trust the operator to honor
+    the banner.
+    """
+    existing = session.execute(
+        select(ReviewedCandidate).where(
+            ReviewedCandidate.account_id == account_id,
+            ReviewedCandidate.stock_code == stock_code,
+            ReviewedCandidate.fired_at   == fired_at,
+            ReviewedCandidate.trade_date == trade_date,
+            ReviewedCandidate.sign_type  == sign_type,
+        )
+    ).scalars().first()
+
+    if existing is not None:
+        existing.sign_score  = sign_score
+        existing.corr_mode   = corr_mode
+        existing.corr_n225   = corr_n225
+        existing.kumo_state  = kumo_state
+        existing.action      = action
+        existing.position_id = position_id
+        existing.reason      = reason
+        existing.revn_frac   = revn_frac
+        existing.sma_frac    = sma_frac
+        existing.corr_frac   = corr_frac
+        existing.tags        = tags
+        existing.reviewed_at = datetime.datetime.now(datetime.timezone.utc)
+        session.flush()
+        return existing
+
+    review = ReviewedCandidate(
+        account_id  = account_id,
+        fired_at    = fired_at,
+        trade_date  = trade_date,
+        stock_code  = stock_code,
+        sign_type   = sign_type,
+        sign_score  = sign_score,
+        corr_mode   = corr_mode,
+        corr_n225   = corr_n225,
+        kumo_state  = kumo_state,
+        action      = action,
+        position_id = position_id,
+        reason      = reason,
+        revn_frac   = revn_frac,
+        sma_frac    = sma_frac,
+        corr_frac   = corr_frac,
+        tags        = tags,
+    )
+    session.add(review)
+    session.flush()
+    return review
+
+
 def register_position(
     session: Session,
     stock_code:  str,
@@ -121,15 +204,24 @@ def register_position(
     reason:      str | None = None,
     account_id:  int | None = None,
     tags:        str | None = None,
+    trade_date:  datetime.date | None = None,
 ) -> Position:
     """Create and persist a new open position.
 
-    Also writes a paired `ReviewedCandidate(action='taken')` row that
-    captures the regime snapshot at registration time.  This pairs
-    every taken trade with an equivalent record to its skipped
-    counterparts, enabling post-hoc "did discretion beat systematic?"
-    analysis.
+    Also upserts the paired `ReviewedCandidate(action='taken')` row,
+    keyed by (account_id, stock_code, fired_at, trade_date, sign_type).
+    If the operator previously skipped this candidate on the same
+    trade_date, the existing review row flips to 'taken' rather than
+    creating a duplicate.
+
+    ``trade_date`` defaults to ``entry_date`` for backward
+    compatibility — call sites built before the column existed treat
+    "the day we considered the fire" as the same day we opened the
+    position, which matches the implicit pre-column behavior.
     """
+    if trade_date is None:
+        trade_date = entry_date
+
     pos = Position(
         stock_code  = stock_code,
         sign_type   = sign_type,
@@ -153,25 +245,25 @@ def register_position(
     session.add(pos)
     session.flush()
 
-    review = ReviewedCandidate(
+    review = _upsert_review(
+        session,
+        account_id  = account_id,
         fired_at    = fired_at,
+        trade_date  = trade_date,
         stock_code  = stock_code,
         sign_type   = sign_type,
+        action      = "taken",
         sign_score  = sign_score,
         corr_mode   = corr_mode,
         corr_n225   = corr_n225,
         kumo_state  = kumo_state,
-        action      = "taken",
         position_id = pos.id,
         reason      = reason,
         revn_frac   = revn_frac,
         sma_frac    = sma_frac,
         corr_frac   = corr_frac,
-        account_id  = account_id,
         tags        = tags,
     )
-    session.add(review)
-    session.flush()
 
     logger.info("Registered position id={} {} @ {} (review id={})",
                 pos.id, stock_code, entry_price, review.id)
@@ -184,6 +276,7 @@ def register_review(
     stock_code:  str,
     sign_type:   str,
     action:      str,
+    trade_date:  datetime.date | None = None,
     sign_score:  float | None = None,
     corr_mode:   str | None = None,
     corr_n225:   float | None = None,
@@ -196,69 +289,41 @@ def register_review(
     account_id:  int | None = None,
     tags:        str | None = None,
 ) -> ReviewedCandidate:
-    """Persist a reviewed-candidate row.
+    """Persist a reviewed-candidate row (upsert).
 
-    `register_position` already writes a 'taken' review automatically;
-    this helper exists for 'skipped' actions and ad-hoc review tracking.
+    Used directly for 'skipped' clicks; `register_position` calls the
+    same upsert internally for 'taken' actions.  Key =
+    (account_id, stock_code, fired_at, trade_date, sign_type).
 
-    Upsert semantics for ``action="skipped"``: if a skip row already
-    exists for ``(account_id, fired_at, stock_code, sign_type)``, the
-    row is updated (reason, regime snapshot, reviewed_at) rather than
-    duplicated.  This lets the operator iterate on a skip reason
-    without spawning rows every click.  ``action="taken"`` stays
-    insert-only because each Register opens a distinct Position.
+    ``trade_date`` defaults to ``fired_at`` for backward
+    compatibility — call sites built before the column existed treat
+    "the day we considered the fire" as the fire day itself.
     """
     if action not in ("taken", "skipped"):
         raise ValueError(f"action must be 'taken' or 'skipped', got {action!r}")
+    if trade_date is None:
+        trade_date = fired_at
 
-    if action == "skipped":
-        existing = session.execute(
-            select(ReviewedCandidate)
-            .where(
-                ReviewedCandidate.account_id == account_id,
-                ReviewedCandidate.fired_at   == fired_at,
-                ReviewedCandidate.stock_code == stock_code,
-                ReviewedCandidate.sign_type  == sign_type,
-                ReviewedCandidate.action     == "skipped",
-            )
-            .order_by(ReviewedCandidate.reviewed_at.desc())
-        ).scalars().first()
-        if existing is not None:
-            existing.sign_score  = sign_score
-            existing.corr_mode   = corr_mode
-            existing.corr_n225   = corr_n225
-            existing.kumo_state  = kumo_state
-            existing.reason      = reason
-            existing.revn_frac   = revn_frac
-            existing.sma_frac    = sma_frac
-            existing.corr_frac   = corr_frac
-            existing.tags        = tags
-            existing.reviewed_at = datetime.datetime.now(datetime.timezone.utc)
-            session.flush()
-            logger.info("Updated skip review id={} {} {} (acct={})",
-                        existing.id, stock_code, sign_type, account_id)
-            return existing
-
-    review = ReviewedCandidate(
+    review = _upsert_review(
+        session,
+        account_id  = account_id,
         fired_at    = fired_at,
+        trade_date  = trade_date,
         stock_code  = stock_code,
         sign_type   = sign_type,
+        action      = action,
         sign_score  = sign_score,
         corr_mode   = corr_mode,
         corr_n225   = corr_n225,
         kumo_state  = kumo_state,
-        action      = action,
         position_id = position_id,
         reason      = reason,
         revn_frac   = revn_frac,
         sma_frac    = sma_frac,
         corr_frac   = corr_frac,
-        account_id  = account_id,
         tags        = tags,
     )
-    session.add(review)
-    session.flush()
-    logger.info("Registered review id={} {} action={}", review.id, stock_code, action)
+    logger.info("Upserted review id={} {} action={}", review.id, stock_code, action)
     return review
 
 

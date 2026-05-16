@@ -2436,29 +2436,38 @@ def register_callbacks() -> None:
     @callback(
         Output("daily-existing-review-label", "children"),
         Output("daily-existing-review-label", "style"),
+        Output("daily-decision-reason",       "value", allow_duplicate=True),
+        Output("daily-decision-tags",         "value", allow_duplicate=True),
         Input("daily-table",             "selected_rows"),
         Input("daily-proposals-store",   "data"),
         Input("daily-register-msg",      "children"),  # re-query after Skip / Register
+        Input("daily-date",              "date"),       # trade_date key
+        prevent_initial_call=True,
     )
     def show_existing_review(
         selected_rows: list[int],
         store_data: str | None,
         _msg: object,
+        date_str: str | None,
     ) -> tuple:
         hidden = {"display": "none"}
+        # On no-selection: blank the inputs too so the next row starts clean.
         if not selected_rows or not store_data:
-            return "", hidden
+            return "", hidden, "", ""
         rows = json.loads(store_data)
         if selected_rows[0] >= len(rows):
-            return "", hidden
+            return "", hidden, "", ""
         row = rows[selected_rows[0]]
         try:
             fired = datetime.date.fromisoformat(row["fired_at"])
+            today = (datetime.date.fromisoformat(date_str[:10])
+                     if date_str else datetime.date.today())
             with get_session() as session:
                 existing = session.execute(
                     select(ReviewedCandidate)
                     .where(
                         ReviewedCandidate.fired_at   == fired,
+                        ReviewedCandidate.trade_date == today,
                         ReviewedCandidate.stock_code == row["stock"],
                         ReviewedCandidate.sign_type  == row["sign"],
                     )
@@ -2466,10 +2475,12 @@ def register_callbacks() -> None:
                 ).scalars().first()
         except Exception:
             logger.exception("show_existing_review query failed")
-            return "", hidden
+            return "", hidden, "", ""
         if existing is None:
-            return "", hidden
+            return "", hidden, "", ""
 
+        pre_reason = existing.reason or ""
+        pre_tags   = existing.tags   or ""
         ts = existing.reviewed_at.strftime("%H:%M") if existing.reviewed_at else ""
         base = {
             "fontSize": "11px", "marginBottom": "8px",
@@ -2495,7 +2506,7 @@ def register_callbacks() -> None:
             ]
             style = {**base, "background": "#1a2a1f",
                      "border": f"1px solid {GREEN}"}
-        return children, style
+        return children, style, pre_reason, pre_tags
 
 
     @callback(
@@ -2594,6 +2605,12 @@ def register_callbacks() -> None:
         else:
             clean_tags = None
         fired = datetime.date.fromisoformat(row["fired_at"])
+        # trade_date = the session day on which the operator is making the
+        # decision (the Daily-tab date picker).  Distinct from fired_at —
+        # the same fire can be considered on multiple session days and each
+        # decision is its own upsert row.
+        today = (datetime.date.fromisoformat(date_str[:10])
+                 if date_str else datetime.date.today())
 
         if trig == "daily-skip-btn":
             try:
@@ -2601,6 +2618,7 @@ def register_callbacks() -> None:
                     rv = register_review(
                         session    = session,
                         fired_at   = fired,
+                        trade_date = today,
                         stock_code = row["stock"],
                         sign_type  = row["sign"],
                         action     = "skipped",
@@ -2623,7 +2641,6 @@ def register_callbacks() -> None:
         if entry_price is None or units is None:
             return "Enter price and units first.", err_style
         try:
-            today     = datetime.date.fromisoformat(date_str[:10]) if date_str else datetime.date.today()
             tp, sl    = compute_exit_levels(row["stock"], float(entry_price), fired,
                                              direction=direction or "long")
             with get_session() as session:
@@ -2635,6 +2652,7 @@ def register_callbacks() -> None:
                     kumo_state  = row["kumo_int"],
                     fired_at    = fired,
                     entry_date  = today,
+                    trade_date  = today,
                     entry_price = float(entry_price),
                     direction   = direction or "long",
                     units       = int(units),

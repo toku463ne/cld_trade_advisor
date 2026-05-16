@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.data.models import Base
@@ -110,6 +110,12 @@ class ReviewedCandidate(Base):
     """
 
     __tablename__ = "reviewed_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "account_id", "stock_code", "fired_at", "trade_date", "sign_type",
+            name="uq_reviewed_candidates_decision",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     account_id: Mapped[int | None] = mapped_column(
@@ -120,6 +126,11 @@ class ReviewedCandidate(Base):
     )
 
     fired_at:   Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True)
+    # The session day on which the operator considered this fire.  Distinct
+    # from fired_at — the same fire can be reviewed on multiple session
+    # days (e.g., skipped today, registered tomorrow) and each session-day
+    # decision is its own upsert row.
+    trade_date: Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True)
     stock_code: Mapped[str]           = mapped_column(String(20), nullable=False)
     sign_type:  Mapped[str]           = mapped_column(String(30), nullable=False)
 
