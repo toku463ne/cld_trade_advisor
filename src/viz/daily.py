@@ -43,7 +43,7 @@ from src.portfolio.crud import (
 from src.indicators.corr_regime import CorrRegime
 from src.indicators.rev_n_regime import RevNRegime
 from src.indicators.sma_regime import SMARegime
-from src.portfolio.models import Position
+from src.portfolio.models import Position, ReviewedCandidate
 from src.simulator.cache import DataCache
 from src.strategy.proposal import SignalProposal
 from src.strategy.regime_sign import _CERTIFIED_SECTOR_BONUS, RegimeSignStrategy
@@ -439,6 +439,8 @@ def _empty_chart(msg: str) -> go.Figure:
 def _build_combined_chart(
     target_date: datetime.date,
     stock_row: dict | None = None,
+    tp_price: float | None = None,
+    sl_price: float | None = None,
 ) -> go.Figure:
     """Single figure with shared x-axis (same approach as corr_ui.py / build_pair_figure).
 
@@ -725,6 +727,28 @@ def _build_combined_chart(
                                          marker=dict(symbol="triangle-up", size=9, color="#26a69a",
                                                      line=dict(width=1, color="#fff")),
                                          hovertemplate="ZZ low: %{y:,.0f}<extra></extra>"), row=1, col=1)
+
+            # TP / SL overlay (proposal preview or actual position levels)
+            if tp_price is not None and tp_price > 0:
+                fig.add_hline(
+                    y=tp_price, line_dash="dash", line_color=GREEN, line_width=1.2,
+                    opacity=0.85,
+                    annotation_text=f"TP {tp_price:,.0f}",
+                    annotation_position="right",
+                    annotation=dict(font=dict(color=GREEN, size=10),
+                                    bgcolor="rgba(0,0,0,0.6)"),
+                    row=1, col=1,
+                )
+            if sl_price is not None and sl_price > 0:
+                fig.add_hline(
+                    y=sl_price, line_dash="dash", line_color=RED, line_width=1.2,
+                    opacity=0.85,
+                    annotation_text=f"SL {sl_price:,.0f}",
+                    annotation_position="right",
+                    annotation=dict(font=dict(color=RED, size=10),
+                                    bgcolor="rgba(0,0,0,0.6)"),
+                    row=1, col=1,
+                )
 
             # Row 2 — stock ADX
             fig.add_trace(go.Scatter(x=dates, y=s_adx_v, mode="lines", name="ADX",
@@ -1387,6 +1411,8 @@ def layout() -> html.Div:
                             html.Div(id="daily-register-stock-label",
                                      style={"color": MUTED, "fontSize": "12px",
                                             "marginBottom": "8px"}),
+                            html.Div(id="daily-existing-review-label",
+                                     style={"display": "none"}),
                             html.Div(
                                 style={"display": "flex", "gap": "8px",
                                        "alignItems": "center", "marginBottom": "8px",
@@ -1785,12 +1811,14 @@ def register_callbacks() -> None:
         Input("daily-table",               "selected_rows"),
         Input("daily-proposals-store",     "data"),
         Input("daily-pos-selected-store",  "data"),
+        Input("daily-entry-price",         "value"),
     )
     def update_charts(
         date_str: str | None,
         selected_rows: list[int],
         store_data: str | None,
         pos_data: dict | None,
+        entry_price: float | None,
     ) -> go.Figure:
         """Single combined figure — stock + N225 share one x-axis (no sync needed)."""
         target = (
@@ -1798,14 +1826,30 @@ def register_callbacks() -> None:
             if date_str else datetime.date.today()
         )
         triggered = callback_context.triggered_id
-        # Position card click takes priority
+        # Position card click takes priority — use the stored TP/SL
         if triggered == "daily-pos-selected-store" and pos_data:
-            return _build_combined_chart(target, stock_row=pos_data)
-        # Proposal table row
+            return _build_combined_chart(
+                target, stock_row=pos_data,
+                tp_price=pos_data.get("tp"),
+                sl_price=pos_data.get("sl"),
+            )
+        # Proposal table row — compute preview TP/SL from current entry-price input
         if selected_rows and store_data:
             rows = json.loads(store_data)
             if selected_rows[0] < len(rows):
-                return _build_combined_chart(target, stock_row=rows[selected_rows[0]])
+                row = rows[selected_rows[0]]
+                tp = sl = None
+                if entry_price is not None:
+                    try:
+                        fired = datetime.date.fromisoformat(row["fired_at"])
+                        tp, sl = compute_exit_levels(
+                            row["stock"], float(entry_price), fired,
+                        )
+                    except Exception:
+                        logger.exception("update_charts TP/SL preview failed")
+                return _build_combined_chart(
+                    target, stock_row=row, tp_price=tp, sl_price=sl,
+                )
         return _build_combined_chart(target)
 
     # ── Portfolio: show register panel when row selected ─────────────────────
@@ -1840,6 +1884,71 @@ def register_callbacks() -> None:
             f"fired={row['fired_at']}"
         )
         return visible, label, price
+
+    @callback(
+        Output("daily-existing-review-label", "children"),
+        Output("daily-existing-review-label", "style"),
+        Input("daily-table",             "selected_rows"),
+        Input("daily-proposals-store",   "data"),
+        Input("daily-register-msg",      "children"),  # re-query after Skip / Register
+    )
+    def show_existing_review(
+        selected_rows: list[int],
+        store_data: str | None,
+        _msg: object,
+    ) -> tuple:
+        hidden = {"display": "none"}
+        if not selected_rows or not store_data:
+            return "", hidden
+        rows = json.loads(store_data)
+        if selected_rows[0] >= len(rows):
+            return "", hidden
+        row = rows[selected_rows[0]]
+        try:
+            fired = datetime.date.fromisoformat(row["fired_at"])
+            with get_session() as session:
+                existing = session.execute(
+                    select(ReviewedCandidate)
+                    .where(
+                        ReviewedCandidate.fired_at   == fired,
+                        ReviewedCandidate.stock_code == row["stock"],
+                        ReviewedCandidate.sign_type  == row["sign"],
+                    )
+                    .order_by(ReviewedCandidate.reviewed_at.desc())
+                ).scalars().first()
+        except Exception:
+            logger.exception("show_existing_review query failed")
+            return "", hidden
+        if existing is None:
+            return "", hidden
+
+        ts = existing.reviewed_at.strftime("%H:%M") if existing.reviewed_at else ""
+        base = {
+            "fontSize": "11px", "marginBottom": "8px",
+            "padding": "4px 8px", "borderRadius": "3px",
+            "display": "block",
+        }
+        if existing.action == "skipped":
+            reason_txt = existing.reason or "(no reason recorded)"
+            children = [
+                html.Span("⊘ Previously skipped",
+                          style={"color": "#ffb74d", "fontWeight": "600"}),
+                html.Span(f"  ({ts})  ", style={"color": MUTED}),
+                html.Span(reason_txt, style={"color": TEXT}),
+            ]
+            style = {**base, "background": "#2a2520",
+                     "border": "1px solid #503a25"}
+        else:
+            children = [
+                html.Span("✓ Already registered",
+                          style={"color": GREEN, "fontWeight": "600"}),
+                html.Span(f"  (position id={existing.position_id}, {ts})",
+                          style={"color": MUTED}),
+            ]
+            style = {**base, "background": "#1a2a1f",
+                     "border": f"1px solid {GREEN}"}
+        return children, style
+
 
     @callback(
         Output("daily-tp-sl-preview", "children"),
