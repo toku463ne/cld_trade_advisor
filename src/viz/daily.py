@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from dash import ALL, Input, Output, callback, callback_context, dash_table, dcc, html, no_update
+from dash import ALL, Input, Output, State, callback, callback_context, dash_table, dcc, html, no_update
 from loguru import logger
 from plotly.subplots import make_subplots
 from sqlalchemy import select
@@ -30,6 +30,11 @@ from src.indicators.moving_corr import compute_moving_corr
 from src.indicators.zigzag import detect_peaks
 from src.portfolio.crud import (
     close_position,
+    create_memo,
+    delete_memo,
+    get_memos_for_date,
+    register_review,
+    update_memo,
     compute_exit_levels,
     get_latest_price,
     get_open_positions,
@@ -1353,6 +1358,7 @@ def layout() -> html.Div:
 
                     dcc.Store(id="daily-proposals-store"),
                     dcc.Store(id="daily-pos-selected-store"),
+                    dcc.Store(id="daily-regime-snapshot"),
 
                     # Decision factors panel (shown when a row is selected)
                     html.Div(
@@ -1438,16 +1444,46 @@ def layout() -> html.Div:
                                 id="daily-tp-sl-preview",
                                 style={"color": MUTED, "fontSize": "11px", "marginBottom": "8px"},
                             ),
-                            html.Button(
-                                "Register",
-                                id="daily-register-btn",
-                                n_clicks=0,
-                                style={
-                                    "background": GREEN, "color": BG,
-                                    "border": "none", "borderRadius": "4px",
-                                    "padding": "5px 14px", "cursor": "pointer",
-                                    "fontWeight": "600", "fontSize": "12px",
-                                },
+                            html.Div(
+                                style={"display": "flex", "gap": "8px",
+                                       "alignItems": "center", "flexWrap": "wrap"},
+                                children=[
+                                    html.Button(
+                                        "Register",
+                                        id="daily-register-btn",
+                                        n_clicks=0,
+                                        style={
+                                            "background": GREEN, "color": BG,
+                                            "border": "none", "borderRadius": "4px",
+                                            "padding": "5px 14px", "cursor": "pointer",
+                                            "fontWeight": "600", "fontSize": "12px",
+                                        },
+                                    ),
+                                    html.Button(
+                                        "Skip",
+                                        id="daily-skip-btn",
+                                        n_clicks=0,
+                                        style={
+                                            "background": "transparent", "color": MUTED,
+                                            "border": f"1px solid {BORDER}", "borderRadius": "4px",
+                                            "padding": "5px 14px", "cursor": "pointer",
+                                            "fontWeight": "600", "fontSize": "12px",
+                                        },
+                                    ),
+                                    dcc.Input(
+                                        id="daily-decision-reason",
+                                        type="text",
+                                        placeholder="reason (optional)",
+                                        debounce=True,
+                                        style={
+                                            "flex": "1", "minWidth": "120px",
+                                            "background": BG, "color": TEXT,
+                                            "border": f"1px solid {BORDER}",
+                                            "borderRadius": "4px", "padding": "4px 8px",
+                                            "fontSize": "12px",
+                                        },
+                                    ),
+                                ],
                             ),
                             html.Span(id="daily-register-msg",
                                       style={"marginLeft": "10px", "fontSize": "12px"}),
@@ -1493,6 +1529,81 @@ def layout() -> html.Div:
                             ),
                         ],
                     ),
+
+                    # ── Memos panel ──────────────────────────────────────────
+                    html.Div(
+                        style={"marginTop": "16px"},
+                        children=[
+                            html.Div(
+                                style={"display": "flex", "justifyContent": "space-between",
+                                       "alignItems": "center", "marginBottom": "6px"},
+                                children=[
+                                    html.Span(
+                                        "Memos",
+                                        style={"color": MUTED, "fontSize": "11px",
+                                               "textTransform": "uppercase",
+                                               "letterSpacing": "0.5px"},
+                                    ),
+                                    html.Span(
+                                        id="daily-memo-date-label",
+                                        style={"color": MUTED, "fontSize": "10px"},
+                                    ),
+                                ],
+                            ),
+                            dcc.Textarea(
+                                id="daily-memo-input",
+                                placeholder="Write an idea for this day…",
+                                style={
+                                    "width": "100%", "minHeight": "60px",
+                                    "background": BG, "color": TEXT,
+                                    "border": f"1px solid {BORDER}",
+                                    "borderRadius": "4px",
+                                    "padding": "6px 8px", "fontSize": "12px",
+                                    "resize": "vertical",
+                                    "fontFamily": "'Segoe UI', Arial, sans-serif",
+                                    "boxSizing": "border-box",
+                                },
+                            ),
+                            html.Div(
+                                style={"display": "flex", "alignItems": "center",
+                                       "gap": "8px", "marginTop": "6px"},
+                                children=[
+                                    html.Button(
+                                        "Save Memo",
+                                        id="daily-memo-save-btn",
+                                        n_clicks=0,
+                                        style={
+                                            "background": ACCENT, "color": BG,
+                                            "border": "none", "borderRadius": "4px",
+                                            "padding": "5px 12px", "cursor": "pointer",
+                                            "fontWeight": "600", "fontSize": "12px",
+                                        },
+                                    ),
+                                    html.Button(
+                                        "Cancel Edit",
+                                        id="daily-memo-cancel-btn",
+                                        n_clicks=0,
+                                        style={
+                                            "display": "none",
+                                            "background": "transparent",
+                                            "color": MUTED,
+                                            "border": f"1px solid {BORDER}",
+                                            "borderRadius": "4px",
+                                            "padding": "5px 12px", "cursor": "pointer",
+                                            "fontSize": "11px",
+                                        },
+                                    ),
+                                    html.Span(id="daily-memo-msg",
+                                              style={"fontSize": "11px"}),
+                                ],
+                            ),
+                            html.Div(
+                                id="daily-memo-list",
+                                style={"marginTop": "8px", "fontSize": "12px"},
+                            ),
+                            dcc.Store(id="daily-memo-editing-id"),
+                        ],
+                    ),
                 ],
             ),
 
@@ -1527,6 +1638,7 @@ def register_callbacks() -> None:
     @callback(
         Output("daily-proposals-store", "data"),
         Output("daily-regime-card", "children"),
+        Output("daily-regime-snapshot", "data"),
         Input("daily-refresh-btn", "n_clicks"),
         Input("daily-date", "date"),
         running=[
@@ -1538,7 +1650,7 @@ def register_callbacks() -> None:
     )
     def refresh_proposals(n_clicks: int, date_str: str | None) -> tuple:
         if not date_str:
-            return no_update, no_update
+            return no_update, no_update, no_update
 
         try:
             target    = datetime.date.fromisoformat(date_str[:10])
@@ -1563,7 +1675,7 @@ def register_callbacks() -> None:
             else:
                 hint = f"Data error: {msg}. Use Maintenance → Download OHLCV to refresh market data."
             logger.warning("refresh_proposals ValueError: {}", msg)
-            return None, [html.Span(hint, style={"color": "#ff9800", "fontSize": "13px"})]
+            return None, [html.Span(hint, style={"color": "#ff9800", "fontSize": "13px"})], None
         except Exception as exc:
             logger.exception("refresh_proposals error")
             hint = (
@@ -1575,7 +1687,7 @@ def register_callbacks() -> None:
                 html.Br(),
                 html.Span(f"({type(exc).__name__}: {exc})",
                           style={"color": RED, "fontSize": "11px"}),
-            ]
+            ], None
 
         regime = _regime_from_proposals(proposals)
         def _snap_or_none(builder, name):
@@ -1596,7 +1708,19 @@ def register_callbacks() -> None:
         card   = _regime_card(target, regime, len(proposals),
                               revn_snap=revn_snap, sma_snap=sma_snap, corr_snap=corr_snap)
         ranking_evs = [e.ev for e in strategy._ranking.values()]
-        return _proposals_to_json(proposals, ranking_evs), card
+
+        def _frac_of(snap):
+            if snap is None: return None
+            v = snap.get("frac")
+            try: v = float(v)
+            except (TypeError, ValueError): return None
+            return None if math.isnan(v) else v
+        regime_snapshot = {
+            "revn_frac": _frac_of(revn_snap),
+            "sma_frac":  _frac_of(sma_snap),
+            "corr_frac": _frac_of(corr_snap),
+        }
+        return _proposals_to_json(proposals, ranking_evs), card, regime_snapshot
 
     @callback(
         Output("daily-table", "data"),
@@ -1744,41 +1868,88 @@ def register_callbacks() -> None:
         Output("daily-register-msg", "children"),
         Output("daily-register-msg", "style"),
         Input("daily-register-btn", "n_clicks"),
-        Input("daily-direction", "value"),
-        Input("daily-entry-price", "value"),
-        Input("daily-units", "value"),
-        Input("daily-table", "selected_rows"),
-        Input("daily-proposals-store", "data"),
-        Input("daily-date", "date"),
+        Input("daily-skip-btn",     "n_clicks"),
+        State("daily-direction",         "value"),
+        State("daily-entry-price",       "value"),
+        State("daily-units",             "value"),
+        State("daily-table",             "selected_rows"),
+        State("daily-proposals-store",   "data"),
+        State("daily-date",              "date"),
+        State("daily-regime-snapshot",   "data"),
+        State("daily-decision-reason",   "value"),
         prevent_initial_call=True,
     )
-    def register_btn_click(
-        n_clicks: int,
-        direction: str | None,
-        entry_price: float | None,
-        units: int | None,
+    def decision_btn_click(
+        n_register:    int,
+        n_skip:        int,
+        direction:     str | None,
+        entry_price:   float | None,
+        units:         int | None,
         selected_rows: list[int],
-        store_data: str | None,
-        date_str: str | None,
+        store_data:    str | None,
+        date_str:      str | None,
+        regime_snap:   dict | None,
+        reason:        str | None,
     ) -> tuple:
-        ok_style  = {"marginLeft": "10px", "fontSize": "12px", "color": GREEN}
-        err_style = {"marginLeft": "10px", "fontSize": "12px", "color": RED}
+        ok_style    = {"marginLeft": "10px", "fontSize": "12px", "color": GREEN}
+        err_style   = {"marginLeft": "10px", "fontSize": "12px", "color": RED}
+        skip_style  = {"marginLeft": "10px", "fontSize": "12px", "color": MUTED}
 
-        if callback_context.triggered_id != "daily-register-btn" or not n_clicks:
+        trig = callback_context.triggered_id
+        if trig not in ("daily-register-btn", "daily-skip-btn"):
             return no_update, no_update
-        if entry_price is None or units is None:
-            return "Enter price and units first.", err_style
         if not selected_rows or not store_data:
             return "Select a proposal row first.", err_style
-
         rows = json.loads(store_data)
         if selected_rows[0] >= len(rows):
             return "Invalid row.", err_style
         row = rows[selected_rows[0]]
 
+        revn_f = sma_f = corr_f = None
+        if isinstance(regime_snap, dict):
+            revn_f = regime_snap.get("revn_frac")
+            sma_f  = regime_snap.get("sma_frac")
+            corr_f = regime_snap.get("corr_frac")
+        sign_score = row.get("score")
+        try:
+            sign_score = float(sign_score) if sign_score is not None else None
+        except (TypeError, ValueError):
+            sign_score = None
+        corr_n225_v = row.get("corr_val")
+        try:
+            corr_n225_v = float(corr_n225_v) if corr_n225_v is not None else None
+        except (TypeError, ValueError):
+            corr_n225_v = None
+        clean_reason = (reason or "").strip() or None
+        fired = datetime.date.fromisoformat(row["fired_at"])
+
+        if trig == "daily-skip-btn":
+            try:
+                with get_session() as session:
+                    rv = register_review(
+                        session    = session,
+                        fired_at   = fired,
+                        stock_code = row["stock"],
+                        sign_type  = row["sign"],
+                        action     = "skipped",
+                        sign_score = sign_score,
+                        corr_mode  = row["corr"],
+                        corr_n225  = corr_n225_v,
+                        kumo_state = row["kumo_int"],
+                        reason     = clean_reason,
+                        revn_frac  = revn_f,
+                        sma_frac   = sma_f,
+                        corr_frac  = corr_f,
+                    )
+                return f"Skipped {row['stock']} (review id={rv.id})", skip_style
+            except Exception as exc:
+                logger.exception("skip_btn error")
+                return f"Skip error: {exc}", err_style
+
+        if entry_price is None or units is None:
+            return "Enter price and units first.", err_style
         try:
             today     = datetime.date.fromisoformat(date_str[:10]) if date_str else datetime.date.today()
-            fired     = datetime.date.fromisoformat(row["fired_at"])
             tp, sl    = compute_exit_levels(row["stock"], float(entry_price), fired)
             with get_session() as session:
                 pos = register_position(
@@ -1794,10 +1965,18 @@ def register_callbacks() -> None:
                     units       = int(units),
                     tp_price    = tp,
                     sl_price    = sl,
+                    sign_score  = sign_score,
+                    corr_n225   = corr_n225_v,
+                    revn_frac   = revn_f,
+                    sma_frac    = sma_f,
+                    corr_frac   = corr_f,
+                    reason      = clean_reason,
                 )
-            return f"Saved (id={pos.id})  TP={tp:,.0f}  SL={sl:,.0f}", ok_style
+            tp_s = f"{tp:,.0f}" if tp is not None else "—"
+            sl_s = f"{sl:,.0f}" if sl is not None else "—"
+            return f"Saved (id={pos.id})  TP={tp_s}  SL={sl_s}", ok_style
         except Exception as exc:
-            logger.exception("register_btn_click error")
+            logger.exception("register_btn error")
             return f"Error: {exc}", err_style
 
     # ── Portfolio: open positions panel ──────────────────────────────────────
@@ -1912,9 +2091,10 @@ def register_callbacks() -> None:
                                 ),
                             ],
                         ),
-                        # Close button — separate div so clicks don't bubble to pos-card
+                        # Close button + reason dropdown — separate div so clicks don't bubble to pos-card
                         html.Div(
-                            style={"marginTop": "6px"},
+                            style={"marginTop": "6px", "display": "flex",
+                                   "gap": "6px", "alignItems": "center"},
                             children=[
                                 html.Button(
                                     "Close Position",
@@ -1929,6 +2109,19 @@ def register_callbacks() -> None:
                                         "cursor": "pointer",
                                         "fontSize": "11px",
                                     },
+                                ),
+                                dcc.Dropdown(
+                                    id={"type": "close-reason", "index": r["id"]},
+                                    options=[
+                                        {"label": "manual",    "value": "manual"},
+                                        {"label": "tp_hit",    "value": "tp_hit"},
+                                        {"label": "sl_hit",    "value": "sl_hit"},
+                                        {"label": "time_stop", "value": "time_stop"},
+                                    ],
+                                    value="manual",
+                                    clearable=False,
+                                    style={"width": "120px", "fontSize": "11px",
+                                           "color": "#000"},
                                 ),
                             ],
                         ),
@@ -1967,21 +2160,188 @@ def register_callbacks() -> None:
     @callback(
         Output("daily-positions-panel", "children", allow_duplicate=True),
         Input({"type": "close-pos-btn", "index": ALL}, "n_clicks"),
+        State({"type": "close-reason", "index": ALL}, "value"),
+        State({"type": "close-reason", "index": ALL}, "id"),
         prevent_initial_call=True,
     )
-    def close_position_btn(n_clicks_list: list[int]) -> list:
+    def close_position_btn(n_clicks_list: list[int],
+                            reasons: list[str | None],
+                            reason_ids: list[dict]) -> list:
         triggered = callback_context.triggered
         if not triggered or not any(n for n in (n_clicks_list or []) if n):
             return no_update  # type: ignore[return-value]
         pos_id = callback_context.triggered_id["index"]
+        # Match the per-position reason value by id
+        chosen_reason: str | None = "manual"
+        for rid, rv in zip(reason_ids, reasons):
+            if rid.get("index") == pos_id:
+                chosen_reason = rv or "manual"
+                break
         try:
             with get_session() as session:
                 pos = session.get(Position, pos_id)
                 cur = get_latest_price(pos.stock_code) if pos else None
-                close_position(session, pos_id, exit_price=cur or 0.0)
+                close_position(session, pos_id, exit_price=cur or 0.0,
+                                exit_reason=chosen_reason)
         except Exception as exc:
             logger.exception("close_position error for id={}", pos_id)
         return refresh_positions(0, 0)
+
+    # ── Memos panel ──────────────────────────────────────────────────────────
+
+    def _memo_card(memo) -> html.Div:
+        ts_label = ""
+        if memo.created_at:
+            ts_label = memo.created_at.strftime("%H:%M")
+            if memo.updated_at and memo.updated_at != memo.created_at:
+                ts_label += f"  (edited {memo.updated_at.strftime('%H:%M')})"
+        btn_style = {
+            "background": "transparent",
+            "color": MUTED,
+            "border": f"1px solid {BORDER}",
+            "borderRadius": "3px",
+            "padding": "1px 8px",
+            "cursor": "pointer",
+            "fontSize": "10px",
+            "marginLeft": "4px",
+        }
+        return html.Div(
+            style={"padding": "8px", "background": CARD_BG,
+                   "border": f"1px solid {BORDER}",
+                   "borderRadius": "4px", "marginBottom": "6px"},
+            children=[
+                html.Div(
+                    style={"display": "flex", "justifyContent": "space-between",
+                           "alignItems": "center", "marginBottom": "4px"},
+                    children=[
+                        html.Span(ts_label, style={"color": MUTED, "fontSize": "10px"}),
+                        html.Div([
+                            html.Button("Edit",
+                                        id={"type": "memo-edit", "index": memo.id},
+                                        n_clicks=0, style=btn_style),
+                            html.Button("Delete",
+                                        id={"type": "memo-del", "index": memo.id},
+                                        n_clicks=0,
+                                        style={**btn_style, "color": RED, "borderColor": RED}),
+                        ]),
+                    ],
+                ),
+                html.Div(
+                    memo.content,
+                    style={"whiteSpace": "pre-wrap", "color": TEXT, "fontSize": "12px"},
+                ),
+            ],
+        )
+
+    def _render_memo_list(memo_date: datetime.date) -> list:
+        with get_session() as session:
+            memos = get_memos_for_date(session, memo_date)
+        if not memos:
+            return [html.Div(
+                "No memos for this day yet.",
+                style={"color": MUTED, "fontSize": "11px", "fontStyle": "italic"},
+            )]
+        return [_memo_card(m) for m in memos]
+
+    @callback(
+        Output("daily-memo-date-label",  "children"),
+        Output("daily-memo-list",        "children"),
+        Output("daily-memo-input",       "value"),
+        Output("daily-memo-msg",         "children"),
+        Output("daily-memo-msg",         "style"),
+        Output("daily-memo-editing-id",  "data"),
+        Output("daily-memo-cancel-btn",  "style"),
+        Input("daily-date",              "date"),
+        Input("daily-memo-save-btn",     "n_clicks"),
+        Input("daily-memo-cancel-btn",   "n_clicks"),
+        Input({"type": "memo-edit", "index": ALL}, "n_clicks"),
+        Input({"type": "memo-del",  "index": ALL}, "n_clicks"),
+        State("daily-memo-input",        "value"),
+        State("daily-memo-editing-id",   "data"),
+    )
+    def memo_controller(
+        date_str:   str | None,
+        save_n:     int | None,
+        cancel_n:   int | None,
+        edit_clicks: list[int],
+        del_clicks:  list[int],
+        memo_text:  str | None,
+        editing_id: int | None,
+    ) -> tuple:
+        cancel_visible = {
+            "background": "transparent", "color": MUTED,
+            "border": f"1px solid {BORDER}", "borderRadius": "4px",
+            "padding": "5px 12px", "cursor": "pointer", "fontSize": "11px",
+        }
+        cancel_hidden = {**cancel_visible, "display": "none"}
+        ok_msg  = {"color": GREEN, "fontSize": "11px"}
+        err_msg = {"color": RED,   "fontSize": "11px"}
+        muted_msg = {"color": MUTED, "fontSize": "11px"}
+
+        if not date_str:
+            return (no_update,) * 7
+        target = datetime.date.fromisoformat(date_str[:10])
+        date_label = f"{target}"
+
+        trig = callback_context.triggered_id
+        if trig is None:
+            # initial load
+            return (date_label, _render_memo_list(target), "", "", muted_msg, None, cancel_hidden)
+
+        # Date picker change → refresh list, clear editing
+        if trig == "daily-date":
+            return (date_label, _render_memo_list(target), "", "", muted_msg, None, cancel_hidden)
+
+        # Cancel edit
+        if trig == "daily-memo-cancel-btn":
+            return (date_label, _render_memo_list(target), "", "", muted_msg, None, cancel_hidden)
+
+        # Save
+        if trig == "daily-memo-save-btn":
+            if not (memo_text and memo_text.strip()):
+                return (date_label, no_update, no_update, "Empty memo.", err_msg, no_update, no_update)
+            try:
+                with get_session() as session:
+                    if editing_id:
+                        m = update_memo(session, int(editing_id), memo_text)
+                        msg = f"Updated memo id={m.id}"
+                    else:
+                        m = create_memo(session, target, memo_text)
+                        msg = f"Saved memo id={m.id}"
+                return (date_label, _render_memo_list(target), "", msg, ok_msg, None, cancel_hidden)
+            except Exception as exc:
+                logger.exception("memo save error")
+                return (date_label, no_update, no_update, f"Error: {exc}", err_msg, no_update, no_update)
+
+        # Edit (pattern-matched id)
+        if isinstance(trig, dict) and trig.get("type") == "memo-edit":
+            mid = trig["index"]
+            try:
+                with get_session() as session:
+                    from src.portfolio.models import Memo as _M
+                    m = session.get(_M, mid)
+                    if m is None:
+                        return (date_label, _render_memo_list(target), no_update,
+                                "Memo not found.", err_msg, None, cancel_hidden)
+                    return (date_label, _render_memo_list(target), m.content,
+                            f"Editing memo id={mid}", muted_msg, mid, cancel_visible)
+            except Exception as exc:
+                logger.exception("memo edit error")
+                return (date_label, no_update, no_update, f"Error: {exc}", err_msg, no_update, no_update)
+
+        # Delete (pattern-matched id)
+        if isinstance(trig, dict) and trig.get("type") == "memo-del":
+            mid = trig["index"]
+            try:
+                with get_session() as session:
+                    delete_memo(session, int(mid))
+                return (date_label, _render_memo_list(target), "",
+                        f"Deleted memo id={mid}", muted_msg, None, cancel_hidden)
+            except Exception as exc:
+                logger.exception("memo delete error")
+                return (date_label, no_update, no_update, f"Error: {exc}", err_msg, no_update, no_update)
+
+        return (no_update,) * 7
 
     # ── Daily OHLCV update ────────────────────────────────────────────────────
 

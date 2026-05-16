@@ -20,6 +20,7 @@ import dash
 from dash import dcc, html
 
 from src.viz import chart_view as _chart_view
+from src.viz import ideas as _ideas
 from src.viz import daily as _daily
 from src.viz import maintenance as _maintenance
 from src.viz import sign_bench as _sign_bench
@@ -116,6 +117,16 @@ def _analysis_layout() -> html.Div:
                             children=[_sign_bench.layout()],
                         ),
                     ),
+                    dcc.Tab(
+                        label="Ideas",
+                        value="ideas",
+                        style=_SUB_TAB_STYLE,
+                        selected_style=_SUB_TAB_SELECTED,
+                        children=html.Div(
+                            style={"height": _INNER_H, "overflow": "hidden"},
+                            children=[_ideas.layout()],
+                        ),
+                    ),
                 ],
             ),
         ],
@@ -175,6 +186,7 @@ def main() -> None:
     _maintenance.register_callbacks()
     _sign_bench.register_callbacks()
     _chart_view.register_callbacks()
+    _ideas.register_callbacks()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8050
     print(f"Starting Trade Advisor at http://localhost:{port}")
     app.run(debug=False, host="0.0.0.0", port=port)

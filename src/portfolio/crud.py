@@ -12,7 +12,7 @@ from src.data.db import get_session
 from src.data.models import OHLCV_MODEL_MAP
 from src.exit.zs_tp_sl import ZsTpSl
 from src.indicators.zigzag import detect_peaks
-from src.portfolio.models import Position
+from src.portfolio.models import Memo, Position, ReviewedCandidate
 from src.simulator.cache import DataCache
 
 _EXIT_RULE = ZsTpSl(tp_mult=2.0, sl_mult=2.0, alpha=0.3)
@@ -99,8 +99,21 @@ def register_position(
     tp_price:    float | None = None,
     sl_price:    float | None = None,
     notes:       str | None = None,
+    sign_score:  float | None = None,
+    corr_n225:   float | None = None,
+    revn_frac:   float | None = None,
+    sma_frac:    float | None = None,
+    corr_frac:   float | None = None,
+    reason:      str | None = None,
 ) -> Position:
-    """Create and persist a new open position."""
+    """Create and persist a new open position.
+
+    Also writes a paired `ReviewedCandidate(action='taken')` row that
+    captures the regime snapshot at registration time.  This pairs
+    every taken trade with an equivalent record to its skipped
+    counterparts, enabling post-hoc "did discretion beat systematic?"
+    analysis.
+    """
     pos = Position(
         stock_code  = stock_code,
         sign_type   = sign_type,
@@ -115,11 +128,93 @@ def register_position(
         sl_price    = sl_price,
         notes       = notes,
         status      = "open",
+        sign_score  = sign_score,
+        revn_frac   = revn_frac,
+        sma_frac    = sma_frac,
+        corr_frac   = corr_frac,
     )
     session.add(pos)
     session.flush()
-    logger.info("Registered position id={} {} @ {}", pos.id, stock_code, entry_price)
+
+    review = ReviewedCandidate(
+        fired_at    = fired_at,
+        stock_code  = stock_code,
+        sign_type   = sign_type,
+        sign_score  = sign_score,
+        corr_mode   = corr_mode,
+        corr_n225   = corr_n225,
+        kumo_state  = kumo_state,
+        action      = "taken",
+        position_id = pos.id,
+        reason      = reason,
+        revn_frac   = revn_frac,
+        sma_frac    = sma_frac,
+        corr_frac   = corr_frac,
+    )
+    session.add(review)
+    session.flush()
+
+    logger.info("Registered position id={} {} @ {} (review id={})",
+                pos.id, stock_code, entry_price, review.id)
     return pos
+
+
+def register_review(
+    session: Session,
+    fired_at:    datetime.date,
+    stock_code:  str,
+    sign_type:   str,
+    action:      str,
+    sign_score:  float | None = None,
+    corr_mode:   str | None = None,
+    corr_n225:   float | None = None,
+    kumo_state:  int | None = None,
+    position_id: int | None = None,
+    reason:      str | None = None,
+    revn_frac:   float | None = None,
+    sma_frac:    float | None = None,
+    corr_frac:   float | None = None,
+) -> ReviewedCandidate:
+    """Persist a standalone reviewed-candidate row.
+
+    `register_position` already writes a 'taken' review automatically;
+    this helper exists for 'skipped' actions and ad-hoc review tracking.
+    """
+    if action not in ("taken", "skipped"):
+        raise ValueError(f"action must be 'taken' or 'skipped', got {action!r}")
+    review = ReviewedCandidate(
+        fired_at    = fired_at,
+        stock_code  = stock_code,
+        sign_type   = sign_type,
+        sign_score  = sign_score,
+        corr_mode   = corr_mode,
+        corr_n225   = corr_n225,
+        kumo_state  = kumo_state,
+        action      = action,
+        position_id = position_id,
+        reason      = reason,
+        revn_frac   = revn_frac,
+        sma_frac    = sma_frac,
+        corr_frac   = corr_frac,
+    )
+    session.add(review)
+    session.flush()
+    logger.info("Registered review id={} {} action={}", review.id, stock_code, action)
+    return review
+
+
+def get_reviews_for_date(
+    session: Session,
+    fired_at: datetime.date,
+) -> list[ReviewedCandidate]:
+    """All reviewed candidates with `fired_at == fired_at`, newest first."""
+    return list(
+        session.execute(
+            select(ReviewedCandidate)
+            .where(ReviewedCandidate.fired_at == fired_at)
+            .order_by(ReviewedCandidate.reviewed_at.desc())
+        ).scalars().all()
+    )
 
 
 def get_open_positions(session: Session) -> list[Position]:
@@ -138,19 +233,99 @@ def close_position(
     position_id: int,
     exit_price: float,
     exit_date: datetime.date | None = None,
+    exit_reason: str | None = None,
 ) -> Position:
-    """Mark an open position as closed."""
+    """Mark an open position as closed.
+
+    `exit_reason` is one of: ``tp_hit``, ``sl_hit``, ``time_stop``,
+    ``manual``, or None.  Stored verbatim; analysis code is responsible
+    for grouping.
+    """
     pos = session.get(Position, position_id)
     if pos is None:
         raise ValueError(f"Position {position_id} not found")
     if pos.status != "open":
         raise ValueError(f"Position {position_id} is already {pos.status}")
-    pos.status     = "closed"
-    pos.exit_date  = exit_date or datetime.date.today()
-    pos.exit_price = exit_price
+    pos.status      = "closed"
+    pos.exit_date   = exit_date or datetime.date.today()
+    pos.exit_price  = exit_price
+    pos.exit_reason = exit_reason
     session.flush()
-    logger.info("Closed position id={} {} @ {}", pos.id, pos.stock_code, exit_price)
+    logger.info("Closed position id={} {} @ {} reason={}",
+                pos.id, pos.stock_code, exit_price, exit_reason)
     return pos
+
+
+def create_memo(
+    session: Session,
+    memo_date: datetime.date,
+    content: str,
+) -> Memo:
+    """Persist a new memo for *memo_date*."""
+    if not content or not content.strip():
+        raise ValueError("memo content cannot be empty")
+    memo = Memo(memo_date=memo_date, content=content.strip())
+    session.add(memo)
+    session.flush()
+    logger.info("Created memo id={} date={} ({} chars)",
+                memo.id, memo_date, len(memo.content))
+    return memo
+
+
+def update_memo(
+    session: Session,
+    memo_id: int,
+    content: str,
+) -> Memo:
+    """Replace an existing memo's content; bumps updated_at."""
+    memo = session.get(Memo, memo_id)
+    if memo is None:
+        raise ValueError(f"Memo {memo_id} not found")
+    if not content or not content.strip():
+        raise ValueError("memo content cannot be empty")
+    memo.content    = content.strip()
+    memo.updated_at = datetime.datetime.now(datetime.timezone.utc)
+    session.flush()
+    logger.info("Updated memo id={}", memo_id)
+    return memo
+
+
+def delete_memo(session: Session, memo_id: int) -> None:
+    """Hard-delete a memo (no soft-delete semantics)."""
+    memo = session.get(Memo, memo_id)
+    if memo is None:
+        return
+    session.delete(memo)
+    session.flush()
+    logger.info("Deleted memo id={}", memo_id)
+
+
+def get_memos_for_date(
+    session: Session,
+    memo_date: datetime.date,
+) -> list[Memo]:
+    """Memos for *memo_date*, newest-first by created_at."""
+    return list(
+        session.execute(
+            select(Memo)
+            .where(Memo.memo_date == memo_date)
+            .order_by(Memo.created_at.desc())
+        ).scalars().all()
+    )
+
+
+def list_memos(
+    session: Session,
+    limit: int | None = None,
+) -> list[Memo]:
+    """All memos, newest-first by memo_date then created_at."""
+    stmt = (
+        select(Memo)
+        .order_by(Memo.memo_date.desc(), Memo.created_at.desc())
+    )
+    if limit:
+        stmt = stmt.limit(limit)
+    return list(session.execute(stmt).scalars().all())
 
 
 def get_latest_price(stock_code: str, gran: str = "1d") -> float | None:
