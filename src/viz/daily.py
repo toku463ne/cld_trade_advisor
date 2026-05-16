@@ -438,6 +438,178 @@ def _empty_chart(msg: str) -> go.Figure:
     return fig
 
 
+def _div_peer_reference(
+    stock_code: str,
+    fired_str:  str,
+    stock_set:  str = _CURRENT_STOCK_SET,
+) -> tuple[float, int, int, datetime.date] | None:
+    """Reconstruct div_peer trigger details for a given fire.
+
+    Mirrors DivPeerDetector's calculation: looks up the stock's cluster
+    in the latest StockClusterRun for ``stock_set``, fetches the previous
+    and fire-day closes for the stock plus all cluster peers, and returns
+    ``(stock_return, n_peers_down, n_peers_total, prev_date)``.  Returns
+    None if the cluster / data lookup fails.
+    """
+    from src.analysis.models import StockClusterMember, StockClusterRun
+    from src.data.models import OHLCV_MODEL_MAP
+    from sqlalchemy import select, func, and_
+
+    try:
+        fired_date = datetime.date.fromisoformat(fired_str)
+    except Exception:
+        return None
+    model = OHLCV_MODEL_MAP.get("1d")
+    if model is None:
+        return None
+
+    PEER_DOWN_MIN = -0.003   # match DivPeerDetector constant
+
+    try:
+        with get_session() as session:
+            run_id = session.execute(
+                select(StockClusterRun.id)
+                .where(StockClusterRun.fiscal_year == stock_set)
+                .order_by(StockClusterRun.created_at.desc())
+            ).scalars().first()
+            if run_id is None:
+                return None
+            # All cluster peer codes (excluding the stock itself)
+            cluster_id = session.execute(
+                select(StockClusterMember.cluster_id)
+                .where(StockClusterMember.run_id == run_id,
+                       StockClusterMember.stock_code == stock_code)
+            ).scalar_one_or_none()
+            if cluster_id is None:
+                return None
+            peer_codes = list(session.execute(
+                select(StockClusterMember.stock_code)
+                .where(StockClusterMember.run_id == run_id,
+                       StockClusterMember.cluster_id == cluster_id,
+                       StockClusterMember.stock_code != stock_code)
+            ).scalars().all())
+
+            # Previous trading day = most-recent date in DB strictly before fired_date for the stock
+            prev_date = session.execute(
+                select(func.date(model.ts))
+                .where(model.stock_code == stock_code,
+                       func.date(model.ts) < fired_date)
+                .order_by(model.ts.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if prev_date is None:
+                return None
+
+            # Bulk-fetch closes for stock + peers on (prev_date, fired_date)
+            all_codes = [stock_code] + peer_codes
+            rows = session.execute(
+                select(model.stock_code, func.date(model.ts), model.close_price)
+                .where(model.stock_code.in_(all_codes),
+                       func.date(model.ts).in_([prev_date, fired_date]))
+            ).all()
+            by_code: dict[str, dict[datetime.date, float]] = {}
+            for code, dt_, cp in rows:
+                by_code.setdefault(code, {})[dt_] = float(cp)
+
+        # Stock return
+        sc = by_code.get(stock_code, {}).get(fired_date)
+        ps = by_code.get(stock_code, {}).get(prev_date)
+        if sc is None or ps is None or ps == 0:
+            return None
+        stock_ret = sc / ps - 1.0
+
+        # Peer down count
+        n_down = n_total = 0
+        for peer in peer_codes:
+            pd = by_code.get(peer, {})
+            cc = pd.get(fired_date)
+            pp = pd.get(prev_date)
+            if cc is None or pp is None or pp == 0:
+                continue
+            n_total += 1
+            if cc / pp - 1.0 < PEER_DOWN_MIN:
+                n_down += 1
+        if n_total == 0:
+            return None
+        return stock_ret, n_down, n_total, prev_date
+    except Exception as exc:
+        logger.warning("_div_peer_reference failed for {} {}: {}",
+                       stock_code, fired_str, exc)
+        return None
+
+
+def _rev_peak_reference(
+    stock_bars: list | None,
+    sign_type:  str,
+    fired_str:  str,
+    n_peaks:        int   = 2,
+    proximity_pct:  float = 0.005,
+    zz_size:        int   = 5,
+    zz_middle:      int   = 2,
+) -> tuple[float, str] | None:
+    """Compute (reference_price, reference_date) for rev_lo / rev_hi fires.
+
+    Mirrors RevPeakDetector's peak-matching logic: among the last
+    ``n_peaks`` confirmed same-side zigzag peaks observable before
+    fired_date, find the most recent one within ``proximity_pct`` of
+    bar.low (rev_lo) or bar.high (rev_hi).  Returns None for non-rev_peak
+    signs or insufficient data.
+    """
+    if sign_type not in ("rev_lo", "rev_hi"):
+        return None
+    if not stock_bars:
+        return None
+    try:
+        fired_date = datetime.date.fromisoformat(fired_str)
+    except Exception:
+        return None
+
+    # Collapse to daily
+    daily_hi: dict[datetime.date, float] = {}
+    daily_lo: dict[datetime.date, float] = {}
+    for b in stock_bars:
+        d = b.dt.date()
+        if d not in daily_hi or b.high > daily_hi[d]:
+            daily_hi[d] = float(b.high)
+        if d not in daily_lo or b.low < daily_lo[d]:
+            daily_lo[d] = float(b.low)
+    sorted_dates = sorted(daily_hi)
+    if fired_date not in sorted_dates:
+        return None
+    fired_idx = sorted_dates.index(fired_date)
+    highs_list = [daily_hi[d] for d in sorted_dates]
+    lows_list  = [daily_lo[d] for d in sorted_dates]
+
+    target_dir = -2 if sign_type == "rev_lo" else 2
+    peaks = detect_peaks(highs_list, lows_list, size=zz_size, middle_size=zz_middle)
+
+    # Peaks observable before fire (need zz_size bars of confirmation past peak)
+    candidates: list[tuple[int, float]] = []
+    for p in peaks:
+        if p.direction != target_dir:
+            continue
+        obs_from = p.bar_index + zz_size
+        if obs_from > fired_idx:
+            continue
+        candidates.append((p.bar_index, p.price))
+    if not candidates:
+        return None
+    candidates.sort()
+    recent = candidates[-n_peaks:]
+
+    test_price = lows_list[fired_idx] if sign_type == "rev_lo" else highs_list[fired_idx]
+    if not test_price:
+        return None
+    # Match: iterate most-recent first, take first within proximity (same as RevPeakDetector)
+    for bar_idx, peak_price in reversed(recent):
+        if not peak_price:
+            continue
+        proximity = abs(test_price - peak_price) / peak_price
+        if proximity <= proximity_pct:
+            return peak_price, sorted_dates[bar_idx].isoformat()
+    return None
+
+
 def _rev_nday_reference(
     stock_bars: list | None,
     sign_type:  str,
@@ -896,16 +1068,36 @@ def _build_combined_chart(
                                        text=" today", showarrow=False,
                                        xanchor="right", font=dict(size=10, color="#29b6f6"),
                                        bgcolor="rgba(0,0,0,0.6)")
-                # Reference peak annotation for rev_nhi / rev_nlo — show the
-                # prior-N-day reference level the bar tested + the date that
-                # high/low was set.  (rev_lo / rev_hi would need detector
-                # changes to expose which zigzag peak was matched — deferred.)
-                ref_info = _rev_nday_reference(
-                    stock_bars, stock_row["sign"], fired_str,
+                # Reference peak annotation for reversal signs — shows the prior
+                # level the bar tested + the date that level was set.
+                #   rev_nhi / rev_nlo → prior N-day reference high/low
+                #   rev_lo  / rev_hi  → most-recent confirmed zigzag peak matched
+                sign_name = stock_row["sign"]
+                ref_info = (
+                    _rev_nday_reference(stock_bars, sign_name, fired_str)
+                    or _rev_peak_reference (stock_bars, sign_name, fired_str)
                 )
+
+                # div_peer trigger annotation — no price level to draw,
+                # but render the stock_ret + peer_down_count as a stacked
+                # text block near the fire marker.
+                if sign_name == "div_peer":
+                    dp = _div_peer_reference(stock_row["stock"], fired_str)
+                    if dp is not None and fired_str in dates:
+                        stock_ret, n_down, n_total, _prev = dp
+                        peer_pct = 100.0 * n_down / n_total if n_total else 0.0
+                        fig.add_annotation(
+                            x=fired_str, y=0.84, xref="x", yref="paper",
+                            text=(f" stock {stock_ret*100:+.2f}%"
+                                  f"<br> peers {n_down}/{n_total} down "
+                                  f"({peer_pct:.0f}%)"),
+                            showarrow=False, xanchor="left", align="left",
+                            font=dict(size=10, color="#29b6f6"),
+                            bgcolor="rgba(0,0,0,0.6)",
+                        )
                 if ref_info is not None:
                     ref_price, ref_date_str = ref_info
-                    is_hi = stock_row["sign"] == "rev_nhi"
+                    is_hi = sign_name in ("rev_nhi", "rev_hi")
                     color = "#ef5350" if is_hi else "#26a69a"
                     label_side = "HIGH" if is_hi else "LOW"
                     fig.add_hline(
