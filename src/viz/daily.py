@@ -72,6 +72,14 @@ _CHART_BARS    = 160    # bars shown in chart (extra loaded for SMA warmup)
 # = Jan 7 08:59 JST → Jan 7's bar gets pulled in).
 _JST           = datetime.timezone(datetime.timedelta(hours=9))
 
+# Signs visually demoted to "factor-only" in the proposals table.
+# Operator may still select these rows (they are not filtered out) but a
+# "factor-only" note in the Note column + dimmed row styling signal that
+# the standalone-entry edge is weak.  Production ranking is unchanged —
+# this is a UI-only salvage path (see docs/analysis/rev_nhi_remove_from_ranking.md
+# and docs/followups.md).
+_FACTOR_ONLY_SIGNS: frozenset[str] = frozenset({"rev_nhi"})
+
 # ── Decision factors (Daily tab factor panel) ─────────────────────────────────
 # Per evaluation_criteria.md §5.11: every factor shown must carry measured
 # strength + sample size + provenance, and no A/B-negative factor is displayed.
@@ -376,6 +384,7 @@ def _proposals_to_json(
             "score":     round(p.sign_score, 3),
             "sector":    sector_map.get(p.stock_code),
             "fired_at":  p.fired_at.strftime("%Y-%m-%d"),
+            "note":      "factor-only" if p.sign_type in _FACTOR_ONLY_SIGNS else "",
         }
         for p in proposals
     ]
@@ -1749,6 +1758,7 @@ def layout() -> html.Div:
                                     {"name": "ADX",       "id": "adx"},
                                     {"name": "State",     "id": "adx_state"},
                                     {"name": "Fired",     "id": "fired_at"},
+                                    {"name": "Note",      "id": "note"},
                                 ],
                                 data=[],
                                 row_selectable="single",
@@ -1794,6 +1804,22 @@ def layout() -> html.Div:
                                             "column_id": "adx_state",
                                         },
                                         "color": GREEN,
+                                    },
+                                    # Factor-only rows (rev_nhi today) — dim the
+                                    # whole row so the operator sees them but
+                                    # knows the standalone-entry edge is weak.
+                                    {
+                                        "if": {"filter_query": '{note} = "factor-only"'},
+                                        "color": MUTED,
+                                        "fontStyle": "italic",
+                                    },
+                                    {
+                                        "if": {
+                                            "filter_query": '{note} = "factor-only"',
+                                            "column_id": "note",
+                                        },
+                                        "color": "#ff9800",
+                                        "fontWeight": "600",
                                     },
                                 ],
                                 sort_action="native",
