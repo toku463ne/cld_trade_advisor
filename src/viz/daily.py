@@ -1056,17 +1056,18 @@ def _build_combined_chart(
                                        bgcolor="rgba(0,0,0,0.6)")
                 # "Today" marker — only render when it differs from fired_str so it
                 # doesn't overlap; helps distinguish "where the sign originated" from
-                # "the date currently being viewed / would be acted on".  Stacked at
-                # y=0.92 so it doesn't collide with the fired-label at 0.98 when the
-                # two dates render close together.
+                # "the date currently being viewed / would be acted on".  Label sits
+                # at the BOTTOM of the chart, to the RIGHT of the line, so it stays
+                # clear of the candlestick body in the price panel.
                 target_str = target_date.isoformat()
                 if target_str in dates and target_str != fired_str:
                     fig.add_shape(type="line", x0=target_str, x1=target_str, y0=0, y1=1,
                                   xref="x", yref="paper",
                                   line=dict(width=1.2, dash="dash", color="#29b6f6"))
-                    fig.add_annotation(x=target_str, y=0.92, xref="x", yref="paper",
+                    fig.add_annotation(x=target_str, y=0.02, xref="x", yref="paper",
                                        text=" today", showarrow=False,
-                                       xanchor="right", font=dict(size=10, color="#29b6f6"),
+                                       xanchor="left", yanchor="bottom",
+                                       font=dict(size=10, color="#29b6f6"),
                                        bgcolor="rgba(0,0,0,0.6)")
                 # Reference peak annotation for reversal signs — shows the prior
                 # level the bar tested + the date that level was set.
