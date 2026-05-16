@@ -77,7 +77,9 @@ _JST           = datetime.timezone(datetime.timedelta(hours=9))
 # them so the operator isn't scrolling past rows whose standalone-entry
 # edge is weak.  See docs/analysis/rev_nhi_remove_from_ranking.md and
 # docs/followups.md for the rev_nhi-specific reasoning + revisit gate.
-_HIDDEN_PROPOSAL_SIGNS: frozenset[str] = frozenset({"rev_nhi"})
+# Inclusion policy: benchmark.md perm_p > 0.5 AND regime_sign-vacuous
+# (n ≤ 1 or aggregate Sharpe ≤ 0). Hides display-only; backtest unchanged.
+_HIDDEN_PROPOSAL_SIGNS: frozenset[str] = frozenset({"rev_nhi", "rev_hi"})
 
 # ── Decision factors (Daily tab factor panel) ─────────────────────────────────
 # Per evaluation_criteria.md §5.11: every factor shown must carry measured

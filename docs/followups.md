@@ -18,6 +18,38 @@ shipped (with a date) or **Dropped** when intentionally abandoned.
 
 ## Open
 
+### 2. Measure rev_peak ∩ rev_nday event overlap (operator-deferred question)
+
+- **What** — Build a pairwise event-overlap table between rev_peak
+  sign-types (`rev_lo`, `rev_hi`) and rev_nday sign-types (`rev_nhi`,
+  `rev_nlo`) on `(stock_code, fire_date)` joined from `SignBenchmarkEvent`.
+  Report: fraction of rev_lo fires that share a date with rev_nlo;
+  fraction of rev_hi fires sharing a date with rev_nhi; per-pair
+  conditional EV when co-fired vs standalone.
+- **Why deferred** — Operator's original question (2026-05-17 sign-debate)
+  was "does rev_peak overlap with rev_nday?" The judge accepted Option D
+  (hide rev_hi only, UI-only) which is invariant to overlap magnitude,
+  but the operator's mechanism question is still unanswered. No pairwise
+  sign-overlap script exists in the repo yet — would be a first.
+- **Trigger to revisit** — Run a one-off probe (~150 lines, pandas join
+  on `SignBenchmarkEvent`) when convenient. If results show:
+  - **rev_lo ∩ rev_nlo overlap > 30% on shared (stock, date) fires AND
+    co-fired rev_lo Sharpe < standalone rev_nlo Sharpe − 1.0** →
+    `rev_lo` is redundant relabeling; reconsider hiding it too
+    (extending `_HIDDEN_PROPOSAL_SIGNS` to `{"rev_nhi", "rev_hi", "rev_lo"}`).
+  - **Overlap ≤ 30%** → operator's redundancy intuition is empirically
+    false; close this followup as Dropped.
+- **Owner** — operator.
+- **Links**:
+  - Sign-debate cycle: 2026-05-17 (this session)
+  - Precedent UI-hide: `src/viz/daily.py:80` `_HIDDEN_PROPOSAL_SIGNS`
+  - Detectors: `src/signs/rev_peak.py` (zigzag-confirmed swing peaks),
+    `src/signs/rev_nday.py` (N-day rolling extremum)
+  - Probe template: `src/analysis/regime_sign_no_revnhi_probe.py`
+    (for the SignBenchmarkEvent join pattern)
+
+---
+
 ### 1. Re-evaluate removing `rev_nhi` from the regime ranking
 
 - **What** — Set `EXCLUDE_SIGNS = frozenset({"rev_nhi"})` in
