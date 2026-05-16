@@ -35,6 +35,7 @@ from src.portfolio.crud import (
     get_open_positions,
     register_position,
 )
+from src.indicators.rev_n_regime import RevNRegime
 from src.portfolio.models import Position
 from src.simulator.cache import DataCache
 from src.strategy.proposal import SignalProposal
@@ -147,6 +148,7 @@ SIGN_DESCRIPTIONS: dict[str, str] = _load_sign_descriptions()
 # ── Module-level strategy cache (keyed by (stock_set, date_str)) ──────────────
 
 _strategy_cache: dict[tuple[str, str], RegimeSignStrategy] = {}
+_revn_regime_cache: dict[tuple[str, str], RevNRegime] = {}
 
 # ── Daily update state ────────────────────────────────────────────────────────
 
@@ -250,6 +252,22 @@ def _get_strategy(target_date: datetime.date) -> RegimeSignStrategy:
             min_dr    = _MIN_DR,
         )
     return _strategy_cache[key]
+
+
+def _get_revn_regime(
+    target_date: datetime.date,
+    strategy:    RegimeSignStrategy,
+) -> RevNRegime:
+    """Cached per-target-date RevNRegime built from the strategy's loaded caches."""
+    key = (_CURRENT_STOCK_SET, target_date.isoformat())
+    if key not in _revn_regime_cache:
+        _revn_regime_cache.clear()
+        dates = sorted({b.dt.date() for b in strategy._n225_cache.bars})
+        _revn_regime_cache[key] = RevNRegime.build(
+            stock_caches = strategy._stock_caches,
+            dates        = dates,
+        )
+    return _revn_regime_cache[key]
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -827,10 +845,34 @@ def _build_combined_chart(
 
 # ── Regime card ───────────────────────────────────────────────────────────────
 
+def _revn_banner(snap: dict[str, float | bool]) -> html.Div:
+    """Reversal-risk banner row from a RevNRegime snapshot dict."""
+    frac     = float(snap["frac"])
+    cutoff   = float(snap["cutoff"])
+    is_high  = bool(snap["is_high"])
+    pct      = snap.get("percentile")
+    label    = "HIGH ▲" if is_high else "normal"
+    color    = "#ff9800" if is_high else MUTED
+    pct_txt  = f"P{float(pct):.0f}" if pct is not None and not math.isnan(float(pct)) else ""
+    body = (
+        f"breadth {frac*100:.1f}%  "
+        f"(cutoff {cutoff*100:.1f}%, {pct_txt})"
+    )
+    return html.Div(
+        style={"fontSize": "11px", "marginTop": "4px"},
+        children=[
+            html.Span("Reversal Risk: ", style={"color": MUTED}),
+            html.Span(label, style={"color": color, "fontWeight": "600"}),
+            html.Span(f"   {body}", style={"color": MUTED}),
+        ],
+    )
+
+
 def _regime_card(
     trade_date: datetime.date,
     regime: dict[str, Any] | None,
     n_proposals: int,
+    revn_snap: dict[str, float | bool] | None = None,
 ) -> list:
     if regime is None:
         return [
@@ -850,7 +892,7 @@ def _regime_card(
         f"(ADX={regime['adx']}, +DI={regime['adx_pos']}, −DI={regime['adx_neg']})"
     )
 
-    return [
+    children: list = [
         html.Div(
             style={"display": "flex", "justifyContent": "space-between",
                    "alignItems": "center", "marginBottom": "6px"},
@@ -878,6 +920,9 @@ def _regime_card(
             ],
         ),
     ]
+    if revn_snap is not None and not math.isnan(float(revn_snap.get("frac", float("nan")))):
+        children.append(_revn_banner(revn_snap))
+    return children
 
 
 # ── Decision factor panel ─────────────────────────────────────────────────────
@@ -1388,6 +1433,8 @@ def register_callbacks() -> None:
 
         try:
             target    = datetime.date.fromisoformat(date_str[:10])
+            _strategy_cache.clear()       # Refresh = "give me fresh data" — drop any pre-download cache
+            _revn_regime_cache.clear()    # invalidate breadth indicator alongside the strategy
             strategy  = _get_strategy(target)
             tz        = datetime.timezone.utc
             target_dt = datetime.datetime(
@@ -1420,7 +1467,18 @@ def register_callbacks() -> None:
             ]
 
         regime = _regime_from_proposals(proposals)
-        card   = _regime_card(target, regime, len(proposals))
+        try:
+            revn = _get_revn_regime(target, strategy)
+            revn_snap: dict[str, float | bool] | None = {
+                "frac":       revn.frac(target),
+                "is_high":    revn.is_high(target),
+                "cutoff":     revn.cutoff,
+                "percentile": revn.percentile(target),
+            }
+        except Exception as exc:
+            logger.warning("RevNRegime build failed: {}", exc)
+            revn_snap = None
+        card   = _regime_card(target, regime, len(proposals), revn_snap=revn_snap)
         ranking_evs = [e.ev for e in strategy._ranking.values()]
         return _proposals_to_json(proposals, ranking_evs), card
 
