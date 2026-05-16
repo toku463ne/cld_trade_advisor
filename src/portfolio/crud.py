@@ -175,13 +175,47 @@ def register_review(
     sma_frac:    float | None = None,
     corr_frac:   float | None = None,
 ) -> ReviewedCandidate:
-    """Persist a standalone reviewed-candidate row.
+    """Persist a reviewed-candidate row.
 
     `register_position` already writes a 'taken' review automatically;
     this helper exists for 'skipped' actions and ad-hoc review tracking.
+
+    Upsert semantics for ``action="skipped"``: if a skip row already
+    exists for ``(fired_at, stock_code, sign_type)``, the row is updated
+    (reason, regime snapshot, reviewed_at) rather than duplicated.  This
+    lets the operator iterate on a skip reason without spawning rows
+    every click.  ``action="taken"`` stays insert-only because each
+    Register opens a distinct Position.
     """
     if action not in ("taken", "skipped"):
         raise ValueError(f"action must be 'taken' or 'skipped', got {action!r}")
+
+    if action == "skipped":
+        existing = session.execute(
+            select(ReviewedCandidate)
+            .where(
+                ReviewedCandidate.fired_at   == fired_at,
+                ReviewedCandidate.stock_code == stock_code,
+                ReviewedCandidate.sign_type  == sign_type,
+                ReviewedCandidate.action     == "skipped",
+            )
+            .order_by(ReviewedCandidate.reviewed_at.desc())
+        ).scalars().first()
+        if existing is not None:
+            existing.sign_score  = sign_score
+            existing.corr_mode   = corr_mode
+            existing.corr_n225   = corr_n225
+            existing.kumo_state  = kumo_state
+            existing.reason      = reason
+            existing.revn_frac   = revn_frac
+            existing.sma_frac    = sma_frac
+            existing.corr_frac   = corr_frac
+            existing.reviewed_at = datetime.datetime.now(datetime.timezone.utc)
+            session.flush()
+            logger.info("Updated skip review id={} {} {}",
+                        existing.id, stock_code, sign_type)
+            return existing
+
     review = ReviewedCandidate(
         fired_at    = fired_at,
         stock_code  = stock_code,
