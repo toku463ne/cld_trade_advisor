@@ -65,6 +65,13 @@ _LOOKBACK_DAYS = 230    # 200 warmup + 30 buffer
 _GRAN          = "1d"
 _CHART_BARS    = 160    # bars shown in chart (extra loaded for SMA warmup)
 
+# Tokyo Stock Exchange timezone — daily OHLCV bars are stamped at JST
+# midnight of the trading day (e.g. Jan 6 trading session → bar dt
+# 2025-01-06 00:00:00+09:00).  Using UTC for the picker's end-of-day
+# would incorrectly include the NEXT trading day's bar (Jan 6 23:59 UTC
+# = Jan 7 08:59 JST → Jan 7's bar gets pulled in).
+_JST           = datetime.timezone(datetime.timedelta(hours=9))
+
 # ── Decision factors (Daily tab factor panel) ─────────────────────────────────
 # Per evaluation_criteria.md §5.11: every factor shown must carry measured
 # strength + sample size + provenance, and no A/B-negative factor is displayed.
@@ -246,7 +253,7 @@ def _get_strategy(target_date: datetime.date) -> RegimeSignStrategy:
     key = (_CURRENT_STOCK_SET, target_date.isoformat())
     if key not in _strategy_cache:
         _strategy_cache.clear()
-        tz       = datetime.timezone.utc
+        tz       = _JST
         end_dt   = datetime.datetime(
             target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=tz
         )
@@ -308,7 +315,7 @@ def _get_corr_regime(
     if key not in _corr_regime_cache:
         _corr_regime_cache.clear()
         stock_codes = list(strategy._stock_caches)
-        tz       = datetime.timezone.utc
+        tz       = _JST
         end_dt   = datetime.datetime(
             target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=tz
         )
@@ -667,7 +674,7 @@ def _build_combined_chart(
     Both panels share the date-union x-axis — panning one pans the other automatically.
     """
     try:
-        tz = datetime.timezone.utc
+        tz = _JST
         end_dt = datetime.datetime(
             target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=tz,
         )
@@ -1091,13 +1098,17 @@ def _build_combined_chart(
                                        text=f" {stock_row['sign']} fired", showarrow=False,
                                        xanchor="left", font=dict(size=10, color="#00e676"),
                                        bgcolor="rgba(0,0,0,0.6)")
-                # "Today" marker — only render when it differs from fired_str so it
-                # doesn't overlap; helps distinguish "where the sign originated" from
-                # "the date currently being viewed / would be acted on".  Label sits
-                # at the BOTTOM of the chart, to the RIGHT of the line, so it stays
-                # clear of the candlestick body in the price panel.
+                # "Today" marker — only render when target_str is STRICTLY
+                # LATER than fired_str.  Two cases we suppress:
+                #   (a) target_str == fired_str: redundant, would overlap.
+                #   (b) target_str < fired_str: happens because JST end-of-day
+                #       bars get timestamped at the *next* calendar midnight
+                #       (e.g. Jan 6 trading close = bar dt 2025-01-07 00:00 JST).
+                #       Operator picked Jan 6; fire happened "today" from their
+                #       POV but strftime'd as Jan 7.  Drawing today to the LEFT
+                #       of fire is misleading — suppress.
                 target_str = target_date.isoformat()
-                if target_str in dates and target_str != fired_str:
+                if target_str in dates and target_str > fired_str:
                     fig.add_shape(type="line", x0=target_str, x1=target_str, y0=0, y1=1,
                                   xref="x", yref="paper",
                                   line=dict(width=1.2, dash="dash", color="#29b6f6"))
@@ -2197,7 +2208,7 @@ def register_callbacks() -> None:
             _sma_regime_cache.clear()
             _corr_regime_cache.clear()
             strategy  = _get_strategy(target)
-            tz        = datetime.timezone.utc
+            tz        = _JST
             target_dt = datetime.datetime(
                 target.year, target.month, target.day, 15, 0, 0, tzinfo=tz
             )
