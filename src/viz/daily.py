@@ -35,7 +35,9 @@ from src.portfolio.crud import (
     get_open_positions,
     register_position,
 )
+from src.indicators.corr_regime import CorrRegime
 from src.indicators.rev_n_regime import RevNRegime
+from src.indicators.sma_regime import SMARegime
 from src.portfolio.models import Position
 from src.simulator.cache import DataCache
 from src.strategy.proposal import SignalProposal
@@ -149,6 +151,8 @@ SIGN_DESCRIPTIONS: dict[str, str] = _load_sign_descriptions()
 
 _strategy_cache: dict[tuple[str, str], RegimeSignStrategy] = {}
 _revn_regime_cache: dict[tuple[str, str], RevNRegime] = {}
+_sma_regime_cache:  dict[tuple[str, str], SMARegime]   = {}
+_corr_regime_cache: dict[tuple[str, str], CorrRegime]  = {}
 
 # ── Daily update state ────────────────────────────────────────────────────────
 
@@ -268,6 +272,43 @@ def _get_revn_regime(
             dates        = dates,
         )
     return _revn_regime_cache[key]
+
+
+def _get_sma_regime(
+    target_date: datetime.date,
+    strategy:    RegimeSignStrategy,
+) -> SMARegime:
+    """Cached per-target-date SMARegime built from the strategy's loaded caches."""
+    key = (_CURRENT_STOCK_SET, target_date.isoformat())
+    if key not in _sma_regime_cache:
+        _sma_regime_cache.clear()
+        dates = sorted({b.dt.date() for b in strategy._n225_cache.bars})
+        _sma_regime_cache[key] = SMARegime.build(
+            stock_caches = strategy._stock_caches,
+            dates        = dates,
+        )
+    return _sma_regime_cache[key]
+
+
+def _get_corr_regime(
+    target_date: datetime.date,
+    strategy:    RegimeSignStrategy,
+) -> CorrRegime:
+    """Cached per-target-date CorrRegime built from MovingCorr DB rows."""
+    key = (_CURRENT_STOCK_SET, target_date.isoformat())
+    if key not in _corr_regime_cache:
+        _corr_regime_cache.clear()
+        stock_codes = list(strategy._stock_caches)
+        tz       = datetime.timezone.utc
+        end_dt   = datetime.datetime(
+            target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=tz
+        )
+        start_dt = end_dt - datetime.timedelta(days=_LOOKBACK_DAYS)
+        with get_session() as session:
+            _corr_regime_cache[key] = CorrRegime.build(
+                session, stock_codes, start_dt, end_dt,
+            )
+    return _corr_regime_cache[key]
 
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
@@ -845,27 +886,92 @@ def _build_combined_chart(
 
 # ── Regime card ───────────────────────────────────────────────────────────────
 
-def _revn_banner(snap: dict[str, float | bool]) -> html.Div:
-    """Reversal-risk banner row from a RevNRegime snapshot dict."""
-    frac     = float(snap["frac"])
-    cutoff   = float(snap["cutoff"])
-    is_high  = bool(snap["is_high"])
-    pct      = snap.get("percentile")
-    label    = "HIGH ▲" if is_high else "normal"
-    color    = "#ff9800" if is_high else MUTED
-    pct_txt  = f"P{float(pct):.0f}" if pct is not None and not math.isnan(float(pct)) else ""
-    body = (
-        f"breadth {frac*100:.1f}%  "
-        f"(cutoff {cutoff*100:.1f}%, {pct_txt})"
-    )
+def _breadth_row(label: str, snap: dict[str, float | bool] | None,
+                 high_color: str = "#ff9800") -> html.Div | None:
+    """Single breadth-indicator row: 'label: HIGH ▲   frac (cutoff, P)'."""
+    if snap is None:
+        return None
+    frac = float(snap.get("frac", float("nan")))
+    if math.isnan(frac):
+        return None
+    cutoff  = float(snap["cutoff"])
+    is_high = bool(snap["is_high"])
+    pct     = snap.get("percentile")
+    state   = "HIGH ▲" if is_high else "normal"
+    color   = high_color if is_high else MUTED
+    pct_txt = f"P{float(pct):.0f}" if pct is not None and not math.isnan(float(pct)) else ""
+    body    = f"breadth {frac*100:.1f}%  (cutoff {cutoff*100:.1f}%, {pct_txt})"
     return html.Div(
-        style={"fontSize": "11px", "marginTop": "4px"},
+        style={"fontSize": "11px", "marginTop": "2px"},
         children=[
-            html.Span("Reversal Risk: ", style={"color": MUTED}),
-            html.Span(label, style={"color": color, "fontWeight": "600"}),
+            html.Span(f"{label}: ", style={"color": MUTED}),
+            html.Span(state, style={"color": color, "fontWeight": "600"}),
             html.Span(f"   {body}", style={"color": MUTED}),
         ],
     )
+
+
+def _regime_risk_panel(
+    revn_snap: dict[str, float | bool] | None,
+    sma_snap:  dict[str, float | bool] | None,
+    corr_snap: dict[str, float | bool] | None,
+) -> html.Div | None:
+    """Composite regime-risk panel.
+
+    Two groupings:
+      • Reversal Risk family (rev_nhi + SMA(50)) — compression-style signals.
+        Highlight composite 'BOTH HIGH ▲▲' when the two AND-fire.
+      • Diversification (CorrRegime) — lockstep / false-diversification gate;
+        opposite-direction signal vs the reversal-risk family.
+    """
+    rows: list = []
+
+    both_high = (
+        revn_snap is not None
+        and sma_snap is not None
+        and bool(revn_snap.get("is_high"))
+        and bool(sma_snap.get("is_high"))
+    )
+    if revn_snap is not None or sma_snap is not None:
+        rows.append(html.Div(
+            style={"color": MUTED, "fontSize": "10px",
+                   "textTransform": "uppercase", "letterSpacing": "0.5px",
+                   "marginTop": "8px"},
+            children="Reversal Risk",
+        ))
+        if both_high:
+            rows.append(html.Div(
+                style={"fontSize": "11px", "marginTop": "2px"},
+                children=[
+                    html.Span("BOTH HIGH ▲▲", style={"color": RED, "fontWeight": "700"}),
+                    html.Span("   (rev_nhi ∧ SMA50 — concentrated regime, fwd N225 ≈ 0%)",
+                              style={"color": MUTED}),
+                ],
+            ))
+        r1 = _breadth_row("rev_nhi", revn_snap)
+        if r1 is not None: rows.append(r1)
+        r2 = _breadth_row("SMA(50)", sma_snap)
+        if r2 is not None: rows.append(r2)
+
+    if corr_snap is not None:
+        rows.append(html.Div(
+            style={"color": MUTED, "fontSize": "10px",
+                   "textTransform": "uppercase", "letterSpacing": "0.5px",
+                   "marginTop": "8px"},
+            children="Diversification",
+        ))
+        cr = _breadth_row("CorrRegime", corr_snap, high_color="#ba68c8")
+        if cr is not None:
+            rows.append(cr)
+        if corr_snap.get("is_high"):
+            rows.append(html.Div(
+                "↳ high lockstep — multi-stock entries are false diversification",
+                style={"color": MUTED, "fontSize": "10px", "marginLeft": "12px"},
+            ))
+
+    if not rows:
+        return None
+    return html.Div(style={"marginTop": "2px"}, children=rows)
 
 
 def _regime_card(
@@ -873,6 +979,8 @@ def _regime_card(
     regime: dict[str, Any] | None,
     n_proposals: int,
     revn_snap: dict[str, float | bool] | None = None,
+    sma_snap:  dict[str, float | bool] | None = None,
+    corr_snap: dict[str, float | bool] | None = None,
 ) -> list:
     if regime is None:
         return [
@@ -920,8 +1028,9 @@ def _regime_card(
             ],
         ),
     ]
-    if revn_snap is not None and not math.isnan(float(revn_snap.get("frac", float("nan")))):
-        children.append(_revn_banner(revn_snap))
+    panel = _regime_risk_panel(revn_snap, sma_snap, corr_snap)
+    if panel is not None:
+        children.append(panel)
     return children
 
 
@@ -1434,7 +1543,9 @@ def register_callbacks() -> None:
         try:
             target    = datetime.date.fromisoformat(date_str[:10])
             _strategy_cache.clear()       # Refresh = "give me fresh data" — drop any pre-download cache
-            _revn_regime_cache.clear()    # invalidate breadth indicator alongside the strategy
+            _revn_regime_cache.clear()    # invalidate regime indicators alongside the strategy
+            _sma_regime_cache.clear()
+            _corr_regime_cache.clear()
             strategy  = _get_strategy(target)
             tz        = datetime.timezone.utc
             target_dt = datetime.datetime(
@@ -1467,18 +1578,23 @@ def register_callbacks() -> None:
             ]
 
         regime = _regime_from_proposals(proposals)
-        try:
-            revn = _get_revn_regime(target, strategy)
-            revn_snap: dict[str, float | bool] | None = {
-                "frac":       revn.frac(target),
-                "is_high":    revn.is_high(target),
-                "cutoff":     revn.cutoff,
-                "percentile": revn.percentile(target),
-            }
-        except Exception as exc:
-            logger.warning("RevNRegime build failed: {}", exc)
-            revn_snap = None
-        card   = _regime_card(target, regime, len(proposals), revn_snap=revn_snap)
+        def _snap_or_none(builder, name):
+            try:
+                ind = builder(target, strategy)
+                return {
+                    "frac":       ind.frac(target),
+                    "is_high":    ind.is_high(target),
+                    "cutoff":     ind.cutoff,
+                    "percentile": ind.percentile(target) if hasattr(ind, "percentile") else float("nan"),
+                }
+            except Exception as exc:
+                logger.warning("{} build failed: {}", name, exc)
+                return None
+        revn_snap = _snap_or_none(_get_revn_regime, "RevNRegime")
+        sma_snap  = _snap_or_none(_get_sma_regime,  "SMARegime")
+        corr_snap = _snap_or_none(_get_corr_regime, "CorrRegime")
+        card   = _regime_card(target, regime, len(proposals),
+                              revn_snap=revn_snap, sma_snap=sma_snap, corr_snap=corr_snap)
         ranking_evs = [e.ev for e in strategy._ranking.values()]
         return _proposals_to_json(proposals, ranking_evs), card
 
