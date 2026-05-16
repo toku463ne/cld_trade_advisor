@@ -4,10 +4,39 @@ from __future__ import annotations
 
 import datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.data.models import Base
+
+
+class Account(Base):
+    """Virtual account scoping positions and reviewed candidates.
+
+    Lets the operator run separate simulation tests in parallel
+    (e.g. "naive baseline" vs "discretionary skip on AND-HIGH") without
+    polluting each other's portfolio statistics.  A "default" account
+    is created during migration so existing positions / reviews stay
+    addressable.
+    """
+
+    __tablename__ = "accounts"
+
+    id:           Mapped[int]  = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name:         Mapped[str]  = mapped_column(String(60), nullable=False, unique=True)
+    description:  Mapped[str | None]   = mapped_column(Text, nullable=True)
+    initial_cash: Mapped[float | None] = mapped_column(
+        Numeric(precision=14, scale=2), nullable=True,
+    )
+    archived:     Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at:   Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Account id={self.id} name={self.name!r} archived={self.archived}>"
 
 
 class Position(Base):
@@ -21,6 +50,12 @@ class Position(Base):
     __tablename__ = "positions"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    account_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
     sign_type:  Mapped[str] = mapped_column(String(30), nullable=False)
@@ -77,6 +112,12 @@ class ReviewedCandidate(Base):
     __tablename__ = "reviewed_candidates"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    account_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     fired_at:   Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True)
     stock_code: Mapped[str]           = mapped_column(String(20), nullable=False)

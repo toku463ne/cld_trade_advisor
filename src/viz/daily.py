@@ -32,7 +32,9 @@ from src.portfolio.crud import (
     close_position,
     create_memo,
     delete_memo,
+    get_entry_price_for_fire,
     get_memos_for_date,
+    list_accounts,
     register_review,
     update_memo,
     compute_exit_levels,
@@ -1238,6 +1240,26 @@ def layout() -> html.Div:
                         interval=1500, n_intervals=0, disabled=True,
                     ),
 
+                    # Account selector (synced via active-account-id Store)
+                    html.Div(
+                        style={"display": "flex", "alignItems": "center",
+                               "gap": "8px", "marginBottom": "6px"},
+                        children=[
+                            html.Span(
+                                "Account:",
+                                style={"color": MUTED, "fontSize": "11px",
+                                       "whiteSpace": "nowrap"},
+                            ),
+                            dcc.Dropdown(
+                                id="daily-account-dropdown",
+                                placeholder="(loading…)",
+                                clearable=False,
+                                style={"flex": "1", "fontSize": "12px",
+                                       "color": "#000"},
+                            ),
+                        ],
+                    ),
+
                     # Date picker + Refresh + Daily Update
                     html.Div(
                         style={"display": "flex", "alignItems": "center",
@@ -1661,6 +1683,28 @@ def layout() -> html.Div:
 
 def register_callbacks() -> None:
 
+    # ── Account selector — populate options and two-way sync with Store ───
+    @callback(
+        Output("daily-account-dropdown", "options"),
+        Output("daily-account-dropdown", "value"),
+        Output("active-account-id",      "data"),
+        Input("daily-account-dropdown",  "value"),
+        Input("active-account-id",       "data"),
+    )
+    def sync_daily_account(dropdown_val, store_val):
+        with get_session() as session:
+            accts = list_accounts(session)
+        options = [{"label": a.name, "value": a.id} for a in accts]
+        trig = callback_context.triggered_id
+        if trig == "daily-account-dropdown" and dropdown_val is not None:
+            chosen = dropdown_val
+        elif store_val is not None:
+            chosen = store_val
+        else:
+            chosen = accts[0].id if accts else None
+        return options, chosen, chosen
+
+
     @callback(
         Output("daily-proposals-store", "data"),
         Output("daily-regime-card", "children"),
@@ -1876,8 +1920,13 @@ def register_callbacks() -> None:
         if selected_rows[0] >= len(rows):
             return hidden, "", None
         row  = rows[selected_rows[0]]
-        # Try to get the last close price on fired_at as default entry price
-        price = get_latest_price(row["stock"])
+        # Default entry price = next bar's open after fired_at (two-bar fill rule).
+        # Falls back to close-on-fired then latest if no next bar exists.
+        try:
+            fired = datetime.date.fromisoformat(row["fired_at"])
+            price = get_entry_price_for_fire(row["stock"], fired)
+        except Exception:
+            price = get_latest_price(row["stock"])
         label = (
             f"{row['stock']}  ·  {row['sign']}  ·  "
             f"corr={row['corr']}  kumo={row['kumo']}  "
@@ -1986,6 +2035,7 @@ def register_callbacks() -> None:
         State("daily-date",              "date"),
         State("daily-regime-snapshot",   "data"),
         State("daily-decision-reason",   "value"),
+        State("active-account-id",       "data"),
         prevent_initial_call=True,
     )
     def decision_btn_click(
@@ -1999,6 +2049,7 @@ def register_callbacks() -> None:
         date_str:      str | None,
         regime_snap:   dict | None,
         reason:        str | None,
+        account_id:    int | None,
     ) -> tuple:
         ok_style    = {"marginLeft": "10px", "fontSize": "12px", "color": GREEN}
         err_style   = {"marginLeft": "10px", "fontSize": "12px", "color": RED}
@@ -2049,6 +2100,7 @@ def register_callbacks() -> None:
                         revn_frac  = revn_f,
                         sma_frac   = sma_f,
                         corr_frac  = corr_f,
+                        account_id = account_id,
                     )
                 return f"Skipped {row['stock']} (review id={rv.id})", skip_style
             except Exception as exc:
@@ -2080,6 +2132,7 @@ def register_callbacks() -> None:
                     sma_frac    = sma_f,
                     corr_frac   = corr_f,
                     reason      = clean_reason,
+                    account_id  = account_id,
                 )
             tp_s = f"{tp:,.0f}" if tp is not None else "—"
             sl_s = f"{sl:,.0f}" if sl is not None else "—"
@@ -2094,11 +2147,12 @@ def register_callbacks() -> None:
         Output("daily-positions-panel", "children"),
         Input("daily-positions-refresh-btn", "n_clicks"),
         Input("daily-register-btn", "n_clicks"),
+        Input("active-account-id", "data"),
     )
-    def refresh_positions(_r: int, _reg: int) -> list:
+    def refresh_positions(_r: int, _reg: int, account_id: int | None) -> list:
         try:
             with get_session() as session:
-                positions = get_open_positions(session)
+                positions = get_open_positions(session, account_id=account_id)
                 # detach — read all needed attrs inside session
                 rows = [
                     {
@@ -2271,11 +2325,13 @@ def register_callbacks() -> None:
         Input({"type": "close-pos-btn", "index": ALL}, "n_clicks"),
         State({"type": "close-reason", "index": ALL}, "value"),
         State({"type": "close-reason", "index": ALL}, "id"),
+        State("active-account-id", "data"),
         prevent_initial_call=True,
     )
     def close_position_btn(n_clicks_list: list[int],
                             reasons: list[str | None],
-                            reason_ids: list[dict]) -> list:
+                            reason_ids: list[dict],
+                            account_id: int | None) -> list:
         triggered = callback_context.triggered
         if not triggered or not any(n for n in (n_clicks_list or []) if n):
             return no_update  # type: ignore[return-value]
@@ -2294,7 +2350,7 @@ def register_callbacks() -> None:
                                 exit_reason=chosen_reason)
         except Exception as exc:
             logger.exception("close_position error for id={}", pos_id)
-        return refresh_positions(0, 0)
+        return refresh_positions(0, 0, account_id)
 
     # ── Memos panel ──────────────────────────────────────────────────────────
 

@@ -21,6 +21,7 @@ from dash import dcc, html
 
 from src.viz import chart_view as _chart_view
 from src.viz import ideas as _ideas
+from src.viz import portfolio_tab as _portfolio_tab
 from src.viz import daily as _daily
 from src.viz import maintenance as _maintenance
 from src.viz import sign_bench as _sign_bench
@@ -127,6 +128,16 @@ def _analysis_layout() -> html.Div:
                             children=[_ideas.layout()],
                         ),
                     ),
+                    dcc.Tab(
+                        label="Portfolio",
+                        value="portfolio",
+                        style=_SUB_TAB_STYLE,
+                        selected_style=_SUB_TAB_SELECTED,
+                        children=html.Div(
+                            style={"height": _INNER_H, "overflow": "hidden"},
+                            children=[_portfolio_tab.layout()],
+                        ),
+                    ),
                 ],
             ),
         ],
@@ -141,6 +152,10 @@ app.layout = html.Div(
         "overflow": "hidden",
     },
     children=[
+        # Global active-account selector — persisted across tab switches.
+        # Initialized from the "default" account by app load; updated by
+        # the Daily and Portfolio dropdowns.
+        dcc.Store(id="active-account-id", storage_type="local"),
         dcc.Tabs(
             id="main-tabs",
             value="daily",
@@ -187,6 +202,7 @@ def main() -> None:
     _sign_bench.register_callbacks()
     _chart_view.register_callbacks()
     _ideas.register_callbacks()
+    _portfolio_tab.register_callbacks()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8050
     print(f"Starting Trade Advisor at http://localhost:{port}")
     app.run(debug=False, host="0.0.0.0", port=port)

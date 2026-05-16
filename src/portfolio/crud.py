@@ -5,14 +5,14 @@ from __future__ import annotations
 import datetime
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.data.db import get_session
 from src.data.models import OHLCV_MODEL_MAP
 from src.exit.zs_tp_sl import ZsTpSl
 from src.indicators.zigzag import detect_peaks
-from src.portfolio.models import Memo, Position, ReviewedCandidate
+from src.portfolio.models import Account, Memo, Position, ReviewedCandidate
 from src.simulator.cache import DataCache
 
 _EXIT_RULE = ZsTpSl(tp_mult=2.0, sl_mult=2.0, alpha=0.3)
@@ -105,6 +105,7 @@ def register_position(
     sma_frac:    float | None = None,
     corr_frac:   float | None = None,
     reason:      str | None = None,
+    account_id:  int | None = None,
 ) -> Position:
     """Create and persist a new open position.
 
@@ -132,6 +133,7 @@ def register_position(
         revn_frac   = revn_frac,
         sma_frac    = sma_frac,
         corr_frac   = corr_frac,
+        account_id  = account_id,
     )
     session.add(pos)
     session.flush()
@@ -150,6 +152,7 @@ def register_position(
         revn_frac   = revn_frac,
         sma_frac    = sma_frac,
         corr_frac   = corr_frac,
+        account_id  = account_id,
     )
     session.add(review)
     session.flush()
@@ -174,6 +177,7 @@ def register_review(
     revn_frac:   float | None = None,
     sma_frac:    float | None = None,
     corr_frac:   float | None = None,
+    account_id:  int | None = None,
 ) -> ReviewedCandidate:
     """Persist a reviewed-candidate row.
 
@@ -181,11 +185,11 @@ def register_review(
     this helper exists for 'skipped' actions and ad-hoc review tracking.
 
     Upsert semantics for ``action="skipped"``: if a skip row already
-    exists for ``(fired_at, stock_code, sign_type)``, the row is updated
-    (reason, regime snapshot, reviewed_at) rather than duplicated.  This
-    lets the operator iterate on a skip reason without spawning rows
-    every click.  ``action="taken"`` stays insert-only because each
-    Register opens a distinct Position.
+    exists for ``(account_id, fired_at, stock_code, sign_type)``, the
+    row is updated (reason, regime snapshot, reviewed_at) rather than
+    duplicated.  This lets the operator iterate on a skip reason
+    without spawning rows every click.  ``action="taken"`` stays
+    insert-only because each Register opens a distinct Position.
     """
     if action not in ("taken", "skipped"):
         raise ValueError(f"action must be 'taken' or 'skipped', got {action!r}")
@@ -194,6 +198,7 @@ def register_review(
         existing = session.execute(
             select(ReviewedCandidate)
             .where(
+                ReviewedCandidate.account_id == account_id,
                 ReviewedCandidate.fired_at   == fired_at,
                 ReviewedCandidate.stock_code == stock_code,
                 ReviewedCandidate.sign_type  == sign_type,
@@ -212,8 +217,8 @@ def register_review(
             existing.corr_frac   = corr_frac
             existing.reviewed_at = datetime.datetime.now(datetime.timezone.utc)
             session.flush()
-            logger.info("Updated skip review id={} {} {}",
-                        existing.id, stock_code, sign_type)
+            logger.info("Updated skip review id={} {} {} (acct={})",
+                        existing.id, stock_code, sign_type, account_id)
             return existing
 
     review = ReviewedCandidate(
@@ -230,6 +235,7 @@ def register_review(
         revn_frac   = revn_frac,
         sma_frac    = sma_frac,
         corr_frac   = corr_frac,
+        account_id  = account_id,
     )
     session.add(review)
     session.flush()
@@ -251,15 +257,77 @@ def get_reviews_for_date(
     )
 
 
-def get_open_positions(session: Session) -> list[Position]:
-    """Return all open positions ordered by entry_date descending."""
-    return list(
-        session.execute(
-            select(Position)
-            .where(Position.status == "open")
-            .order_by(Position.entry_date.desc())
-        ).scalars().all()
+def get_open_positions(
+    session: Session,
+    account_id: int | None = None,
+) -> list[Position]:
+    """Return open positions ordered by entry_date descending.
+
+    If ``account_id`` is provided, only positions in that account are
+    returned.  ``None`` returns all open positions across accounts (legacy
+    behaviour).
+    """
+    stmt = select(Position).where(Position.status == "open")
+    if account_id is not None:
+        stmt = stmt.where(Position.account_id == account_id)
+    stmt = stmt.order_by(Position.entry_date.desc())
+    return list(session.execute(stmt).scalars().all())
+
+
+# ── Account CRUD ──────────────────────────────────────────────────────────────
+
+def create_account(
+    session: Session,
+    name: str,
+    description: str | None = None,
+    initial_cash: float | None = None,
+) -> Account:
+    """Create a new virtual account.  Name must be unique."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("account name cannot be empty")
+    acct = Account(
+        name=name,
+        description=(description or None),
+        initial_cash=initial_cash,
     )
+    session.add(acct)
+    session.flush()
+    logger.info("Created account id={} name={!r}", acct.id, name)
+    return acct
+
+
+def list_accounts(
+    session: Session,
+    include_archived: bool = False,
+) -> list[Account]:
+    """Return all accounts ordered by id (creation order)."""
+    stmt = select(Account)
+    if not include_archived:
+        stmt = stmt.where(Account.archived.is_(False))
+    stmt = stmt.order_by(Account.id.asc())
+    return list(session.execute(stmt).scalars().all())
+
+
+def get_account(session: Session, account_id: int) -> Account | None:
+    return session.get(Account, account_id)
+
+
+def archive_account(session: Session, account_id: int) -> None:
+    """Soft-archive (sets archived=True; positions/reviews remain queryable)."""
+    acct = session.get(Account, account_id)
+    if acct is None:
+        return
+    acct.archived = True
+    session.flush()
+    logger.info("Archived account id={}", account_id)
+
+
+def get_default_account_id(session: Session) -> int | None:
+    """Return the id of the auto-created 'default' account, or None if missing."""
+    return session.execute(
+        select(Account.id).where(Account.name == "default")
+    ).scalar_one_or_none()
 
 
 def close_position(
@@ -360,6 +428,54 @@ def list_memos(
     if limit:
         stmt = stmt.limit(limit)
     return list(session.execute(stmt).scalars().all())
+
+
+def get_entry_price_for_fire(
+    stock_code: str,
+    fired_at:   datetime.date,
+    gran: str = "1d",
+) -> float | None:
+    """Default entry price for a proposal fired on *fired_at*.
+
+    Follows the two-bar fill rule: prefer the **open** of the next
+    trading day after fired_at.  Falls back to the close on fired_at
+    if no subsequent bar exists yet (live-trading case where the
+    proposal fired today and tomorrow hasn't traded yet), then to the
+    overall latest close as the last resort.
+    """
+    model = OHLCV_MODEL_MAP.get(gran)
+    if model is None:
+        return None
+    try:
+        with get_session() as session:
+            next_bar = session.execute(
+                select(model.open_price)
+                .where(model.stock_code == stock_code)
+                .where(func.date(model.ts) > fired_at)
+                .order_by(model.ts.asc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if next_bar is not None:
+                return float(next_bar)
+            same_day = session.execute(
+                select(model.close_price)
+                .where(model.stock_code == stock_code)
+                .where(func.date(model.ts) == fired_at)
+                .limit(1)
+            ).scalar_one_or_none()
+            if same_day is not None:
+                return float(same_day)
+            latest = session.execute(
+                select(model.close_price)
+                .where(model.stock_code == stock_code)
+                .order_by(model.ts.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            return float(latest) if latest is not None else None
+    except Exception as exc:
+        logger.warning("get_entry_price_for_fire failed for {} {}: {}",
+                       stock_code, fired_at, exc)
+        return None
 
 
 def get_latest_price(stock_code: str, gran: str = "1d") -> float | None:
