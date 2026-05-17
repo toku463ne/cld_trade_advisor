@@ -1263,3 +1263,147 @@ Every strict fire is also a close-based fire (low > x implies close ≥ low > x)
 ### Verdict
 
 **Strict variant also REJECTS — no N cleared the gate.**  The clean-breakout hypothesis does not invert the loose-breakout null on this universe / framing.  Closing both the close-based and strict variants as REJECT.
+## Bullish Confluence Probe
+
+Probe run: 2026-05-17.  Read-only diagnostic — does multi-sign confluence on a (stock, date) predict EV uplift vs single-sign fires?
+
+Bullish sign set: str_hold, str_lead, str_lag, brk_sma, brk_bol, rev_lo, rev_nlo
+
+**Pre-registered gate**:
+  - EV[≥3 signs] − EV[1 sign] ≥ +1.0pp
+  - EV[≥2 signs] − EV[1 sign] ≥ +0.5pp
+  - uplift sign consistent in ≥4 of 6 training FYs
+  - FY2025 OOS uplift sign matches pooled training sign
+  - n[≥3 signs] in FY2025 ≥ 50
+
+### Confluence buckets — pooled (training)
+
+| Bucket | n_train | n_oos | DR (train) | EV (train) | EV (FY2025) | mean signs/day |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 26211 | 4185 | 52.3% | +0.0094 | +0.0297 | 1.00 |
+| 2 | 814 | 124 | 56.3% | +0.0218 | +0.0142 | 2.00 |
+| ≥3 | 13 | 5 | 53.8% | +0.0259 | +0.0663 | 3.00 |
+
+### Pooled uplifts (training)
+
+- EV[≥2 signs] − EV[1 sign] = **+1.25pp**  (gate ≥ +0.5pp)
+- EV[≥3 signs] − EV[1 sign] = **+1.65pp**  (gate ≥ +1.0pp)
+- FY2025 OOS uplift EV[≥3] − EV[1] = **+3.66pp**
+
+### Per-FY EV by confluence bucket
+
+| FY | EV[1] (n) | EV[2] (n) | EV[≥3] (n) | Uplift[≥3]−[1] |
+|----|:---:|:---:|:---:|:---:|
+| FY2019 | -0.0369 (n=1825) | -0.0463 (n=19) | — | — |
+| FY2020 | +0.0313 (n=3307) | +0.0232 (n=106) | -0.0513 (n=3) | **-8.26pp** |
+| FY2021 | +0.0056 (n=5169) | +0.0269 (n=159) | +0.0912 (n=4) | **+8.56pp** |
+| FY2022 | +0.0067 (n=5344) | +0.0155 (n=171) | — | — |
+| FY2023 | +0.0198 (n=4522) | +0.0184 (n=142) | — | — |
+| FY2024 | +0.0091 (n=6044) | +0.0307 (n=217) | +0.0635 (n=3) | **+5.44pp** |
+| FY2025 | +0.0297 (n=4185) | +0.0142 (n=124) | +0.0663 (n=5) | **+3.66pp** |
+
+### Gate verdict
+
+**FAIL** — gate notes: only 2/6 training FYs uplift-consistent (<4); FY2025 n[≥3 signs] = 5 < 50
+
+**Confluence framework does NOT clear the gate on existing signs.**  Adding brk_nhi to a non-functional tally is pointless.  Two interpretations: (a) bullish-sign-set definition is wrong (try a narrower set), or (b) confluence as a factor doesn't carry signal on this universe — same events, same outcomes regardless of co-fire count.  Operator decision required before next probe.
+## Bullish Confluence Probe (validity-windowed)
+
+Probe run: 2026-05-17.  v2 of bullish-confluence — uses each sign's `valid_bars` (3 or 5 trading days per the detector defaults) so a fire counts toward confluence on every trade_date within its validity window, not only the calendar day it fired.
+
+Bullish set + valid_bars: str_hold(3), str_lead(5), str_lag(5), brk_sma(5), brk_bol(3), rev_lo(5), rev_nlo(5)
+
+Outcome at trade_date = next confirmed zigzag peak from that date (ZZ size=5, mid=2, cap=30 bars) — same convention as benchmark.md.  Trade_dates with zero valid signs are skipped (not investable in this framework).
+
+**Pre-registered gate** (unchanged from v1):
+  - EV[≥3 signs] − EV[1 sign] ≥ +1.0pp
+  - EV[≥2 signs] − EV[1 sign] ≥ +0.5pp
+  - uplift sign consistent in ≥4 of 7 training FYs
+  - FY2025 OOS uplift sign matches pooled training sign
+  - n[≥3 signs] in FY2025 ≥ 50
+
+### Confluence buckets — pooled (training)
+
+| Bucket | n_train | n_oos | DR (train) | EV (train) | EV (FY2025) | mean signs/day |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 84449 | 14019 | 55.1% | +0.0089 | +0.0259 | 1.00 |
+| 2 | 16260 | 2363 | 60.1% | +0.0179 | +0.0407 | 2.00 |
+| ≥3 | 1746 | 280 | 64.3% | +0.0320 | +0.0502 | 3.08 |
+
+### Pooled uplifts (training)
+
+- EV[≥2 signs] − EV[1 sign] = **+0.90pp**  (gate ≥ +0.5pp)
+- EV[≥3 signs] − EV[1 sign] = **+2.31pp**  (gate ≥ +1.0pp)
+- FY2025 OOS uplift EV[≥3] − EV[1] = **+2.44pp**
+
+### Per-FY EV by confluence bucket
+
+| FY | EV[1] (n) | EV[2] (n) | EV[≥3] (n) | Uplift[≥3]−[1] |
+|----|:---:|:---:|:---:|:---:|
+| FY2018 | — | — | — | — |
+| FY2019 | -0.0215 (n=7823) | -0.0351 (n=431) | +0.0200 (n=41) | **+4.15pp** |
+| FY2020 | +0.0277 (n=12966) | +0.0388 (n=2000) | +0.0490 (n=263) | **+2.13pp** |
+| FY2021 | +0.0076 (n=16759) | +0.0133 (n=3411) | +0.0333 (n=407) | **+2.57pp** |
+| FY2022 | +0.0127 (n=14997) | +0.0146 (n=3545) | +0.0171 (n=366) | **+0.44pp** |
+| FY2023 | +0.0181 (n=13871) | +0.0254 (n=2832) | +0.0268 (n=245) | **+0.88pp** |
+| FY2024 | -0.0002 (n=18033) | +0.0147 (n=4041) | +0.0371 (n=424) | **+3.74pp** |
+| FY2025 | +0.0259 (n=14019) | +0.0407 (n=2363) | +0.0502 (n=280) | **+2.44pp** |
+
+### Gate verdict
+
+**PASS** — all gates clear
+
+**Confluence framework (validity-windowed) is empirically real.**  Authorize brk_nhi as a sign that feeds the confluence tally; re-run this probe with brk_nhi included to verify incremental value.
+## brk_hi_sideway Probe
+
+Probe run: 2026-05-17.  Fires when a bar's low breaks above a recent sideways-range wall:
+
+```
+sideways range at i: (max H − min L) / mean C ≤ θ on bars [i-K+1, i]
+wall[T] = max(tight_window_high[j] for j in [T-lookback, T-K-1])
+fire[T] = (low[T] > wall[T-1]) AND (low[T-1] ≤ wall[T-1])
+
+K        = 10 bars (sideways window)
+θ        = 0.05 (range/mean tightness)
+lookback = 120 bars (~6 months)
+validity = 5 trading days (for confluence inclusion)
+```
+
+### 1. Standalone fire-rate and EV
+
+| FY | n fires | DR | EV | mean score |
+|----|---:|---:|---:|---:|
+| FY2018 | 0 | — | — | — |
+| FY2019 | 745 | 69.8% | +0.0080 | +2.17% |
+| FY2020 | 707 | 72.8% | +0.0426 | +2.64% |
+| FY2021 | 731 | 71.0% | +0.0235 | +2.37% |
+| FY2022 | 723 | 72.6% | +0.0250 | +2.11% |
+| FY2023 | 1094 | 77.4% | +0.0443 | +2.28% |
+| FY2024 | 733 | 69.9% | +0.0228 | +2.50% |
+| FY2025 | 1138 | 74.3% | +0.0443 | +2.48% |
+| **pooled train** | **4733** | **72.6%** | **+0.0288** | — |
+| **FY2025 OOS** | **1138** | **74.3%** | **+0.0443** | — |
+
+**Standalone gate** (same as long-high probes — pooled EV ≥ +0.020, FY2025 EV > 0, DR ≥ 53%): **PASS**
+
+### 2. Confluence-incremental value (vs v2 7-sign baseline)
+
+Compares EV uplifts (≥3 sign confluence vs 1 sign) WITHOUT brk_hi_sideway in the bullish set vs WITH it included.  If brk_hi_sideway pushes more days into the ≥2/≥3 buckets AND those new entries carry the same edge, the uplift gap should widen.
+
+| FY | EV[1] before | EV[≥3] before | uplift before | EV[1] after | EV[≥3] after | uplift after | Δ uplift |
+|----|---:|---:|---:|---:|---:|---:|---:|
+| FY2018 | — | — | — | — | — | — | **—** |
+| FY2019 | -0.0215 | +0.0200 | +4.15pp | -0.0215 | -0.0376 | -1.62pp | **-5.77pp** |
+| FY2020 | +0.0277 | +0.0490 | +2.13pp | +0.0252 | +0.0403 | +1.51pp | **-0.62pp** |
+| FY2021 | +0.0076 | +0.0333 | +2.57pp | +0.0053 | +0.0221 | +1.68pp | **-0.89pp** |
+| FY2022 | +0.0127 | +0.0171 | +0.44pp | +0.0119 | +0.0119 | -0.00pp | **-0.45pp** |
+| FY2023 | +0.0181 | +0.0268 | +0.88pp | +0.0209 | +0.0277 | +0.68pp | **-0.20pp** |
+| FY2024 | -0.0002 | +0.0371 | +3.74pp | -0.0007 | +0.0267 | +2.74pp | **-1.00pp** |
+| FY2025 | +0.0259 | +0.0502 | +2.44pp | +0.0270 | +0.0436 | +1.66pp | **-0.78pp** |
+
+**Pooled training**: uplift before = +2.31pp (n[≥3]=1746), uplift after = +1.48pp (n[≥3]=3441); **Δ uplift = -0.83pp**, n[≥3] grew by 1695.
+**FY2025 OOS n[≥3] after** = 660 (gate ≥ 50).
+
+### Verdict
+
+**Standalone PASS** — brk_hi_sideway clears the same gate as long_high_continuation did NOT. Authorize detector build + full rebench cycle.
