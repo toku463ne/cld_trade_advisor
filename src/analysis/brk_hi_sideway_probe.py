@@ -1,34 +1,48 @@
-"""brk_hi_sideway_probe — break above a recent sideways-range wall.
+"""brk_{hi,lo}_sideway_probe — break above/below a recent sideways-range edge.
 
 Operator hypothesis (2026-05-17): sideways price ranges in the recent
 past form "walls" that act as tested support/resistance.  A clean
-breakout above such a wall (`low[T] > wall AND low[T-1] ≤ wall`)
-should be a meaningful bullish event — distinct from generic rolling-
-N-max breakouts because the wall is from a tight consolidation, not
-from a single spike high.
+strict-bar breakout (`low > wall` for hi-side, `high < floor` for
+lo-side) is structurally distinct from generic rolling-N-max breakouts
+because the level is from a tight consolidation, not a spike extreme.
+
+CLI:
+    python -m src.analysis.brk_hi_sideway_probe [--side hi|lo]
+
+  --side hi  (default) — break ABOVE recent sideways-range high
+             (bullish; can feed the v2 bullish confluence tally test)
+  --side lo            — break BELOW recent sideways-range low
+             (bearish; standalone-only — there is no validated bearish-
+             confluence framework in the repo yet, so the confluence-
+             incremental section is skipped)
 
 Parameters (operator-chosen 2026-05-17):
     K        = 10 trading-day sideways window
     theta    = 0.05  (range/mean tightness)
-    lookback = 120 bars (~6 months for finding walls)
+    lookback = 120 bars (~6 months for finding walls/floors)
 
 Sideways range at bar i:
     window = [i-K+1, i]
     (max(high[window]) − min(low[window])) / mean(close[window]) ≤ theta
 
-Wall at bar T:
+Hi-side:
     wall[T] = max(tight_window_high[j] for j in [T-lookback, T-K-1])
-
-Fire (strict, transition-gated):
     fire[T] = (low[T] > wall[T-1]) AND (low[T-1] ≤ wall[T-1])
 
-Two evaluations:
-  1. Standalone EV (same gate as long_high_continuation probes)
-  2. Confluence-incremental: add brk_hi_sideway fires to the v2
-     bullish set and re-bucket — does ΔEV(uplift[≥3]−[1]) improve?
+Lo-side:
+    floor[T] = min(tight_window_low[j] for j in [T-lookback, T-K-1])
+    fire[T] = (high[T] < floor[T-1]) AND (high[T-1] ≥ floor[T-1])
+
+DR semantics for lo-side: outcomes use trend_direction = next confirmed
+zigzag peak.  For a LONG-only operator, "DR=fraction-where-next-peak-is-
+HIGH" measures **risk that the breakdown reverses** — a HIGH DR for
+brk_lo_sideway means the sign is unreliable as an avoid-long signal.
+A LOW DR means breakdowns persist and the sign is informative as a
+"don't go long today" filter.  Mirror reading for a hypothetical short
+strategy.
 
 Read-only.  Output: src/analysis/benchmark.md
-§ brk_hi_sideway Probe (standalone + confluence-incremental).
+§ brk_{hi,lo}_sideway Probe.
 """
 from __future__ import annotations
 
@@ -64,8 +78,16 @@ from src.data.models import OHLCV_MODEL_MAP
 from src.indicators.zigzag import detect_peaks
 
 _BENCH_MD = Path(__file__).parent / "benchmark.md"
-_SECTION_HEADER = "## brk_hi_sideway Probe"
 _MULTIYEAR_MIN_RUN_ID = 47
+
+# Side: "hi" (default — break above wall) or "lo" (break below floor)
+_SIDE: str = "hi"
+
+def _section_header() -> str:
+    return f"## brk_{_SIDE}_sideway Probe"
+
+def _sign_name() -> str:
+    return f"brk_{_SIDE}_sideway"
 
 # Operator-specified parameters
 _K        = 10
@@ -92,8 +114,8 @@ class _Fire:
     stock:     str
     fire_date: datetime.date
     fy:        str
-    wall:      float
-    score:     float       # (close − wall) / wall, dimensionless
+    level:     float       # wall (hi-side) or floor (lo-side)
+    score:     float       # (close − level)/level for hi; (level − close)/level for lo
     trend_dir: int | None
     trend_mag: float | None
 
@@ -143,19 +165,22 @@ def _detect_for_stock(stock: str, fy_label: str,
     lows   = np.array([b.low   for b in bars])
     dates  = [b.dt.date() for b in bars]
 
-    # 1. tight_window_high[i] = highs[i-K+1..i].max() if window tight, else nan
-    tight_high = np.full(n, np.nan)
+    # 1. For each i, compute the level if its trailing K-bar window is tight.
+    #    hi-side level = window high; lo-side level = window low
+    tight_level = np.full(n, np.nan)
     for i in range(_K - 1, n):
         wnd_hi = highs[i - _K + 1 : i + 1].max()
         wnd_lo = lows[i  - _K + 1 : i + 1].min()
         wnd_mn = closes[i - _K + 1 : i + 1].mean()
         if wnd_mn > 0 and (wnd_hi - wnd_lo) / wnd_mn <= _THETA:
-            tight_high[i] = wnd_hi
+            tight_level[i] = wnd_hi if _SIDE == "hi" else wnd_lo
 
-    # 2. wall[T] = max of tight_high over [T-lookback, T-K-1]
-    #    shift then rolling-max
-    s = pd.Series(tight_high).shift(_K + 1)   # value at T → tight_high[T-K-1]
-    wall = s.rolling(_LOOKBACK - _K, min_periods=1).max().to_numpy()
+    # 2. level[T] = max (hi) or min (lo) of tight_level over [T-lookback, T-K-1]
+    s = pd.Series(tight_level).shift(_K + 1)
+    if _SIDE == "hi":
+        level = s.rolling(_LOOKBACK - _K, min_periods=1).max().to_numpy()
+    else:
+        level = s.rolling(_LOOKBACK - _K, min_periods=1).min().to_numpy()
 
     # Pre-compute peaks once for trend outcome
     peaks = sorted(detect_peaks(list(highs), list(lows), size=_ZZ_SIZE,
@@ -166,16 +191,23 @@ def _detect_for_stock(stock: str, fy_label: str,
         d = dates[T]
         if d < bench_start or d > bench_end:
             continue
-        w_prev = wall[T - 1]
-        if np.isnan(w_prev) or w_prev <= 0:
+        lv_prev = level[T - 1]
+        if np.isnan(lv_prev) or lv_prev <= 0:
             continue
-        if not (lows[T] > w_prev and lows[T - 1] <= w_prev):
-            continue
+        if _SIDE == "hi":
+            # Strict bullish breakout: entire bar above wall, transition from below
+            if not (lows[T] > lv_prev and lows[T - 1] <= lv_prev):
+                continue
+            score = float((closes[T] - lv_prev) / lv_prev)
+        else:
+            # Strict bearish breakdown: entire bar below floor, transition from above
+            if not (highs[T] < lv_prev and highs[T - 1] >= lv_prev):
+                continue
+            score = float((lv_prev - closes[T]) / lv_prev)
         tdir, tmag = _next_peak_from(T, bars, peaks)
         fires.append(_Fire(
             stock=stock, fire_date=d, fy=fy_label,
-            wall=float(w_prev),
-            score=float((closes[T] - w_prev) / w_prev),
+            level=float(lv_prev), score=score,
             trend_dir=tdir, trend_mag=tmag,
         ))
     return fires
@@ -343,16 +375,28 @@ def _confluence_table(
 
 
 def _format_report(df_fires: pd.DataFrame,
-                   conf_before: dict, conf_after: dict) -> str:
+                   conf_before: dict | None, conf_after: dict | None) -> str:
+    if _SIDE == "hi":
+        narrative_fire = "today's low breaks ABOVE a recent sideways-range wall"
+        level_def = (
+            "wall[T] = max(tight_window_high[j] for j in [T-lookback, T-K-1])"
+        )
+        fire_def = "fire[T] = (low[T] > wall[T-1]) AND (low[T-1] ≤ wall[T-1])"
+    else:
+        narrative_fire = "today's high breaks BELOW a recent sideways-range floor"
+        level_def = (
+            "floor[T] = min(tight_window_low[j] for j in [T-lookback, T-K-1])"
+        )
+        fire_def = "fire[T] = (high[T] < floor[T-1]) AND (high[T-1] ≥ floor[T-1])"
+
     lines = [
-        f"\n{_SECTION_HEADER}",
-        f"\nProbe run: {datetime.date.today()}.  Fires when a bar's low "
-        f"breaks above a recent sideways-range wall:",
+        f"\n{_section_header()}",
+        f"\nProbe run: {datetime.date.today()}.  Fires when {narrative_fire}:",
         "",
         "```",
         f"sideways range at i: (max H − min L) / mean C ≤ θ on bars [i-K+1, i]",
-        f"wall[T] = max(tight_window_high[j] for j in [T-lookback, T-K-1])",
-        f"fire[T] = (low[T] > wall[T-1]) AND (low[T-1] ≤ wall[T-1])",
+        level_def,
+        fire_def,
         "",
         f"K        = {_K} bars (sideways window)",
         f"θ        = {_THETA} (range/mean tightness)",
@@ -360,6 +404,15 @@ def _format_report(df_fires: pd.DataFrame,
         f"validity = {_VALID_BARS_NEW} trading days (for confluence inclusion)",
         "```",
         "",
+    ]
+    if _SIDE == "lo":
+        lines.append(
+            "**DR interpretation (lo-side)**: trend_direction counts the next "
+            "confirmed zigzag peak.  Low DR (HIGH fraction small) means breakdowns "
+            "persist → useful AVOID-LONG signal.  High DR means breakdowns revert "
+            "→ noise / bear-trap territory.\n"
+        )
+    lines += [
         "### 1. Standalone fire-rate and EV",
         "",
         "| FY | n fires | DR | EV | mean score |",
@@ -383,15 +436,76 @@ def _format_report(df_fires: pd.DataFrame,
     lines.append(f"| **FY2025 OOS** | **{n_o}** | **{dr_o*100:.1f}%** | "
                  f"**{ev_o:+.4f}** | — |")
 
-    standalone_pass = (not math.isnan(ev_t) and ev_t >= _GATE_POOLED_EV
-                       and not math.isnan(ev_o) and ev_o > 0
-                       and not math.isnan(dr_t) and dr_t >= _GATE_DR_MIN)
+    # For lo-side, the "gate" interpretation flips: low DR is the success
+    # signal, not high.  The standalone EV (DR×mag_flw − (1−DR)×mag_rev)
+    # is correct only for the long entry direction; for lo-side, the
+    # informative EV is the inverse (the "short EV" or, for long-only
+    # operator, "avoid-long EV" = expected loss avoided).
+    if _SIDE == "hi":
+        standalone_pass = (
+            not math.isnan(ev_t) and ev_t >= _GATE_POOLED_EV
+            and not math.isnan(ev_o) and ev_o > 0
+            and not math.isnan(dr_t) and dr_t >= _GATE_DR_MIN
+        )
+    else:
+        # For lo: low DR is good.  Mirror the gate: 1-DR >= 0.53, and
+        # EV should be NEGATIVE if interpreted as long-entry EV
+        # (i.e., entering long on a breakdown loses money on average).
+        standalone_pass = (
+            not math.isnan(ev_t) and ev_t <= -_GATE_POOLED_EV
+            and not math.isnan(ev_o) and ev_o < 0
+            and not math.isnan(dr_t) and (1 - dr_t) >= _GATE_DR_MIN
+        )
+
+    if _SIDE == "hi":
+        gate_str = (f"pooled EV ≥ {_GATE_POOLED_EV:+.3f}, FY2025 EV > 0, "
+                    f"DR ≥ {_GATE_DR_MIN*100:.0f}%")
+    else:
+        gate_str = (f"pooled EV ≤ −{_GATE_POOLED_EV:.3f}, FY2025 EV < 0, "
+                    f"(1−DR) ≥ {_GATE_DR_MIN*100:.0f}% — breakdown-persistence test")
+
     lines += [
         "",
-        f"**Standalone gate** (same as long-high probes — pooled EV ≥ "
-        f"{_GATE_POOLED_EV:+.3f}, FY2025 EV > 0, DR ≥ {_GATE_DR_MIN*100:.0f}%): "
+        f"**Standalone gate** ({gate_str}): "
         f"**{'PASS' if standalone_pass else 'FAIL'}**",
         "",
+    ]
+
+    if _SIDE == "lo" or conf_before is None or conf_after is None:
+        lines += [
+            "### 2. Confluence-incremental: SKIPPED",
+            "",
+            "The bullish-confluence v2 framework was validated for the long "
+            "direction only.  No equivalent bearish-confluence framework has "
+            "been built/tested in this repo.  Re-running the v2 probe with "
+            "brk_lo_sideway in the bullish set would be nonsensical (a "
+            "bearish event in a bullish tally).  Defer the confluence question "
+            "to a separate cycle that validates a bearish-set first.",
+        ]
+        # No confluence-specific verdict for lo
+        if _SIDE == "lo":
+            lines += [
+                "",
+                "### Verdict",
+                "",
+            ]
+            if standalone_pass:
+                lines.append(
+                    "**brk_lo_sideway standalone PASS** — breakdowns persist "
+                    "(low DR / negative long-entry EV).  Authorize detector "
+                    "build + rebench cycle.  Operationally: useful as an "
+                    "avoid-long filter on the Daily tab; could be used as a "
+                    "short signal if the operator opens that direction."
+                )
+            else:
+                lines.append(
+                    "**brk_lo_sideway standalone FAIL** — breakdowns do not "
+                    "persist by the pre-registered gate.  Defer detector build."
+                )
+        return "\n".join(lines)
+
+    # hi-side: full confluence-incremental section
+    lines += [
         "### 2. Confluence-incremental value (vs v2 7-sign baseline)",
         "",
         f"Compares EV uplifts (≥3 sign confluence vs 1 sign) WITHOUT brk_hi_sideway "
@@ -418,7 +532,6 @@ def _format_report(df_fires: pd.DataFrame,
                      f"{_fmt_pp(u_b)} | {_fmt(ev1_a)} | {_fmt(ev3_a)} | "
                      f"{_fmt_pp(u_a)} | **{_fmt_pp(d_u)}** |")
 
-    # Pooled comparison
     ev1_b_p = conf_before["1"]["__pooled__"][0]
     ev3_b_p = conf_before["≥3"]["__pooled__"][0]
     ev1_a_p = conf_after["1"]["__pooled__"][0]
@@ -426,7 +539,6 @@ def _format_report(df_fires: pd.DataFrame,
     u_b_p = ev3_b_p - ev1_b_p
     u_a_p = ev3_a_p - ev1_a_p
     d_pooled = u_a_p - u_b_p
-
     n3_b = conf_before["≥3"]["__pooled__"][2]
     n3_a = conf_after["≥3"]["__pooled__"][2]
     n3_oos_a = conf_after["≥3"]["__oos__"][2]
@@ -441,8 +553,6 @@ def _format_report(df_fires: pd.DataFrame,
         "### Verdict",
         "",
     ]
-
-    # Decision
     if standalone_pass:
         lines.append("**Standalone PASS** — brk_hi_sideway clears the same gate "
                      "as long_high_continuation did NOT. Authorize detector "
@@ -469,9 +579,10 @@ def _format_report(df_fires: pd.DataFrame,
 
 def _append_to_benchmark(md: str) -> None:
     existing = _BENCH_MD.read_text() if _BENCH_MD.exists() else ""
-    if _SECTION_HEADER in existing:
-        idx = existing.index(_SECTION_HEADER)
-        rest = existing[idx + len(_SECTION_HEADER):]
+    header = _section_header()
+    if header in existing:
+        idx = existing.index(header)
+        rest = existing[idx + len(header):]
         nxt = rest.find("\n## ")
         existing = (existing[:idx].rstrip() + "\n") if nxt < 0 \
                    else (existing[:idx].rstrip() + "\n" + rest[nxt:].lstrip("\n"))
@@ -480,7 +591,15 @@ def _append_to_benchmark(md: str) -> None:
 
 
 def main() -> None:
-    logger.info("Detecting brk_hi_sideway fires...")
+    import argparse
+    global _SIDE
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--side", choices=["hi", "lo"], default="hi",
+                        help="hi = break above wall (bullish); lo = break below floor (bearish)")
+    args = parser.parse_args()
+    _SIDE = args.side
+    logger.info("Probe side: {}", _SIDE)
+    logger.info("Detecting brk_{}_sideway fires...", _SIDE)
     all_fires: list[_Fire] = []
     for fy_label, start_str, end_str, cluster_year in _FY_CONFIG:
         bench_start = datetime.date.fromisoformat(start_str)
@@ -502,12 +621,16 @@ def main() -> None:
         return
     logger.info("Total fires across all FYs: {}", len(df_fires))
 
-    logger.info("Running v2 confluence baseline (7 signs)...")
-    existing = _load_existing_fires()
-    conf_before = _confluence_table(existing, all_fires, include_new=False)
-
-    logger.info("Running v2 confluence WITH brk_hi_sideway (8 signs)...")
-    conf_after  = _confluence_table(existing, all_fires, include_new=True)
+    if _SIDE == "hi":
+        logger.info("Running v2 confluence baseline (7 signs)...")
+        existing = _load_existing_fires()
+        conf_before = _confluence_table(existing, all_fires, include_new=False)
+        logger.info("Running v2 confluence WITH brk_hi_sideway (8 signs)...")
+        conf_after  = _confluence_table(existing, all_fires, include_new=True)
+    else:
+        logger.info("Skipping confluence (no bearish-set framework for lo-side)")
+        conf_before = None
+        conf_after  = None
 
     report = _format_report(df_fires, conf_before, conf_after)
     print(report)

@@ -1029,4 +1029,44 @@ Compares EV uplifts (≥3 sign confluence vs 1 sign) WITHOUT brk_hi_sideway in t
 **FY2025 OOS n[≥3] after** = 660 (gate ≥ 50).
 
 ### Verdict
+## brk_lo_sideway Probe
 
+Probe run: 2026-05-17.  Fires when today's high breaks BELOW a recent sideways-range floor:
+
+```
+sideways range at i: (max H − min L) / mean C ≤ θ on bars [i-K+1, i]
+floor[T] = min(tight_window_low[j] for j in [T-lookback, T-K-1])
+fire[T] = (high[T] < floor[T-1]) AND (high[T-1] ≥ floor[T-1])
+
+K        = 10 bars (sideways window)
+θ        = 0.05 (range/mean tightness)
+lookback = 120 bars (~6 months)
+validity = 5 trading days (for confluence inclusion)
+```
+
+**DR interpretation (lo-side)**: trend_direction counts the next confirmed zigzag peak.  Low DR (HIGH fraction small) means breakdowns persist → useful AVOID-LONG signal.  High DR means breakdowns revert → noise / bear-trap territory.
+
+### 1. Standalone fire-rate and EV
+
+| FY | n fires | DR | EV | mean score |
+|----|---:|---:|---:|---:|
+| FY2018 | 0 | — | — | — |
+| FY2019 | 701 | 22.1% | -0.0782 | +2.68% |
+| FY2020 | 446 | 39.0% | -0.0007 | +2.42% |
+| FY2021 | 671 | 34.1% | -0.0123 | +2.53% |
+| FY2022 | 668 | 36.7% | -0.0026 | +1.96% |
+| FY2023 | 325 | 36.1% | -0.0037 | +2.33% |
+| FY2024 | 672 | 35.4% | -0.0130 | +2.98% |
+| FY2025 | 486 | 40.5% | +0.0126 | +3.02% |
+| **pooled train** | **3483** | **33.2%** | **-0.0216** | — |
+| **FY2025 OOS** | **486** | **40.5%** | **+0.0126** | — |
+
+**Standalone gate** (pooled EV ≤ −0.020, FY2025 EV < 0, (1−DR) ≥ 53% — breakdown-persistence test): **FAIL**
+
+### 2. Confluence-incremental: SKIPPED
+
+The bullish-confluence v2 framework was validated for the long direction only.  No equivalent bearish-confluence framework has been built/tested in this repo.  Re-running the v2 probe with brk_lo_sideway in the bullish set would be nonsensical (a bearish event in a bullish tally).  Defer the confluence question to a separate cycle that validates a bearish-set first.
+
+### Verdict
+
+**brk_lo_sideway standalone FAIL** — breakdowns do not persist by the pre-registered gate.  Defer detector build.
