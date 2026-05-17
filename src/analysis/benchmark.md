@@ -1081,3 +1081,29 @@ The bullish-confluence v2 framework was validated for the long direction only.  
 ### Verdict
 
 **brk_floor standalone FAIL** — breakdowns do not persist by the pre-registered gate.  Defer detector build.
+## Strategy A/B: brk_wall on/off
+
+Probe run: 2026-05-17.  Walk-forward regime-sign strategy backtest run twice: once WITH brk_wall in the sign set (current shipped state) and once WITHOUT (the state before commit 52bde03).  Same min_dr=0.52 threshold, same ZsTpSl exit, same portfolio cap (≤1 high-corr, ≤3 low/mid-corr).
+
+### Per-FY summary
+
+| FY | with: trades / mean_r / Sharpe / win% | without: trades / mean_r / Sharpe / win% | Δ Sharpe | Δ mean_r |
+|----|---|---|---:|---:|
+| FY2019 | 0 / — / — / — | 0 / — / — / — | **—** | **—** |
+| FY2020 | 0 / — / — / — | 0 / — / — / — | **—** | **—** |
+| FY2021 | 31 / -0.86% / -1.31 / 45% | 31 / -0.86% / -1.31 / 45% | **+0.00** | **+0.00pp** |
+| FY2022 | 30 / +2.26% / +3.03 / 57% | 30 / +2.26% / +3.03 / 57% | **+0.00** | **+0.00pp** |
+| FY2023 | 36 / +2.04% / +3.71 / 61% | 36 / +2.04% / +3.71 / 61% | **+0.00** | **+0.00pp** |
+| FY2024 | 36 / -1.37% / -1.92 / 47% | 36 / -1.37% / -1.92 / 47% | **+0.00** | **+0.00pp** |
+| FY2025 | 38 / +1.76% / +3.15 / 66% | 38 / +1.76% / +3.15 / 66% | **+0.00** | **+0.00pp** |
+
+### Aggregate (FY-equal-weighted)
+
+- WITH brk_wall:    total trades = 171, avg Sharpe = +1.33, avg mean_r = +0.77%
+- WITHOUT brk_wall: total trades = 171, avg Sharpe = +1.33, avg mean_r = +0.77%
+
+- **Δ Sharpe = +0.00** ; **Δ mean_r = +0.00pp**
+
+### Verdict
+
+**brk_wall is roughly neutral on aggregate Sharpe** (|Δ| 0.00 ≤ 0.10).  Sign is harmless but not load-bearing for live strategy performance.  Keep for informational value; don't expect it to shift Sharpe materially.
