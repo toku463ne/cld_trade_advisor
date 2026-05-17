@@ -5,24 +5,38 @@ below a recently-tested support "floor" — the low of any tight 10-bar
 consolidation in the prior ~6 months.  Strict and transition-gated
 (one fire per genuine breakdown, no intraday recovery within the bar).
 
-## ⚠ Probe vs canonical INVERSION
+## ⚠ Informational-only (not a usable entry trigger)
 
-The pre-ship probe (`brk_hi_sideway_probe.py --side lo`) suggested
-this was an "avoid long" signal (breakdowns persist, long entry
-loses).  The canonical rebench INVERTED that reading:
+The operator's original intent was to use this as a **SHORT entry
+signal** (price broke down → go short).  The pre-ship probe supported
+this:
 
-| Measurement | Pooled DR | Interpretation |
+| Direction | Probe DR (for that direction) | Probe verdict |
 |---|---|---|
-| Probe (global zigzag, more confirmed peaks) | 33.2% | breakdowns persist → avoid long |
-| Canonical (windowed zigzag per fire) | **51.7%** | breakdowns mean-revert → mild long entry |
+| SHORT (1−DR) | **66.8%** | strong short edge — ship it |
+| LONG (DR) | 33.2% | bad for long |
 
-The canonical reading is the trustworthy one (matches the live
-pipeline used by every other sign in the catalogue).  The probe
-over-claimed because globally-detected zigzag is more "settled."
+The canonical rebench INVERTED this reading:
 
-**Conclusion**: this is a **mild long entry sign**, not an avoid-long
-filter.  Do not use as a short signal; the canonical FY-by-FY pattern
-shows breakdowns mostly revert.
+| Direction | Canonical DR | Canonical EV pooled |
+|---|---|---|
+| SHORT (1−DR) | **48.3%** | ≈−0.44% |
+| LONG (DR) | 51.7% | ≈+0.44% |
+
+**Neither direction has a usable edge.**  The probe overestimated the
+short edge by ~19pp because it used globally-confirmed zigzag (which
+sees the full continuation of a real bear leg) rather than the per-fire
+windowed detection the canonical pipeline uses (which catches
+mean-reversion within 35 bars).
+
+**Listed in `_HIDDEN_PROPOSAL_SIGNS` in `src/viz/daily.py`** — does
+not generate proposal rows on the Daily tab.  The sign is kept in the
+catalogue because:
+1. The underlying event ("broke a sideways-range floor today") is
+   real and operator-meaningful as context;
+2. Score calibration ρ=+0.172 in high-corr cohort is the strongest
+   score-EV correlation in the entire sign catalogue (worth preserving
+   the events for future structural analysis).
 
 ## Fire rule
 
@@ -100,7 +114,13 @@ for the production interpretation.
 
 ## Operational note
 
-Surfaces as a regular long-entry sign on the Daily tab.  Operator
-should NOT interpret as "avoid long" — that contradicts the canonical
-measurement.  Strongest cell to act on: high-corr stocks with deep
-breakdowns (high score) when N225 is below its Kumo cloud.
+Does NOT surface on the Daily proposals table.  Available via the
+sign catalogue / regime analysis tables for inspection.  If the
+operator decides to read brk_lo_sideway as a "context indicator" on
+a stock they were already considering, the strongest signal is the
+combination: high-corr stock + Kumo below + high score (deep
+breakdown).  Even there the canonical EV is modest (~+5pp top quartile)
+and not enough to justify a standalone trigger.
+
+The original SHORT-entry intent is NOT supported by canonical
+measurement.  Do not short on this sign.

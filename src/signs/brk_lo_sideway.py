@@ -4,24 +4,31 @@ Mirror of brk_hi_sideway: fires when today's bar **high** breaks below
 the lowest recently-tested support floor — the low of any tight 10-bar
 consolidation in the prior ~6 months.  Strict and transition-gated.
 
-Probe vs canonical INVERSION (2026-05-17):
-- Probe (`brk_hi_sideway_probe.py --side lo`, global zigzag): 6/7
-  training FYs showed breakdown-persistence (long-entry EV −2.16%
-  pooled).  Suggested "avoid long" framing.
-- Canonical rebench (windowed zigzag, per-fire detection): pooled
-  FY2018–FY2024 DR=51.7%, perm_pass 2/7 (FY2022 + FY2024); both pass
-  FYs show MEAN-REVERSION (long wins after breakdown), not
-  persistence.  FY2019 alone has DR=36.4% (operator's hypothesis
-  right for that year) but perm_p=1.000 (no significance vs shuffle).
+**Informational-only sign (2026-05-17 ship decision)**.  Listed in
+`_HIDDEN_PROPOSAL_SIGNS` in src/viz/daily.py — does not generate
+proposal rows.  Available for inspection / future analysis but is not
+a usable entry trigger in either direction per canonical measurement:
 
-Net: as a LONG entry signal, brk_lo_sideway is mildly +EV (similar
-tier to brk_sma/brk_bol) with strongest cell at Kumo-below
-(DR 59.1% n=1173).  Score calibration ρ=+0.172 in high-corr cohort
-(strongest in catalogue) — deeper breakdowns mean-revert MORE.
+- Operator's original intent: SHORT after breakdown.  Canonical short
+  DR pooled 48.3% (1 − 0.517), short EV pooled ≈ −0.44%.  Not a usable
+  short signal.
+- Mechanical bull reading: LONG (buy-the-dip).  Canonical long DR
+  51.7%, long EV pooled ≈ +0.44%.  Marginal — same tier as brk_sma /
+  brk_bol but without their established history.
 
-Do NOT use as "avoid long" filter — that interpretation contradicts
-the canonical measurement.  Treat as a regular long-entry sign with
-known regime concentration (Kumo below + bear-regime cells).
+The pre-ship probe (`brk_hi_sideway_probe.py --side lo`) suggested
+breakdowns persist (probe DR 33% → short DR 67% → strong short signal).
+Canonical rebench contradicted this: windowed-zigzag DR is ~52% pooled,
+matching coin-flip / mild mean-reversion.  Cause: probe used globally-
+confirmed peaks (settled by post-fact data); canonical uses per-fire
+windowed detection (35-bar lookahead) which is the live measurement.
+
+Kept in the catalogue as informational because (a) the underlying event
+("broke a sideways-range floor today") is real and operator-meaningful
+as context, and (b) score calibration ρ=+0.172 in high-corr cohort is
+the strongest score-EV correlation in the entire sign catalogue —
+worth preserving the events for future structural analysis even if
+they don't justify a standalone proposal row.
 """
 from __future__ import annotations
 
@@ -42,13 +49,12 @@ SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["brk_lo_sideway"]
 SIGN_DESCRIPTIONS: dict[str, str] = {
     "brk_lo_sideway": (
-        "**Mean-reversion buy after sideways-range breakdown** — "
+        "**Sideways-range floor breakdown (informational only)** — "
         "today's high closes below the lowest recently-tested support level "
         "(lows of any 10-bar tight consolidation in the prior 6 months), "
-        "and yesterday's high did not.  Canonical measurement: mild long "
-        "entry signal; strongest in Kumo-below cell (DR 59% n=1173).  "
-        "Deeper breakdown → higher mean-reversion EV in high-corr cohort "
-        "(ρ=+0.17, strongest score calibration in catalogue)."
+        "and yesterday's high did not.  Per canonical pipeline, NOT a "
+        "usable trigger in either direction (short DR 48%, long DR 52%); "
+        "shown for context only.  Hidden from Daily proposal rows."
     ),
 }
 
