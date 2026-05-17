@@ -1136,3 +1136,66 @@ Discovered train cells: 28; accepted (shuffle ∧ OOS ∧ orthogonality): 11; re
 Probe-only. Full table at `data/analysis/sign_sector_axis/probe_2026-05-14.md`.  
 Verdict: **ACCEPT (probe-first) — sector is a non-redundant per-sign factor**  
 Discovered train cells: 28; accepted (shuffle ∧ OOS ∧ orthogonality): 3; redundant with corr_mode: 0.
+## str_hold Feature Probe
+
+Probe run: 2026-05-17.  Read-only diagnostic — does any of (gap_pct, body_dir_prev, body_pct_T, body_frac_T) carry marginal signal on the 11,582 str_hold fire events?
+
+**Pre-registered gate** (per /sign-debate 2026-05-17):
+  - pooled |Δ EV (top − bottom bucket)| ≥ 0.5pp
+  - pooled 95% bootstrap CI excludes 0
+  - per-FY direction consistent in ≥4 of 5 training FYs
+  - FY2025 OOS Δ EV sign matches training-pooled sign
+  - per-FY CI excludes 0 in ≥2 of 5 training FYs
+
+`fire_time_legal=False` features use bar-T close (str_hold detector consumes close[T] at qualify time per src/signs/str_hold.py:79-103); any production gate built on these would be look-ahead.
+
+### Per-feature buckets
+
+| Feature | fire_time_legal | bucket | n | DR | EV |
+|---------|:---:|:---:|---:|---:|---:|
+| gap_pct | ✓ | lo | 3861 | 54.9% | +1.73pp |
+| gap_pct | ✓ | mid | 3860 | 54.2% | +1.25pp |
+| gap_pct | ✓ | hi | 3861 | 55.3% | +2.30pp |
+| body_dir_prev | ✓ | -1 | 4796 | 54.7% | +1.85pp |
+| body_dir_prev | ✓ | 0 | 161 | 53.4% | +1.44pp |
+| body_dir_prev | ✓ | 1 | 6625 | 54.9% | +1.70pp |
+| body_pct_T | ✗ | lo | 3861 | 55.9% | +2.25pp |
+| body_pct_T | ✗ | mid | 3860 | 53.1% | +1.09pp |
+| body_pct_T | ✗ | hi | 3861 | 55.3% | +1.93pp |
+| body_frac_T | ✗ | lo | 3861 | 54.0% | +1.41pp |
+| body_frac_T | ✗ | mid | 3860 | 54.5% | +1.60pp |
+| body_frac_T | ✗ | hi | 3861 | 55.9% | +2.26pp |
+
+### Pooled Δ EV (top − bottom) + bootstrap CI
+
+| Feature | legal | pooled ΔEV | 95% CI | FY2025 OOS Δ | FY consistent | FY CI-pass | Gate |
+|---------|:---:|---:|---|---:|:---:|:---:|:---:|
+| gap_pct | ✓ | +0.92pp | [+0.41, +1.44]pp | -1.21pp | 3/5 | 1/5 | **FAIL** |
+|  |  | gate notes: only 3/5 FYs direction-consistent (<4); OOS sign mismatch (oos Δ=-1.21pp); only 1/5 FYs with CI excluding 0 (<2) |  |  |  |  |  |
+| body_dir_prev | ✓ | +0.08pp | [-0.35, +0.51]pp | -1.15pp | 3/5 | 0/5 | **FAIL** |
+|  |  | gate notes: pooled |ΔEV| 0.08pp < 0.5pp; pooled CI [-0.35,+0.51]pp includes 0; only 3/5 FYs direction-consistent (<4); OOS sign mismatch (oos Δ=-1.15pp); only 0/5 FYs with CI excluding 0 (<2) |  |  |  |  |  |
+| body_pct_T | ✗ | -0.17pp | [-0.70, +0.40]pp | -0.72pp | 3/5 | 4/5 | **FAIL** |
+|  |  | gate notes: pooled |ΔEV| 0.17pp < 0.5pp; pooled CI [-0.70,+0.40]pp includes 0; only 3/5 FYs direction-consistent (<4) |  |  |  |  |  |
+| body_frac_T | ✗ | +0.80pp | [+0.28, +1.30]pp | +0.90pp | 5/5 | 1/5 | **FAIL** |
+|  |  | gate notes: only 1/5 FYs with CI excluding 0 (<2) |  |  |  |  |  |
+
+### Per-FY Δ EV (top − bottom)
+
+| Feature | FY2020 | FY2021 | FY2022 | FY2023 | FY2024 | FY2025 |
+|---------|:---:|:---:|:---:|:---:|:---:|:---:|
+| gap_pct | -1.03pp | +0.21pp | +0.28pp | -0.32pp | +2.19pp | -1.21pp |
+| body_dir_prev | +1.18pp | -0.16pp | -0.27pp | +0.31pp | +0.00pp | -1.15pp |
+| body_pct_T | -3.11pp | -0.81pp | +1.30pp | -1.35pp | +1.42pp | -0.72pp |
+| body_frac_T | +0.88pp | +0.43pp | +0.24pp | +0.09pp | +1.84pp | +0.90pp |
+
+### Cross-tab: gap_pct × (ADX state × Kumo state) — Δ EV (top − bottom bucket)
+
+| ADX | Kumo above | Kumo inside | Kumo below |
+|-----|------------|-------------|------------|
+| **choppy** | -0.96pp (n=874) | +2.35pp (n=1376) | +0.73pp (n=3503) |
+| **bull** | +0.15pp (n=2005) | — | — |
+| **bear** | +1.70pp (n=1580) | -1.20pp (n=679) | +0.22pp (n=1448) |
+
+### Verdict
+
+**No feature cleared the gate.**  Q1 (add candle/gap features) and Q2 (GA-tune the 4 thresholds) are both rejected for this iteration.  str_hold detector unchanged.
