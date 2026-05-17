@@ -51,6 +51,7 @@ from src.indicators.sma_regime import SMARegime
 from src.portfolio.models import Position, ReviewedCandidate
 from src.simulator.cache import DataCache
 from src.strategy.proposal import SignalProposal
+from src.strategy.confluence_sign import ConfluenceSignStrategy
 from src.strategy.regime_sign import _CERTIFIED_SECTOR_BONUS, RegimeSignStrategy
 from src.viz.palette import ACCENT, BG, BORDER, CARD_BG, GREEN, MUTED, RED, SIDEBAR_BG, TEXT
 
@@ -180,6 +181,12 @@ SIGN_DESCRIPTIONS: dict[str, str] = _load_sign_descriptions()
 # ── Module-level strategy cache (keyed by (stock_set, date_str)) ──────────────
 
 _strategy_cache: dict[tuple[str, str], RegimeSignStrategy] = {}
+_confluence_strategy_cache: dict[tuple[str, str], ConfluenceSignStrategy] = {}
+
+# Confluence shadow-mode gate. ≥3 was the strongest cell in
+# src/analysis/confluence_strategy_backtest.py (commit bc758d0):
+# Sharpe +3.80 vs regime_sign baseline +1.33 across FY2019-FY2025.
+_CONFLUENCE_N_GATE = 3
 _revn_regime_cache: dict[tuple[str, str], RevNRegime] = {}
 _sma_regime_cache:  dict[tuple[str, str], SMARegime]   = {}
 _corr_regime_cache: dict[tuple[str, str], CorrRegime]  = {}
@@ -286,6 +293,36 @@ def _get_strategy(target_date: datetime.date) -> RegimeSignStrategy:
             min_dr    = _MIN_DR,
         )
     return _strategy_cache[key]
+
+
+def _get_confluence_strategy(target_date: datetime.date) -> ConfluenceSignStrategy:
+    """Sister strategy used in shadow mode alongside RegimeSign.
+
+    Backtest evidence (commit bc758d0): N≥3 confluence achieves Sharpe
+    +3.80 vs RegimeSign's +1.33 across FY2019-FY2025, with 165 trades
+    vs 171.  Both strategies run in parallel; proposals are concatenated
+    in the Daily table.  conf{N}:{signs} sign_type label distinguishes
+    confluence rows from regime rows.
+    """
+    key = (_CURRENT_STOCK_SET, target_date.isoformat())
+    if key not in _confluence_strategy_cache:
+        _confluence_strategy_cache.clear()
+        tz       = _JST
+        end_dt   = datetime.datetime(
+            target_date.year, target_date.month, target_date.day, 23, 59, 59, tzinfo=tz
+        )
+        start_dt = end_dt - datetime.timedelta(days=_LOOKBACK_DAYS)
+        logger.info(
+            "Building daily confluence strategy for {} (N≥{}, stock_set={})",
+            target_date, _CONFLUENCE_N_GATE, _CURRENT_STOCK_SET,
+        )
+        _confluence_strategy_cache[key] = ConfluenceSignStrategy.from_config(
+            stock_set = _CURRENT_STOCK_SET,
+            start     = start_dt,
+            end       = end_dt,
+            n_gate    = _CONFLUENCE_N_GATE,
+        )
+    return _confluence_strategy_cache[key]
 
 
 def _get_revn_regime(
@@ -2219,6 +2256,7 @@ def register_callbacks() -> None:
         try:
             target    = datetime.date.fromisoformat(date_str[:10])
             _strategy_cache.clear()       # Refresh = "give me fresh data" — drop any pre-download cache
+            _confluence_strategy_cache.clear()   # shadow strategy: same invalidation
             _revn_regime_cache.clear()    # invalidate regime indicators alongside the strategy
             _sma_regime_cache.clear()
             _corr_regime_cache.clear()
@@ -2227,8 +2265,19 @@ def register_callbacks() -> None:
             target_dt = datetime.datetime(
                 target.year, target.month, target.day, 15, 0, 0, tzinfo=tz
             )
-            proposals = strategy.propose(target_dt)
-            logger.info("Daily proposals for {}: {} results", target, len(proposals))
+            regime_proposals = strategy.propose(target_dt)
+            # Shadow mode: also fetch confluence-gated proposals (sign_type
+            # label conf{N}:{signs} distinguishes them in the table).
+            try:
+                confluence_strategy = _get_confluence_strategy(target)
+                confluence_proposals = confluence_strategy.propose(target_dt)
+            except Exception:
+                logger.exception("confluence shadow strategy failed (non-fatal)")
+                confluence_proposals = []
+            proposals = regime_proposals + confluence_proposals
+            logger.info("Daily proposals for {}: {} regime + {} confluence = {} total",
+                        target, len(regime_proposals), len(confluence_proposals),
+                        len(proposals))
         except ValueError as exc:
             msg = str(exc)
             if "StockClusterRun" in msg:
