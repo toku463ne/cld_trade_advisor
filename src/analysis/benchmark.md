@@ -1236,3 +1236,30 @@ Metrics use `trend_direction` (next confirmed zigzag, ZZ size=5, mid=2, cap=30 b
 **No N cleared the gate.**  Q1 (long-term peak breakout as a new sign) is REJECTED for this iteration.  Probe B1 (sideways breakout) deferred — the parent hypothesis (long-window high carries continuation signal) does not hold on this universe / framing.
 
 Per /sign-debate Path E: log gap in docs/followups.md and close cycle.
+## Long-Term High Continuation Probe (Strict)
+
+Probe run: 2026-05-17.  Spec-corrected sibling of the close-based probe — does a STRICT N-bar high breakout (`low[T] > rolling_max(close, N)[T-1]`, i.e. entire bar above prior resistance) carry continuation signal for N ∈ [60, 120, 250]?
+
+Every strict fire is also a close-based fire (low > x implies close ≥ low > x), so this is a SUBSET of the events tested in the prior probe. The hypothesis being re-tested: clean breakouts (no intraday retracement) carry the edge the loose close-based formulation does not.
+
+**Pre-registered gate** (unchanged from prior cycle):
+  - pooled EV (training FYs FY2018..FY2024) ≥ +0.020
+  - FY2025 OOS EV > 0
+  - all training FYs EV ≥ 0
+  - DR ≥ 53% (secondary)
+  - rev_nhi same-bar overlap ≤ 50%
+
+### Per N — Pooled (training) + per-FY EV table
+
+| N | n_total | n_train | overlap rev_nhi | pooled EV | DR | mean r_h10 | EV FY2018 | EV FY2019 | EV FY2020 | EV FY2021 | EV FY2022 | EV FY2023 | EV FY2024 | EV FY2025 | Gate |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 60 | 9460 | 7473 | 20.1% | +0.0016 | 50.5% | +0.25pp | — | -0.0133 (n=1195) | +0.0153 (n=1714) | -0.0113 (n=909) | -0.0162 (n=880) | +0.0243 (n=1906) | -0.0229 (n=869) | +0.0289 (n=1987) | **FAIL** |
+|  |  |  |  |  |  |  | | | | | | | | | notes: pooled EV +0.0016 < +0.0200; negative-EV FYs: FY2019,FY2021,FY2022,FY2024; DR 50.5% < 53% |
+| 120 | 7329 | 5590 | 19.8% | +0.0031 | 51.1% | +0.36pp | — | -0.0190 (n=809) | +0.0214 (n=1280) | -0.0058 (n=675) | -0.0157 (n=585) | +0.0205 (n=1600) | -0.0225 (n=641) | +0.0302 (n=1739) | **FAIL** |
+|  |  |  |  |  |  |  | | | | | | | | | notes: pooled EV +0.0031 < +0.0200; negative-EV FYs: FY2019,FY2021,FY2022,FY2024; DR 51.1% < 53% |
+| 250 | 5627 | 4165 | 19.4% | +0.0012 | 50.8% | +0.33pp | — | -0.0146 (n=461) | +0.0123 (n=792) | -0.0076 (n=598) | -0.0200 (n=393) | +0.0190 (n=1396) | -0.0234 (n=525) | +0.0317 (n=1462) | **FAIL** |
+|  |  |  |  |  |  |  | | | | | | | | | notes: pooled EV +0.0012 < +0.0200; negative-EV FYs: FY2019,FY2021,FY2022,FY2024; DR 50.8% < 53% |
+
+### Verdict
+
+**Strict variant also REJECTS — no N cleared the gate.**  The clean-breakout hypothesis does not invert the loose-breakout null on this universe / framing.  Closing both the close-based and strict variants as REJECT.

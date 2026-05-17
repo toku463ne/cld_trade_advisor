@@ -18,35 +18,45 @@ shipped (with a date) or **Dropped** when intentionally abandoned.
 
 ## Open
 
-### 3. Long-term-high continuation as a new sign — REJECT (logged for completeness)
+### 3. Long-term-high continuation as a new sign — REJECT (both spec variants)
 
 - **What** — Adding `brk_nhi` / similar as a continuation-framed sign
-  fired on close > rolling_max(close, N), N ∈ {60, 120, 250}.
-- **Why deferred (rejected)** — Probe A1
-  (`src/analysis/long_high_continuation_probe.py`, 2026-05-17) ran on
-  73,710 candidate fires across 7 FYs (FY2019–FY2025).  All 3 N values
-  FAILED every pre-registered gate: pooled EV +0.003 to +0.005 (need
-  ≥+0.020), DR 50.3–51.0% (need ≥53%), 4 of 6 training FYs negative
-  (FY2019, FY2021, FY2022, FY2024).  Non-overlap subset (excl. rev_nhi
-  same-bar) showed essentially identical metrics (overlap was only
-  ~12%, so the long-high event is genuinely distinct from rev_nhi
-  — but neither carries a continuation edge in this universe).
-- **Pattern observed** — FY2020/FY2023/FY2025 positive; FY2019/FY2021/
-  FY2022/FY2024 negative.  Mirrors N225 bull/bear regime split — the
-  same level-touch event mean-reverts in mixed regimes, which actually
-  validates rev_nhi's "reversal" default framing as the better single-
-  regime baseline.  Probe B1 (sideways breakout) was deferred per
-  Path E logic — if the parent (long-window high = continuation) does
-  not hold, the child framing (long-sideways breakout = continuation)
-  inherits the null.
+  on N-bar high breakouts, N ∈ {60, 120, 250}.  Two fire-rule variants
+  tested:
+  - **Loose** — `close[T] > rolling_max(close, N)[T-1]`
+  - **Strict** — `low[T] > rolling_max(close, N)[T-1]` (entire bar
+    holds above prior resistance, no intraday violation; operator-
+    corrected spec)
+- **Why deferred (rejected)** — Both variants FAIL the same EV-primary
+  gate (need pooled EV ≥+0.020 and DR ≥53%):
+
+  | Variant | N | n_fires | pooled EV | DR | gate |
+  |---|---|---|---|---|---|
+  | Loose  | 60  | 30,712 | +0.0027 | 50.3% | FAIL |
+  | Loose  | 120 | 24,134 | +0.0045 | 51.0% | FAIL |
+  | Loose  | 250 | 18,864 | +0.0030 | 50.9% | FAIL |
+  | Strict | 60  |  9,460 | +0.0016 | 50.5% | FAIL |
+  | Strict | 120 |  7,329 | +0.0031 | 51.1% | FAIL |
+  | Strict | 250 |  5,627 | +0.0012 | 50.8% | FAIL |
+
+  Strict gave NO meaningful lift over loose despite being a 3× tighter
+  filter — the spec-correction hypothesis (clean breakouts carry the
+  edge that loose breakouts don't) is empirically false on this data.
+  Same 4 FYs negative across both variants (FY2019, FY2021, FY2022,
+  FY2024); same 3 positive (FY2020, FY2023, FY2025).
+- **Pattern observed** — Bull/bear N225 regime split dominates the
+  per-FY EV sign.  Same level-touch event mean-reverts in mixed
+  regimes — validates rev_nhi's "reversal" default framing.  Probe B1
+  (sideways breakout) deferred per Path E logic.
 - **Trigger to revisit** — Only if a **regime-conditional** framing
-  surfaces: e.g., "long-high continuation conditional on N225 ADX>20
-  AND +DI>−DI" as a follow-up probe.  Default state is REJECTED;
+  surfaces (e.g., "long-high continuation conditional on N225 ADX>20
+  AND +DI>−DI").  Default state is REJECTED across both spec variants;
   don't re-litigate without a new conditioning variable.
 - **Owner** — operator.
 - **Links**:
-  - Probe: `src/analysis/long_high_continuation_probe.py`
-  - Report: `src/analysis/benchmark.md` § Long-Term High Continuation Probe
+  - Probe (loose): `src/analysis/long_high_continuation_probe.py`
+  - Probe (strict): `src/analysis/long_high_continuation_strict_probe.py`
+  - Reports: `src/analysis/benchmark.md` §§ Long-Term High Continuation Probe (+ Strict)
   - Sign-debate cycle: 2026-05-17 (this session)
 
 ---
