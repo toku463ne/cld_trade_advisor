@@ -1199,3 +1199,40 @@ Probe run: 2026-05-17.  Read-only diagnostic — does any of (gap_pct, body_dir_
 ### Verdict
 
 **No feature cleared the gate.**  Q1 (add candle/gap features) and Q2 (GA-tune the 4 thresholds) are both rejected for this iteration.  str_hold detector unchanged.
+## Long-Term High Continuation Probe
+
+Probe run: 2026-05-17.  Read-only diagnostic — does a close-based N-bar high carry continuation signal for N ∈ [60, 120, 250]?
+
+**Pre-registered gate** (per /sign-debate 2026-05-17, judge-mandated):
+  - pooled EV (training FYs FY2018..FY2024) ≥ +0.020
+  - FY2025 OOS EV > 0
+  - all training FYs EV ≥ 0
+  - DR ≥ 53% (secondary)
+  - rev_nhi same-bar overlap ≤ 50%
+  - non-overlap subset still clears pooled EV ≥ +0.020 AND FY2025 EV > 0
+
+Metrics use `trend_direction` (next confirmed zigzag, ZZ size=5, mid=2, cap=30 bars) — matches benchmark.md convention. Forward return at H=10 (two-bar fill) is reported as secondary.
+
+### Per N — Pooled (training) + per-FY EV table
+
+| N | n_total | n_train | overlap rev_nhi | pooled EV | DR | mean r_h10 | EV FY2018 | EV FY2019 | EV FY2020 | EV FY2021 | EV FY2022 | EV FY2023 | EV FY2024 | EV FY2025 | Gate |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| 60 | 30712 | 24112 | 12.3% | +0.0027 | 50.3% | +0.37pp | — | -0.0116 (n=3623) | +0.0164 (n=5253) | -0.0094 (n=2902) | -0.0114 (n=3064) | +0.0260 (n=5992) | -0.0216 (n=3278) | +0.0286 (n=6600) | **FAIL** |
+|  |  |  |  |  |  |  | | | | | | | | | notes: pooled EV +0.0027 < +0.0200; negative-EV FYs: FY2019,FY2021,FY2022,FY2024; DR 50.3% < 53% |
+| 120 | 24134 | 18365 | 12.1% | +0.0045 | 51.0% | +0.46pp | — | -0.0131 (n=2567) | +0.0212 (n=4027) | -0.0046 (n=2161) | -0.0100 (n=2159) | +0.0223 (n=4995) | -0.0201 (n=2456) | +0.0283 (n=5769) | **FAIL** |
+|  |  |  |  |  |  |  | | | | | | | | | notes: pooled EV +0.0045 < +0.0200; negative-EV FYs: FY2019,FY2021,FY2022,FY2024; DR 51.0% < 53% |
+| 250 | 18864 | 14000 | 11.9% | +0.0030 | 50.9% | +0.42pp | — | -0.0096 (n=1546) | +0.0119 (n=2622) | -0.0057 (n=1900) | -0.0100 (n=1499) | +0.0214 (n=4431) | -0.0214 (n=2002) | +0.0296 (n=4864) | **FAIL** |
+|  |  |  |  |  |  |  | | | | | | | | | notes: pooled EV +0.0030 < +0.0200; negative-EV FYs: FY2019,FY2021,FY2022,FY2024; DR 50.9% < 53% |
+### Non-overlap subset (fires NOT same-bar with rev_nhi)
+
+| N | n_train | n_oos | pooled EV (train) | FY2025 EV | DR | Non-overlap gate |
+|---|---:|---:|---:|---:|---:|---|
+| 60 | 21203 | 5726 | +0.0024 | +0.0283 | 50.3% | **FAIL** |
+| 120 | 16216 | 5004 | +0.0040 | +0.0282 | 50.9% | **FAIL** |
+| 250 | 12400 | 4225 | +0.0027 | +0.0294 | 50.9% | **FAIL** |
+
+### Verdict
+
+**No N cleared the gate.**  Q1 (long-term peak breakout as a new sign) is REJECTED for this iteration.  Probe B1 (sideways breakout) deferred — the parent hypothesis (long-window high carries continuation signal) does not hold on this universe / framing.
+
+Per /sign-debate Path E: log gap in docs/followups.md and close cycle.
