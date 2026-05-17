@@ -438,12 +438,13 @@ def close_position(
     exit_price: float,
     exit_date: datetime.date | None = None,
     exit_reason: str | None = None,
+    exit_notes: str | None = None,
 ) -> Position:
     """Mark an open position as closed.
 
     `exit_reason` is one of: ``tp_hit``, ``sl_hit``, ``time_stop``,
-    ``manual``, or None.  Stored verbatim; analysis code is responsible
-    for grouping.
+    ``manual``, or None — a short tag.  ``exit_notes`` is the
+    longer free-form rationale captured from the Daily UI.
     """
     pos = session.get(Position, position_id)
     if pos is None:
@@ -454,6 +455,7 @@ def close_position(
     pos.exit_date   = exit_date or datetime.date.today()
     pos.exit_price  = exit_price
     pos.exit_reason = exit_reason
+    pos.exit_notes  = exit_notes
     session.flush()
     logger.info("Closed position id={} {} @ {} reason={}",
                 pos.id, pos.stock_code, exit_price, exit_reason)

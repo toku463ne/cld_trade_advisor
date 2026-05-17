@@ -2818,6 +2818,18 @@ def register_callbacks() -> None:
                                    "gap": "6px", "alignItems": "center",
                                    "justifyContent": "flex-end"},
                             children=[
+                                dcc.Input(
+                                    id={"type": "close-notes", "index": r["id"]},
+                                    type="text",
+                                    placeholder="close notes (optional)",
+                                    value="",
+                                    debounce=True,
+                                    style={"width": "180px", "fontSize": "11px",
+                                           "padding": "3px 6px",
+                                           "background": BG, "color": TEXT,
+                                           "border": f"1px solid {BORDER}",
+                                           "borderRadius": "3px"},
+                                ),
                                 dcc.Dropdown(
                                     id={"type": "close-reason", "index": r["id"]},
                                     options=[
@@ -2884,6 +2896,8 @@ def register_callbacks() -> None:
         Input({"type": "close-pos-btn", "index": ALL}, "n_clicks"),
         State({"type": "close-reason", "index": ALL}, "value"),
         State({"type": "close-reason", "index": ALL}, "id"),
+        State({"type": "close-notes",  "index": ALL}, "value"),
+        State({"type": "close-notes",  "index": ALL}, "id"),
         State("active-account-id", "data"),
         State("daily-date",         "date"),
         prevent_initial_call=True,
@@ -2891,6 +2905,8 @@ def register_callbacks() -> None:
     def close_position_btn(n_clicks_list: list[int],
                             reasons: list[str | None],
                             reason_ids: list[dict],
+                            notes_list: list[str | None],
+                            notes_ids: list[dict],
                             account_id: int | None,
                             date_str:   str | None) -> list:
         triggered = callback_context.triggered
@@ -2903,12 +2919,44 @@ def register_callbacks() -> None:
             if rid.get("index") == pos_id:
                 chosen_reason = rv or "manual"
                 break
+        chosen_notes: str | None = None
+        for nid, nv in zip(notes_ids, notes_list):
+            if nid.get("index") == pos_id:
+                chosen_notes = (nv or "").strip() or None
+                break
+        # Close at the Daily date picker, not real today — the operator is
+        # reviewing/simulating that session day, so exit_date and
+        # exit_price must reflect the picker's session, not the latest
+        # live bar.  exit_price = close on the as-of date (via the same
+        # as-of helper used by the panel status sweep).
+        as_of = (datetime.date.fromisoformat(date_str[:10])
+                 if date_str else datetime.date.today())
         try:
             with get_session() as session:
                 pos = session.get(Position, pos_id)
-                cur = get_latest_price(pos.stock_code) if pos else None
-                close_position(session, pos_id, exit_price=cur or 0.0,
-                                exit_reason=chosen_reason)
+                if pos is None:
+                    return refresh_positions(0, 0, account_id, date_str)
+                close_at_as_of, _status, _hit = evaluate_position_as_of(
+                    stock_code = pos.stock_code,
+                    entry_date = pos.entry_date,
+                    as_of      = as_of,
+                    tp_price   = float(pos.tp_price) if pos.tp_price else None,
+                    sl_price   = float(pos.sl_price) if pos.sl_price else None,
+                    direction  = getattr(pos, "direction", "long"),
+                )
+                if close_at_as_of is None:
+                    logger.warning(
+                        "close_position skipped — no bars for {} in [{}, {}]",
+                        pos.stock_code, pos.entry_date, as_of,
+                    )
+                    return refresh_positions(0, 0, account_id, date_str)
+                close_position(
+                    session, pos_id,
+                    exit_price  = close_at_as_of,
+                    exit_date   = as_of,
+                    exit_reason = chosen_reason,
+                    exit_notes  = chosen_notes,
+                )
         except Exception as exc:
             logger.exception("close_position error for id={}", pos_id)
         return refresh_positions(0, 0, account_id, date_str)

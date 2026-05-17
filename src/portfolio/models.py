@@ -76,6 +76,7 @@ class Position(Base):
     exit_date:   Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     exit_price:  Mapped[float | None]         = mapped_column(Numeric(precision=12, scale=2), nullable=True)
     exit_reason: Mapped[str | None]           = mapped_column(String(16), nullable=True)
+    exit_notes:  Mapped[str | None]           = mapped_column(Text, nullable=True)
     notes:       Mapped[str | None]           = mapped_column(Text, nullable=True)
 
     # Context at registration time — populated automatically from the proposal
