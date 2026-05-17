@@ -80,11 +80,11 @@ _JST           = datetime.timezone(datetime.timedelta(hours=9))
 # docs/followups.md for the rev_nhi-specific reasoning + revisit gate.
 # Inclusion policy: benchmark.md perm_p > 0.5 AND regime_sign-vacuous
 # (n ≤ 1 or aggregate Sharpe ≤ 0). Hides display-only; backtest unchanged.
-# brk_lo_sideway: shipped 2026-05-17 then demoted to informational —
+# brk_floor: shipped 2026-05-17 then demoted to informational —
 # canonical rebench contradicted the probe's short-edge claim
 # (canonical short-DR pooled = 48.3%, not the 67% the probe suggested).
 # Neither direction strong enough to surface as a proposal row.
-_HIDDEN_PROPOSAL_SIGNS: frozenset[str] = frozenset({"rev_nhi", "rev_hi", "brk_lo_sideway"})
+_HIDDEN_PROPOSAL_SIGNS: frozenset[str] = frozenset({"rev_nhi", "rev_hi", "brk_floor"})
 
 # ── Decision factors (Daily tab factor panel) ─────────────────────────────────
 # Per evaluation_criteria.md §5.11: every factor shown must carry measured

@@ -39,8 +39,8 @@ from src.signs.str_hold import StrHoldDetector
 from src.signs.str_lead import StrLeadDetector
 from src.signs.brk_sma import BrkSmaDetector
 from src.signs.brk_bol import BrkBolDetector
-from src.signs.brk_hi_sideway import BrkHiSidewayDetector
-from src.signs.brk_lo_sideway import BrkLoSidewayDetector
+from src.signs.brk_wall import BrkWallDetector
+from src.signs.brk_floor import BrkFloorDetector
 from src.signs.rev_peak import RevPeakDetector
 from src.signs.rev_nday import RevNDayDetector
 from src.signs.rev_nhold import RevNholdDetector
@@ -61,8 +61,8 @@ __all__ = [
     "StrLagDetector",
     "BrkSmaDetector",
     "BrkBolDetector",
-    "BrkHiSidewayDetector",
-    "BrkLoSidewayDetector",
+    "BrkWallDetector",
+    "BrkFloorDetector",
     "RevPeakDetector",
     "RevNDayDetector",
     "RevNholdDetector",

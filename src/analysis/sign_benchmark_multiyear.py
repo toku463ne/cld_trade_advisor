@@ -99,7 +99,7 @@ SIGNS: list[str] = [
     "div_gap", "div_peer",
     "corr_flip", "corr_shift",
     "str_hold", "str_lead", "str_lag",
-    "brk_sma", "brk_bol", "brk_hi_sideway", "brk_lo_sideway",
+    "brk_sma", "brk_bol", "brk_wall", "brk_floor",
     "rev_lo", "rev_hi", "rev_nhi", "rev_nlo", "rev_nhold",
 ]
 

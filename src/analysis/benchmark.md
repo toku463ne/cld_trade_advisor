@@ -309,43 +309,43 @@ Permutation: 1000 iterations
 
 | Sign | n | DR% | p | bench_flw | bench_rev | mean_bars | perm_p | dedup_n(×) | dedup_DR | bear_DR (p) | bull_DR (p) |
 |------|---|-----|---|-----------|-----------|----------|--------|------------|----------|-------------|-------------|
-| brk_lo_sideway |   511 |  36.4% | <0.001  |    0.0299 |    0.0958 |    12.699 | ≈1.000  | 448 (×1.1) |    35.7% | —             | —             |
+| brk_floor |   511 |  36.4% | <0.001  |    0.0299 |    0.0958 |    12.699 | ≈1.000  | 448 (×1.1) |    35.7% | —             | —             |
 
 #### FY2020 (2020-04-01 – 2021-03-31) · cluster=classified2019
 
 | Sign | n | DR% | p | bench_flw | bench_rev | mean_bars | perm_p | dedup_n(×) | dedup_DR | bear_DR (p) | bull_DR (p) |
 |------|---|-----|---|-----------|-----------|----------|--------|------------|----------|-------------|-------------|
-| brk_lo_sideway |   317 |  54.3% | ≈0.129  |    0.0544 |    0.0319 |    12.644 | ≈0.052  | 274 (×1.2) |    56.2% | 59.7% (≈0.018) | 47.2% (≈0.475) |
+| brk_floor |   317 |  54.3% | ≈0.129  |    0.0544 |    0.0319 |    12.644 | ≈0.052  | 274 (×1.2) |    56.2% | 59.7% (≈0.018) | 47.2% (≈0.475) |
 
 #### FY2021 (2021-04-01 – 2022-03-31) · cluster=classified2020
 
 | Sign | n | DR% | p | bench_flw | bench_rev | mean_bars | perm_p | dedup_n(×) | dedup_DR | bear_DR (p) | bull_DR (p) |
 |------|---|-----|---|-----------|-----------|----------|--------|------------|----------|-------------|-------------|
-| brk_lo_sideway |   666 |  53.0% | ≈0.121  |    0.0437 |    0.0315 |    12.399 | ≈0.062  | 586 (×1.1) |    52.0% | 51.9% (≈0.483) | 54.2% (≈0.133) |
+| brk_floor |   666 |  53.0% | ≈0.121  |    0.0437 |    0.0315 |    12.399 | ≈0.062  | 586 (×1.1) |    52.0% | 51.9% (≈0.483) | 54.2% (≈0.133) |
 
 #### FY2022 (2022-04-01 – 2023-03-31) · cluster=classified2021
 
 | Sign | n | DR% | p | bench_flw | bench_rev | mean_bars | perm_p | dedup_n(×) | dedup_DR | bear_DR (p) | bull_DR (p) |
 |------|---|-----|---|-----------|-----------|----------|--------|------------|----------|-------------|-------------|
-| brk_lo_sideway |   541 |  59.9% | <0.001  |    0.0413 |    0.0183 |    12.227 | <0.001  | 472 (×1.1) |    60.4% | 54.6% (≈0.138) | 64.9% (<0.001) |
+| brk_floor |   541 |  59.9% | <0.001  |    0.0413 |    0.0183 |    12.227 | <0.001  | 472 (×1.1) |    60.4% | 54.6% (≈0.138) | 64.9% (<0.001) |
 
 #### FY2023 (2023-04-01 – 2024-03-31) · cluster=classified2022
 
 | Sign | n | DR% | p | bench_flw | bench_rev | mean_bars | perm_p | dedup_n(×) | dedup_DR | bear_DR (p) | bull_DR (p) |
 |------|---|-----|---|-----------|-----------|----------|--------|------------|----------|-------------|-------------|
-| brk_lo_sideway |   331 |  50.2% | ≈0.956  |    0.0452 |    0.0303 |    12.710 | ≈0.502  | 289 (×1.1) |    49.1% | 49.6% (≈0.927) | 50.5% (≈0.891) |
+| brk_floor |   331 |  50.2% | ≈0.956  |    0.0452 |    0.0303 |    12.710 | ≈0.502  | 289 (×1.1) |    49.1% | 49.6% (≈0.927) | 50.5% (≈0.891) |
 
 #### FY2024 (2024-04-01 – 2025-03-31) · cluster=classified2023
 
 | Sign | n | DR% | p | bench_flw | bench_rev | mean_bars | perm_p | dedup_n(×) | dedup_DR | bear_DR (p) | bull_DR (p) |
 |------|---|-----|---|-----------|-----------|----------|--------|------------|----------|-------------|-------------|
-| brk_lo_sideway |   672 |  55.2% | ≈0.007  |    0.0482 |    0.0326 |    12.796 | ≈0.002  | 597 (×1.1) |    56.4% | 57.7% (≈0.003) | 52.3% (≈0.425) |
+| brk_floor |   672 |  55.2% | ≈0.007  |    0.0482 |    0.0326 |    12.796 | ≈0.002  | 597 (×1.1) |    56.4% | 57.7% (≈0.003) | 52.3% (≈0.425) |
 
 #### FY2025 (2025-04-01 – 2026-03-31) · cluster=classified2024
 
 | Sign | n | DR% | p | bench_flw | bench_rev | mean_bars | perm_p | dedup_n(×) | dedup_DR | bear_DR (p) | bull_DR (p) |
 |------|---|-----|---|-----------|-----------|----------|--------|------------|----------|-------------|-------------|
-| brk_lo_sideway |   272 |  51.5% | ≈0.628  |    0.0493 |    0.0308 |    12.107 | ≈0.339  | 241 (×1.1) |    53.1% | 52.5% (≈0.584) | 50.7% (≈0.871) |
+| brk_floor |   272 |  51.5% | ≈0.628  |    0.0493 |    0.0308 |    12.107 | ≈0.339  | 241 (×1.1) |    53.1% | 52.5% (≈0.584) | 50.7% (≈0.871) |
 
 ### Aggregate by Sign (FY2018–FY2024)
 
@@ -360,8 +360,8 @@ Permutation: 1000 iterations
 | str_lag    | — | — | — | — | — | — | — | — | — |
 | brk_sma    | — | — | — | — | — | — | — | — | — |
 | brk_bol    | — | — | — | — | — | — | — | — | — |
-| brk_hi_sideway | — | — | — | — | — | — | — | — | — |
-| brk_lo_sideway |   7 |    3310 |      51.7% | ≈0.048   |       0.0446 |        0.0387 |       2/7 | 49.6–59.7%    | 47.2–64.9%    |
+| brk_wall | — | — | — | — | — | — | — | — | — |
+| brk_floor |   7 |    3310 |      51.7% | ≈0.048   |       0.0446 |        0.0387 |       2/7 | 49.6–59.7%    | 47.2–64.9%    |
 | rev_lo     | — | — | — | — | — | — | — | — | — |
 | rev_hi     | — | — | — | — | — | — | — | — | — |
 | rev_nhi    | — | — | — | — | — | — | — | — | — |
@@ -603,10 +603,10 @@ moderate = n≥200 ∧ |ρ|≥0.10 ∧ p<0.01 ∧ q<0.05 ∧ monotone ∧ 0 flip
 | **brk_bol** | high |   902 | +0.028 |  ≈0.400 | 0.724 | +0.006 | +0.048 | 0 | no | noise |
 |            | mid  |  1269 | +0.011 |  ≈0.691 | 0.896 | -0.008 | +0.037 | 2 | no | noise |
 |            | low  |   814 | +0.080 |  ≈0.022 | 0.138 | +0.063 | +0.095 | 0 | no | borderline |
-| **brk_hi_sideway** | high |  1530 | +0.028 |  ≈0.282 | 0.630 | +0.015 | +0.042 | 0 | no | noise |
+| **brk_wall** | high |  1530 | +0.028 |  ≈0.282 | 0.630 | +0.015 | +0.042 | 0 | no | noise |
 |            | mid  |  1791 | -0.021 |  ≈0.364 | 0.692 | -0.040 | -0.001 | 0 | no | noise |
 |            | low  |   980 | +0.092 |  ≈0.004 | 0.050 | +0.066 | +0.130 | 0 | asc | borderline |
-| **brk_lo_sideway** | high |  1289 | +0.172 |  <0.001 | 0.000 | +0.116 | +0.210 | 0 | asc | **strong** |
+| **brk_floor** | high |  1289 | +0.172 |  <0.001 | 0.000 | +0.116 | +0.210 | 0 | asc | **strong** |
 |            | mid  |  1028 | +0.021 |  ≈0.496 | 0.805 | -0.008 | +0.049 | 1 | no | noise |
 |            | low  |   475 | -0.055 |  ≈0.233 | 0.623 | -0.096 | -0.030 | 0 | no | noise |
 | **brk_sma** | high |   521 | -0.001 |  ≈0.990 | 0.990 | -0.031 | +0.031 | 4 | no | noise |
@@ -648,10 +648,10 @@ EV = DR × mag_flw − (1−DR) × mag_rev. Quartile cells with n < 30 are maske
 | **brk_bol** | high | +0.0068 (226) | +0.0202 (225) | +0.0008 (225) | +0.0185 (226) |
 |            | mid  | +0.0148 (318) | +0.0155 (317) | +0.0202 (317) | +0.0162 (317) |
 |            | low  | — (0)      | — (0)      | — (0)      | — (0)      |
-| **brk_hi_sideway** | high | +0.0103 (383) | +0.0150 (382) | -0.0010 (382) | +0.0192 (383) |
+| **brk_wall** | high | +0.0103 (383) | +0.0150 (382) | -0.0010 (382) | +0.0192 (383) |
 |            | mid  | +0.0188 (448) | +0.0147 (448) | +0.0140 (447) | +0.0156 (448) |
 |            | low  | -0.0003 (245) | +0.0117 (245) | +0.0134 (245) | +0.0259 (245) |
-| **brk_lo_sideway** | high | +0.0123 (323) | +0.0156 (322) | +0.0288 (322) | +0.0513 (322) |
+| **brk_floor** | high | +0.0123 (323) | +0.0156 (322) | +0.0288 (322) | +0.0513 (322) |
 |            | mid  | +0.0100 (257) | +0.0092 (257) | +0.0090 (257) | +0.0159 (257) |
 |            | low  | +0.0169 (119) | -0.0099 (119) | -0.0014 (118) | +0.0062 (119) |
 | **brk_sma** | high | — (0)      | — (0)      | — (0)      | — (0)      |
@@ -705,14 +705,14 @@ Kumo states: ▲above cloud (+1) · ~inside (0) · ▼below cloud (−1)
 | rev_nlo    | ▼below  | 0.0574 | 62.6% |    1170 |      0 |       — | —      |
 | brk_sma    | ▼below  | 0.0564 | 59.2% |     284 |      0 |       — | —      |
 | brk_sma    | ▲above  | 0.0547 | 55.1% |     608 |      0 |       — | —      |
-| brk_lo_sideway | ▼below  | 0.0533 | 59.1% |    1173 |      0 |       — | —      |
+| brk_floor | ▼below  | 0.0533 | 59.1% |    1173 |      0 |       — | —      |
 | str_hold   | ~inside | 0.0520 | 59.8% |    1616 |      0 |       — | —      |
 | div_peer   | ▲above  | 0.0509 | 52.7% |     372 |      0 |       — | —      |
 | brk_bol    | ▼below  | 0.0503 | 52.5% |     444 |      0 |       — | —      |
 | div_gap    | ▼below  | 0.0499 | 56.9% |    1109 |      0 |       — | —      |
 | corr_shift | ~inside | 0.0496 | 58.7% |     109 |      0 |       — | —      |
 | div_gap    | ▲above  | 0.0492 | 56.7% |    1241 |      0 |       — | —      |
-| brk_hi_sideway | ~inside | 0.0492 | 62.0% |     368 |      0 |       — | —      |
+| brk_wall | ~inside | 0.0492 | 62.0% |     368 |      0 |       — | —      |
 | str_hold   | ▼below  | 0.0488 | 56.9% |    4936 |      0 |       — | —      |
 | corr_flip  | ▼below  | 0.0478 | 47.4% |     116 |      0 |       — | —      |
 | rev_nlo    | ~inside | 0.0476 | 42.8% |     615 |      0 |       — | —      |
@@ -732,12 +732,12 @@ Kumo states: ▲above cloud (+1) · ~inside (0) · ▼below cloud (−1)
 | rev_lo     | ▲above  | 0.0437 | 52.9% |    3342 |      0 |       — | —      |
 | rev_hi     | ▼below  | 0.0425 | 55.5% |    1790 |      0 |       — | —      |
 | str_lag    | ▼below  | 0.0421 | 49.1% |     389 |      0 |       — | —      |
-| brk_hi_sideway | ▼below  | 0.0421 | 55.1% |     700 |      0 |       — | —      |
+| brk_wall | ▼below  | 0.0421 | 55.1% |     700 |      0 |       — | —      |
 | rev_nhi    | ▼below  | 0.0406 | 50.6% |    1980 |      0 |       — | —      |
-| brk_lo_sideway | ▲above  | 0.0405 | 50.0% |    1010 |    267 |   51.3% | -0.2%  |
+| brk_floor | ▲above  | 0.0405 | 50.0% |    1010 |    267 |   51.3% | -0.2%  |
 | corr_flip  | ▲above  | 0.0402 | 53.5% |     303 |      0 |       — | —      |
-| brk_hi_sideway | ▲above  | 0.0382 | 49.8% |    2199 |      0 |       — | —      |
-| brk_lo_sideway | ~inside | 0.0375 | 56.6% |     311 |      5 |   60.0% | +8.5%  |
+| brk_wall | ▲above  | 0.0382 | 49.8% |    2199 |      0 |       — | —      |
+| brk_floor | ~inside | 0.0375 | 56.6% |     311 |      5 |   60.0% | +8.5%  |
 | rev_hi     | ▲above  | 0.0374 | 48.3% |    4277 |      0 |       — | —      |
 | str_lead   | ~inside | 0.0348 | 44.0% |     273 |      0 |       — | —      |
 | corr_flip  | ~inside | 0.0345 | 46.1% |      76 |      0 |       — | —      |
@@ -758,8 +758,8 @@ regime_n% = fraction of total events retained by the regime filter.
 | str_lag    | 0 | — | — | — | — | — |
 | brk_sma    | 0 | — | — | — | — | — |
 | brk_bol    | 0 | — | — | — | — | — |
-| brk_hi_sideway | 0 | — | — | — | — | — |
-| brk_lo_sideway |     272 |    51.5% |      272 |     51.5% |  +0.0% |      100% |
+| brk_wall | 0 | — | — | — | — | — |
+| brk_floor |     272 |    51.5% |      272 |     51.5% |  +0.0% |      100% |
 | rev_lo     | 0 | — | — | — | — | — |
 | rev_hi     | 0 | — | — | — | — | — |
 | rev_nhi    | 0 | — | — | — | — | — |
@@ -989,7 +989,7 @@ Outcome at trade_date = next confirmed zigzag peak from that date (ZZ size=5, mi
 **PASS** — all gates clear
 
 **Confluence framework (validity-windowed) is empirically real.**  Authorize brk_nhi as a sign that feeds the confluence tally; re-run this probe with brk_nhi included to verify incremental value.
-## brk_hi_sideway Probe
+## brk_wall Probe
 
 Probe run: 2026-05-17.  Fires when a bar's low breaks above a recent sideways-range wall:
 
@@ -1023,7 +1023,7 @@ validity = 5 trading days (for confluence inclusion)
 
 ### 2. Confluence-incremental value (vs v2 7-sign baseline)
 
-Compares EV uplifts (≥3 sign confluence vs 1 sign) WITHOUT brk_hi_sideway in the bullish set vs WITH it included.  If brk_hi_sideway pushes more days into the ≥2/≥3 buckets AND those new entries carry the same edge, the uplift gap should widen.
+Compares EV uplifts (≥3 sign confluence vs 1 sign) WITHOUT brk_wall in the bullish set vs WITH it included.  If brk_wall pushes more days into the ≥2/≥3 buckets AND those new entries carry the same edge, the uplift gap should widen.
 
 | FY | EV[1] before | EV[≥3] before | uplift before | EV[1] after | EV[≥3] after | uplift after | Δ uplift |
 |----|---:|---:|---:|---:|---:|---:|---:|
@@ -1040,7 +1040,7 @@ Compares EV uplifts (≥3 sign confluence vs 1 sign) WITHOUT brk_hi_sideway in t
 **FY2025 OOS n[≥3] after** = 660 (gate ≥ 50).
 
 ### Verdict
-## brk_lo_sideway Probe
+## brk_floor Probe
 
 Probe run: 2026-05-17.  Fires when today's high breaks BELOW a recent sideways-range floor:
 
@@ -1076,8 +1076,8 @@ validity = 5 trading days (for confluence inclusion)
 
 ### 2. Confluence-incremental: SKIPPED
 
-The bullish-confluence v2 framework was validated for the long direction only.  No equivalent bearish-confluence framework has been built/tested in this repo.  Re-running the v2 probe with brk_lo_sideway in the bullish set would be nonsensical (a bearish event in a bullish tally).  Defer the confluence question to a separate cycle that validates a bearish-set first.
+The bullish-confluence v2 framework was validated for the long direction only.  No equivalent bearish-confluence framework has been built/tested in this repo.  Re-running the v2 probe with brk_floor in the bullish set would be nonsensical (a bearish event in a bullish tally).  Defer the confluence question to a separate cycle that validates a bearish-set first.
 
 ### Verdict
 
-**brk_lo_sideway standalone FAIL** — breakdowns do not persist by the pre-registered gate.  Defer detector build.
+**brk_floor standalone FAIL** — breakdowns do not persist by the pre-registered gate.  Defer detector build.

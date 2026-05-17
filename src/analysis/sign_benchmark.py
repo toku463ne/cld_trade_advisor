@@ -64,8 +64,8 @@ from src.data.db import get_session
 from src.indicators.zigzag import detect_peaks
 from src.signs import (
     BrkBolDetector,
-    BrkHiSidewayDetector,
-    BrkLoSidewayDetector,
+    BrkWallDetector,
+    BrkFloorDetector,
     BrkSmaDetector,
     CorrFlipDetector,
     CorrPeakDetector,
@@ -263,10 +263,10 @@ def _eval_stock(
         detector = BrkSmaDetector(cache_det, window=window)
     elif sign_type == "brk_bol":
         detector = BrkBolDetector(cache_det, window=window)
-    elif sign_type == "brk_hi_sideway":
-        detector = BrkHiSidewayDetector(cache_det)
-    elif sign_type == "brk_lo_sideway":
-        detector = BrkLoSidewayDetector(cache_det)
+    elif sign_type == "brk_wall":
+        detector = BrkWallDetector(cache_det)
+    elif sign_type == "brk_floor":
+        detector = BrkFloorDetector(cache_det)
     elif sign_type == "rev_lo":
         detector = RevPeakDetector(cache_det, proximity_pct=extra.proximity_pct, side="lo")
     elif sign_type == "rev_hi":

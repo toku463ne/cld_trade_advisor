@@ -1,4 +1,4 @@
-# brk_hi_sideway — Sideways-Range Wall Breakout sign detector
+# brk_wall — Sideways-Range Wall Breakout sign detector
 
 Fires when today's bar **low** breaks above a recently-tested resistance
 "wall", where a wall is the high of any tight 10-bar consolidation in
@@ -49,7 +49,7 @@ trades back below the wall (transition condition + valid_bars window).
 
 ## Probe basis
 
-`src/analysis/brk_hi_sideway_probe.py` (committed 8a10ee4) ran the
+`src/analysis/brk_wall_probe.py` (committed 8a10ee4) ran the
 same detector logic against 219-stock classified-cluster universe,
 FY2019–FY2025, 4,733 training fires + 1,138 FY2025 OOS:
 
@@ -67,7 +67,7 @@ FY2019–FY2025, 4,733 training fires + 1,138 FY2025 OOS:
 All FYs positive.  Standalone gate (pooled EV ≥ +0.020, FY2025 EV > 0,
 DR ≥ 53%) cleared by wide margin.
 
-Confluence-incremental: adding brk_hi_sideway to the v2 bullish-set
+Confluence-incremental: adding brk_wall to the v2 bullish-set
 DILUTES the ≥3-confluence uplift by −0.83pp pooled (n[≥3] grew 1746 →
 3441 but EV/row dropped).  **Implication: ship as standalone proposal,
 NOT as confluence input.**
@@ -92,7 +92,7 @@ FY2024, FY2025.
 
 ### Score calibration
 
-Spearman ρ ≈ 0.028 (noise) — `sign_score` for brk_hi_sideway is
+Spearman ρ ≈ 0.028 (noise) — `sign_score` for brk_wall is
 **non-informative**.  By convention this would normally trigger
 "drop from ranking" investigation, but per `feedback_score_calibration_insufficient`
 the established rule is: rank by EV, treat score as tiebreak only.
@@ -110,8 +110,8 @@ the Kumo-above cell has the largest n but flattest DR.
 
 ### Confluence-incremental: do NOT add to bullish-set tally
 
-The pre-rebench probe (`src/analysis/brk_hi_sideway_probe.py`) measured
-brk_hi_sideway's effect on the v2 bullish-confluence tally and found
+The pre-rebench probe (`src/analysis/brk_wall_probe.py`) measured
+brk_wall's effect on the v2 bullish-confluence tally and found
 **−0.83pp Δ uplift** pooled — adding it dilutes the existing 7-sign
 confluence quality even as it expands the ≥3-confluence cohort.
 **Ship as standalone proposal only.**

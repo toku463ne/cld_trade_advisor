@@ -1,6 +1,6 @@
-"""brk_lo_sideway — break below a recent sideways-range floor. See docs/signs/brk_lo_sideway.md.
+"""brk_floor — break below a recent sideways-range floor. See docs/signs/brk_floor.md.
 
-Mirror of brk_hi_sideway: fires when today's bar **high** breaks below
+Mirror of brk_wall: fires when today's bar **high** breaks below
 the lowest recently-tested support floor — the low of any tight 10-bar
 consolidation in the prior ~6 months.  Strict and transition-gated.
 
@@ -16,7 +16,7 @@ a usable entry trigger in either direction per canonical measurement:
   51.7%, long EV pooled ≈ +0.44%.  Marginal — same tier as brk_sma /
   brk_bol but without their established history.
 
-The pre-ship probe (`brk_hi_sideway_probe.py --side lo`) suggested
+The pre-ship probe (`brk_wall_probe.py --side lo`) suggested
 breakdowns persist (probe DR 33% → short DR 67% → strong short signal).
 Canonical rebench contradicted this: windowed-zigzag DR is ~52% pooled,
 matching coin-flip / mild mean-reversion.  Cause: probe used globally-
@@ -46,9 +46,9 @@ _THETA    = 0.05   # (max H − min L) / mean C tightness threshold
 _LOOKBACK = 120    # bars over which to search for floors (~6 months)
 
 SIGN_VALID: bool = True
-SIGN_NAMES: list[str] = ["brk_lo_sideway"]
+SIGN_NAMES: list[str] = ["brk_floor"]
 SIGN_DESCRIPTIONS: dict[str, str] = {
-    "brk_lo_sideway": (
+    "brk_floor": (
         "**Sideways-range floor breakdown (informational only)** — "
         "today's high closes below the lowest recently-tested support level "
         "(lows of any 10-bar tight consolidation in the prior 6 months), "
@@ -59,10 +59,10 @@ SIGN_DESCRIPTIONS: dict[str, str] = {
 }
 
 
-class BrkLoSidewayDetector:
+class BrkFloorDetector:
     """Initialise once per stock cache; call detect() per bar.
 
-    Mirror of BrkHiSidewayDetector: looks for breakdowns below the lowest
+    Mirror of BrkWallDetector: looks for breakdowns below the lowest
     recently-tested support floor.  Daily H/L/C derived internally from
     the (possibly hourly) cache.
     """
@@ -145,7 +145,7 @@ class BrkLoSidewayDetector:
                 break
             valid_until_idx = min(fi + valid_bars, len(self._dts) - 1)
             return SignResult(
-                sign_type="brk_lo_sideway",
+                sign_type="brk_floor",
                 stock_code=self._stock_code,
                 score=score,
                 fired_at=self._dts[fi],

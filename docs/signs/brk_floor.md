@@ -1,6 +1,6 @@
-# brk_lo_sideway — Sideways-Range Floor Breakdown sign detector
+# brk_floor — Sideways-Range Floor Breakdown sign detector
 
-Mirror of `brk_hi_sideway`.  Fires when today's bar **high** breaks
+Mirror of `brk_wall`.  Fires when today's bar **high** breaks
 below a recently-tested support "floor" — the low of any tight 10-bar
 consolidation in the prior ~6 months.  Strict and transition-gated
 (one fire per genuine breakdown, no intraday recovery within the bar).
@@ -50,7 +50,7 @@ floor[T] = min(tight_window_low[j] for j in [T-lookback, T-K-1])
 fire[T] = (high[T] < floor[T-1]) AND (high[T-1] ≥ floor[T-1])
 ```
 
-Parameters (same as brk_hi_sideway):
+Parameters (same as brk_wall):
 - **K        = 10** trading-day sideways window length
 - **θ        = 0.05** (range / mean tightness)
 - **lookback = 120** bars (~6 months for finding floors)
@@ -74,7 +74,7 @@ Validity = 5 trading days.
 | **Pooled FY18–24** | **3,310** | **51.7%** | — | — | — |
 
 **Perm-pass 2/7** (FY2022, FY2024).  Same tier as `brk_sma`, `brk_bol`,
-`brk_hi_sideway` — marginal headline, with regime-concentrated
+`brk_wall` — marginal headline, with regime-concentrated
 strength.
 
 ### Score calibration (the unique finding)
@@ -85,7 +85,7 @@ strength.
 | mid-corr | 1,028 | +0.021 | 0.496 | noise |
 | low-corr | 475 | −0.055 | 0.233 | noise |
 
-**brk_lo_sideway × high-corr has the strongest score-to-EV correlation
+**brk_floor × high-corr has the strongest score-to-EV correlation
 in the entire catalogue** (+0.172, p<0.001).  Deeper breakdowns in
 high-corr stocks produce LARGER mean-reversion EV.  Rank by score
 WITHIN high-corr cohort.
@@ -99,7 +99,7 @@ WITHIN high-corr cohort.
 | ~inside | +0.038 | 56.6% | 311 | small n |
 
 The Kumo-below cell carries the consistent edge — same pattern as
-brk_hi_sideway concentrating in Kumo-inside/below, both signs work
+brk_wall concentrating in Kumo-inside/below, both signs work
 best when N225 is below its Kumo cloud.
 
 ## FY2019 outlier
@@ -116,7 +116,7 @@ for the production interpretation.
 
 Does NOT surface on the Daily proposals table.  Available via the
 sign catalogue / regime analysis tables for inspection.  If the
-operator decides to read brk_lo_sideway as a "context indicator" on
+operator decides to read brk_floor as a "context indicator" on
 a stock they were already considering, the strongest signal is the
 combination: high-corr stock + Kumo below + high score (deep
 breakdown).  Even there the canonical EV is modest (~+5pp top quartile)

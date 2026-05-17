@@ -7,7 +7,7 @@ lo-side) is structurally distinct from generic rolling-N-max breakouts
 because the level is from a tight consolidation, not a spike extreme.
 
 CLI:
-    python -m src.analysis.brk_hi_sideway_probe [--side hi|lo]
+    python -m src.analysis.brk_wall_probe [--side hi|lo]
 
   --side hi  (default) — break ABOVE recent sideways-range high
              (bullish; can feed the v2 bullish confluence tally test)
@@ -36,7 +36,7 @@ Lo-side:
 DR semantics for lo-side: outcomes use trend_direction = next confirmed
 zigzag peak.  For a LONG-only operator, "DR=fraction-where-next-peak-is-
 HIGH" measures **risk that the breakdown reverses** — a HIGH DR for
-brk_lo_sideway means the sign is unreliable as an avoid-long signal.
+brk_floor means the sign is unreliable as an avoid-long signal.
 A LOW DR means breakdowns persist and the sign is informative as a
 "don't go long today" filter.  Mirror reading for a hypothetical short
 strategy.
@@ -83,11 +83,11 @@ _MULTIYEAR_MIN_RUN_ID = 47
 # Side: "hi" (default — break above wall) or "lo" (break below floor)
 _SIDE: str = "hi"
 
-def _section_header() -> str:
-    return f"## brk_{_SIDE}_sideway Probe"
-
 def _sign_name() -> str:
-    return f"brk_{_SIDE}_sideway"
+    return "brk_wall" if _SIDE == "hi" else "brk_floor"
+
+def _section_header() -> str:
+    return f"## {_sign_name()} Probe"
 
 # Operator-specified parameters
 _K        = 10
@@ -106,7 +106,7 @@ _GATE_FY_CONSIST_CONF = 4
 _GATE_OOS_N_MIN_CONF  = 50
 
 
-# ── 1. Detect brk_hi_sideway fires ────────────────────────────────────
+# ── 1. Detect brk_wall fires ────────────────────────────────────
 
 
 @dataclass
@@ -264,7 +264,7 @@ def _confluence_table(
 
     Returns: bucket_name → fy → (ev, dr, n)
     """
-    NEW_NAME = "brk_hi_sideway"
+    NEW_NAME = "brk_wall"
     VALID = dict(_VALID_BARS)
     if include_new:
         VALID[NEW_NAME] = _VALID_BARS_NEW
@@ -478,7 +478,7 @@ def _format_report(df_fires: pd.DataFrame,
             "The bullish-confluence v2 framework was validated for the long "
             "direction only.  No equivalent bearish-confluence framework has "
             "been built/tested in this repo.  Re-running the v2 probe with "
-            "brk_lo_sideway in the bullish set would be nonsensical (a "
+            "brk_floor in the bullish set would be nonsensical (a "
             "bearish event in a bullish tally).  Defer the confluence question "
             "to a separate cycle that validates a bearish-set first.",
         ]
@@ -491,7 +491,7 @@ def _format_report(df_fires: pd.DataFrame,
             ]
             if standalone_pass:
                 lines.append(
-                    "**brk_lo_sideway standalone PASS** — breakdowns persist "
+                    "**brk_floor standalone PASS** — breakdowns persist "
                     "(low DR / negative long-entry EV).  Authorize detector "
                     "build + rebench cycle.  Operationally: useful as an "
                     "avoid-long filter on the Daily tab; could be used as a "
@@ -499,7 +499,7 @@ def _format_report(df_fires: pd.DataFrame,
                 )
             else:
                 lines.append(
-                    "**brk_lo_sideway standalone FAIL** — breakdowns do not "
+                    "**brk_floor standalone FAIL** — breakdowns do not "
                     "persist by the pre-registered gate.  Defer detector build."
                 )
         return "\n".join(lines)
@@ -508,8 +508,8 @@ def _format_report(df_fires: pd.DataFrame,
     lines += [
         "### 2. Confluence-incremental value (vs v2 7-sign baseline)",
         "",
-        f"Compares EV uplifts (≥3 sign confluence vs 1 sign) WITHOUT brk_hi_sideway "
-        f"in the bullish set vs WITH it included.  If brk_hi_sideway pushes more "
+        f"Compares EV uplifts (≥3 sign confluence vs 1 sign) WITHOUT brk_wall "
+        f"in the bullish set vs WITH it included.  If brk_wall pushes more "
         f"days into the ≥2/≥3 buckets AND those new entries carry the same edge, "
         f"the uplift gap should widen.",
         "",
@@ -554,18 +554,18 @@ def _format_report(df_fires: pd.DataFrame,
         "",
     ]
     if standalone_pass:
-        lines.append("**Standalone PASS** — brk_hi_sideway clears the same gate "
+        lines.append("**Standalone PASS** — brk_wall clears the same gate "
                      "as long_high_continuation did NOT. Authorize detector "
                      "build + full rebench cycle.")
     elif d_pooled > 0 and n3_a > n3_b and n3_oos_a >= _GATE_OOS_N_MIN_CONF:
         lines.append("**Standalone FAIL but confluence-incremental POSITIVE** — "
-                     "brk_hi_sideway adds value as a confluence input even if its "
+                     "brk_wall adds value as a confluence input even if its "
                      "standalone EV is weak.  Authorize detector build + wire as "
                      "confluence input only (no standalone proposal row).  "
                      "Matches the rev_nhi UI-only salvage pattern.")
     elif d_pooled <= 0:
         lines.append(f"**Standalone FAIL AND confluence-incremental flat/negative** "
-                     f"(Δ uplift = {d_pooled*100:+.2f}pp).  Adding brk_hi_sideway "
+                     f"(Δ uplift = {d_pooled*100:+.2f}pp).  Adding brk_wall "
                      "to the confluence tally does not improve uplift — the new "
                      "fires either don't agree with other bullish signs or dilute "
                      "the existing 7-sign signal.  REJECT.")
@@ -625,7 +625,7 @@ def main() -> None:
         logger.info("Running v2 confluence baseline (7 signs)...")
         existing = _load_existing_fires()
         conf_before = _confluence_table(existing, all_fires, include_new=False)
-        logger.info("Running v2 confluence WITH brk_hi_sideway (8 signs)...")
+        logger.info("Running v2 confluence WITH brk_wall (8 signs)...")
         conf_after  = _confluence_table(existing, all_fires, include_new=True)
     else:
         logger.info("Skipping confluence (no bearish-set framework for lo-side)")

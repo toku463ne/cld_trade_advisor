@@ -1,11 +1,11 @@
-"""brk_hi_sideway — break above a recent sideways-range wall. See docs/signs/brk_hi_sideway.md.
+"""brk_wall — break above a recent sideways-range wall. See docs/signs/brk_wall.md.
 
 Operator hypothesis (2026-05-17 /sign-debate): sideways price ranges
 in the recent past form "walls" — tested resistance levels.  A clean
 breakout above such a wall (`low[T] > wall AND low[T-1] ≤ wall`) is a
 meaningful bullish event, distinct from generic rolling-N-max breakouts.
 
-Probe basis: `src/analysis/brk_hi_sideway_probe.py` (committed 8a10ee4)
+Probe basis: `src/analysis/brk_wall_probe.py` (committed 8a10ee4)
 showed standalone DR 72.6% / EV +2.88% on 4,733 training fires.  The
 probe over-estimated DR by ~20pp because it used globally-detected
 zigzag peaks (more confirmed) vs the canonical pipeline's per-fire
@@ -17,7 +17,7 @@ windowed peaks; canonical rebench numbers are weaker but still pass:
     - bear DR=65.7% (p<0.001), bull DR=55.6% (p≈0.006)
   - Kumo inside cell carries highest EV (~inside +0.049)
   - Score calibration: ρ=0.028, noise — drop score from ranking key
-    (treat brk_hi_sideway like rev_nhi: rank by EV only)
+    (treat brk_wall like rev_nhi: rank by EV only)
   - Confluence-incremental NEGATIVE: do NOT add to bullish-set tally;
     ship as standalone proposal only
 
@@ -39,9 +39,9 @@ _THETA    = 0.05   # (max H − min L) / mean C tightness threshold
 _LOOKBACK = 120    # bars over which to search for walls (~6 months)
 
 SIGN_VALID: bool = True
-SIGN_NAMES: list[str] = ["brk_hi_sideway"]
+SIGN_NAMES: list[str] = ["brk_wall"]
 SIGN_DESCRIPTIONS: dict[str, str] = {
-    "brk_hi_sideway": (
+    "brk_wall": (
         "**Breakout above sideways-range wall** — "
         "today's low closes above the highest recently-tested resistance level "
         "(highs of any 10-bar tight consolidation in the prior 6 months), "
@@ -51,7 +51,7 @@ SIGN_DESCRIPTIONS: dict[str, str] = {
 }
 
 
-class BrkHiSidewayDetector:
+class BrkWallDetector:
     """Initialise once per stock cache; call detect() per bar.
 
     Derives daily H/L/C internally from the (possibly hourly) cache, so the
@@ -128,7 +128,7 @@ class BrkHiSidewayDetector:
         as_of: datetime.datetime,
         valid_bars: int = 5,
     ) -> SignResult | None:
-        """Return the most recent valid brk_hi_sideway fire at *as_of*, or None.
+        """Return the most recent valid brk_wall fire at *as_of*, or None.
 
         `valid_bars` counts hourly bars in the cache for hourly granularity,
         or daily bars for daily granularity — same convention as brk_sma.
@@ -144,7 +144,7 @@ class BrkHiSidewayDetector:
                 break
             valid_until_idx = min(fi + valid_bars, len(self._dts) - 1)
             return SignResult(
-                sign_type="brk_hi_sideway",
+                sign_type="brk_wall",
                 stock_code=self._stock_code,
                 score=score,
                 fired_at=self._dts[fi],
