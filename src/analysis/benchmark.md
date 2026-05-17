@@ -1107,3 +1107,58 @@ Probe run: 2026-05-17.  Walk-forward regime-sign strategy backtest run twice: on
 ### Verdict
 
 **brk_wall is roughly neutral on aggregate Sharpe** (|Δ| 0.00 ≤ 0.10).  Sign is harmless but not load-bearing for live strategy performance.  Keep for informational value; don't expect it to shift Sharpe materially.
+## Confluence Strategy A/B (N=1, 2, 3)
+
+Probe run: 2026-05-17.  Live ZsTpSl backtest of "trade long when ≥N bullish signs are valid for a stock today" across N ∈ {1, 2, 3}.  Same exit (ZsTpSl 2.0/2.0/0.3), same portfolio cap (≤1 high-corr + ≤3 low/mid-corr), same two-bar fill, 10-bar cooldown between re-entries on same stock.
+
+Bullish set (brk_wall excluded per dilution finding): str_hold, str_lead, str_lag, brk_sma, brk_bol, rev_lo, rev_nlo
+
+### Per-FY results
+
+#### N ≥ 1
+
+| FY | candidates | trades | mean_r | Sharpe | win% | hold_bars |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 1360 | 40 | -2.22% | -3.82 | 40% | 15.9 |
+| FY2020 | 2436 | 38 | +3.29% | +6.24 | 58% | 23.1 |
+| FY2021 | 3026 | 35 | -0.80% | -1.30 | 54% | 26.6 |
+| FY2022 | 2786 | 28 | +1.50% | +2.71 | 54% | 33.7 |
+| FY2023 | 2593 | 37 | +1.30% | +2.26 | 57% | 24.9 |
+| FY2024 | 3288 | 34 | +1.38% | +2.06 | 50% | 27.2 |
+| FY2025 | 2763 | 37 | +0.94% | +1.39 | 51% | 25.1 |
+
+#### N ≥ 2
+
+| FY | candidates | trades | mean_r | Sharpe | win% | hold_bars |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 139 | 25 | -0.90% | -1.63 | 48% | 22.6 |
+| FY2020 | 629 | 29 | +4.70% | +9.23 | 72% | 25.9 |
+| FY2021 | 989 | 36 | -0.91% | -1.52 | 36% | 25.1 |
+| FY2022 | 949 | 30 | +1.75% | +3.86 | 67% | 28.1 |
+| FY2023 | 786 | 35 | +5.11% | +9.45 | 74% | 23.8 |
+| FY2024 | 1161 | 31 | -0.45% | -0.59 | 42% | 27.5 |
+| FY2025 | 811 | 36 | +4.16% | +5.91 | 69% | 23.6 |
+
+#### N ≥ 3
+
+| FY | candidates | trades | mean_r | Sharpe | win% | hold_bars |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 16 | 12 | -2.75% | -5.26 | 42% | 28.1 |
+| FY2020 | 82 | 24 | +4.47% | +7.95 | 67% | 22.8 |
+| FY2021 | 168 | 29 | +1.06% | +1.55 | 48% | 21.8 |
+| FY2022 | 147 | 22 | +1.66% | +3.35 | 64% | 28.6 |
+| FY2023 | 104 | 23 | +3.80% | +9.10 | 70% | 22.4 |
+| FY2024 | 167 | 30 | +0.94% | +1.55 | 57% | 22.4 |
+| FY2025 | 132 | 25 | +4.61% | +8.37 | 68% | 21.6 |
+
+### Aggregate (FY-equal-weighted across all FYs with trades)
+
+| N gate | total trades | avg Sharpe | avg mean_r | avg win% |
+|--------|---:|---:|---:|---:|
+| **N ≥ 1** | 249 | **+1.36** | **+0.77%** | 52% |
+| **N ≥ 2** | 222 | **+3.53** | **+1.92%** | 58% |
+| **N ≥ 3** | 165 | **+3.80** | **+1.97%** | 59% |
+
+### Baseline reference
+
+regime_sign_backtest (commit 78f4344, FY2019-FY2025): 171 trades, avg Sharpe +1.33, avg mean_r +0.77%, win% varies.  That is the current shipped strategy.  Compare confluence-gated arms against this number to decide whether confluence-based entry is better, worse, or different cohort entirely.
