@@ -223,6 +223,55 @@ the same session and will be removed from this list once shipped.
 - **Trigger to revisit** — If/when we have ≥10 FYs of data AND ≥100
   trades/FY (would need universe expansion).
 
+### 5. brk_wall as drawdown-conditional confluence hedge
+
+**Origin** — 2026-05-19 brk_wall re-evaluation under the new marginal
+contribution helper.  Unconditional inclusion stays REJECT (Sharpe
+−1.40, Sortino −4.26, max-drawdown +17.9pp at N≥3) — see
+[[project-brk-wall-k-sweep-reject]].
+
+**The new finding** — Marginal helper revealed a tail-hedge property
+that aggregate Sharpe hid:
+- Tail-hedge lift = **+4.93%** (on A baseline's worst-quintile days,
+  B +brk_wall improves the day mean from −12.12% to −7.18%)
+- Daily-return correlation = +0.491 (not pure duplication)
+- 135 B-only new trades, win-rate 57.8% (decent quality)
+
+**The gate idea** — Don't include brk_wall always.  Include only when
+the confluence baseline is bleeding:
+- Gate by recent baseline cumulative drawdown crossing a threshold, OR
+- Gate by N225 regime (bear/Kumo-below) where brk_wall's per-fire
+  benchmark already shows bear DR 65.7%
+- The hope: capture the +4.93pp tail-lift on the small subset of bad
+  days WITHOUT paying the +17.9pp drawdown expansion across all days.
+
+**Why deferred (not done now)** —
+- Operator chose "log salvage hook only" on 2026-05-19.
+- 135 new trades / 7 FYs ≈ 19 trades/FY split across days — gating
+  further may shrink to single-digit per-FY n.
+- Needs design choice: gate signal (rolling DD vs regime tag),
+  threshold, A/B template that handles conditional inclusion.
+
+**Trigger to revisit** —
+- If confluence baseline has a fresh-data drawdown episode where we'd
+  want a hedge, OR
+- When we add new regime axes (followup §4c) — the cross-sectional
+  dispersion axis might be the natural gate signal.
+
+**Implementation sketch** —
+1. Compute rolling-30-day cumulative return of confluence baseline at
+   each trading date.
+2. Define `is_bleeding[d] = cum_return_30d[d] < threshold` (start
+   with 0.0).
+3. In `_run_arm` for arm B, only emit brk_wall candidates whose
+   `entry_date` falls on `is_bleeding` days.
+4. Compare Sharpe + Sortino + tail-hedge lift A vs B-conditional.
+
+**Links** —
+- Reject memory: [[project-brk-wall-k-sweep-reject]]
+- Re-eval log: this session, tail of `/tmp/confluence_brk_wall_inclusion_ab.log`
+- A/B script (binary): `src/analysis/confluence_brk_wall_inclusion_ab.py`
+
 ---
 
 ## Done

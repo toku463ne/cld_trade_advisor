@@ -982,4 +982,57 @@ regime_n% = fraction of total events retained by the regime filter.
 **Interpretation**: Positive Δ DR means the Kumo+ADX regime filter selected
 events with better follow-through outcomes in the out-of-sample year.
 Low regime_n% indicates the filter is aggressive; verify test_n is large enough.
+## Strategy A/B: brk_wall on/off
 
+Probe run: 2026-05-19.  Walk-forward regime-sign strategy backtest run twice: once WITH brk_wall in the sign set (current shipped state) and once WITHOUT (the state before commit 52bde03).  Same min_dr=0.52 threshold, same ZsTpSl exit, same portfolio cap (≤1 high-corr, ≤3 low/mid-corr).
+
+### Per-FY summary
+
+| FY | with: trades / mean_r / Sharpe / win% | without: trades / mean_r / Sharpe / win% | Δ Sharpe | Δ mean_r |
+|----|---|---|---:|---:|
+| FY2019 | 0 / — / — / — | 0 / — / — / — | **—** | **—** |
+| FY2020 | 0 / — / — / — | 0 / — / — / — | **—** | **—** |
+| FY2021 | 31 / -0.68% / -1.06 / 42% | 31 / -0.68% / -1.06 / 42% | **+0.00** | **+0.00pp** |
+| FY2022 | 31 / +1.37% / +1.73 / 58% | 31 / +1.37% / +1.73 / 58% | **+0.00** | **+0.00pp** |
+| FY2023 | 38 / +3.64% / +6.91 / 76% | 38 / +3.64% / +6.91 / 76% | **+0.00** | **+0.00pp** |
+| FY2024 | 36 / +1.05% / +1.44 / 44% | 36 / +1.05% / +1.44 / 44% | **+0.00** | **+0.00pp** |
+| FY2025 | 35 / +3.23% / +5.16 / 63% | 35 / +3.23% / +5.16 / 63% | **+0.00** | **+0.00pp** |
+
+### Aggregate (FY-equal-weighted)
+
+- WITH brk_wall:    total trades = 171, avg Sharpe = +2.83, avg mean_r = +1.72%
+- WITHOUT brk_wall: total trades = 171, avg Sharpe = +2.83, avg mean_r = +1.72%
+
+- **Δ Sharpe = +0.00** ; **Δ mean_r = +0.00pp**
+
+### Verdict
+
+**brk_wall is roughly neutral on aggregate Sharpe** (|Δ| 0.00 ≤ 0.10).  Sign is harmless but not load-bearing for live strategy performance.  Keep for informational value; don't expect it to shift Sharpe materially.
+
+### Sortino + EV decomposition (added 2026-05-18)
+
+EV = P(win)·E[win] + P(loss)·E[loss].  EV check should ≈ mean_r.  Sortino penalizes only downside variance.
+
+| arm | Sharpe | Sortino | P(win) | avg_win | avg_loss | EV check |
+|-----|---:|---:|---:|---:|---:|---:|
+| WITH brk_wall | +2.83 | **+5.70** | 56.7% | +9.37% | -8.17% | +1.78% |
+| WITHOUT brk_wall | +2.83 | **+5.70** | 56.7% | +9.37% | -8.17% | +1.78% |
+
+### Marginal contribution (WITH brk_wall vs WITHOUT)
+
+### Marginal contribution (added 2026-05-18)
+
+Comparing **WITH brk_wall** against **WITHOUT brk_wall** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **+0** | WITH brk_wall − WITHOUT brk_wall (turnover impact) |
+| WITHOUT brk_wall max drawdown | +74.62% | peak-to-trough on cumulative trade returns |
+| WITH brk_wall max drawdown | +74.62% | same metric, expanded arm |
+| Δ drawdown | +0.00% | + = drawdown got WORSE under WITH brk_wall |
+| Daily-return correlation | **+1.000** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| WITHOUT brk_wall's worst-quintile day mean | -13.07% | A's bad days |
+| WITH brk_wall on those same days | -13.07% | does new sign help when A loses? |
+| Tail-hedge lift | **+0.00%** | + = WITH brk_wall cushions WITHOUT brk_wall's tail |
+| New-trade count (B-only) | 0 | trades introduced by the change |
+| New-trade win rate | — | quality of the marginal trades |

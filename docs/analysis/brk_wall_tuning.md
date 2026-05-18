@@ -173,7 +173,7 @@ for future experiments.
 
 ## Confluence inclusion A/B — brk_wall@K=15
 
-Probe run: 2026-05-18.  Tests whether adding brk_wall@K=15 to the current 10-sign bullish set improves the confluence strategy.
+Probe run: 2026-05-19.  Tests whether adding brk_wall@K=15 to the current 10-sign bullish set improves the confluence strategy.
 
 - **A baseline** = current 10-sign bullish set
 - **B +brk_wall** = baseline + brk_wall@K=15 (in-memory)
