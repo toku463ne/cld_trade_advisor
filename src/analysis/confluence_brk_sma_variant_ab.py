@@ -35,7 +35,9 @@ from src.analysis.confluence_ichimoku_ab import (
 )
 from src.analysis.confluence_strategy_backtest import (
     _ArmRow,
+    _arm_row_from_metrics,
     _build_corr_map,
+    _ev_decomp_table,
     _stocks_for_fy,
     _LOOKBACK_DAYS_CACHE,
     _EXIT_RULE,
@@ -104,13 +106,7 @@ def _run_arm(arm_label, cfg, fires_by_stock, stock_caches, corr_maps, zs_maps):
         logger.info("  [{}] N={}: {} trades, sharpe={:.2f}",
                     arm_label, n_gate, m.n,
                     m.sharpe if not math.isnan(m.sharpe) else float("nan"))
-        out.append(_ArmRow(
-            fy=cfg.label, n_gate=n_gate, n_trades=m.n, n_props=len(all_cands),
-            mean_r=m.mean_r if m.n > 0 else None,
-            sharpe=m.sharpe if (m.n > 0 and not math.isnan(m.sharpe)) else None,
-            win_rate=m.win_rate if m.n > 0 else None,
-            hold_bars=m.hold_bars if m.n > 0 else None,
-        ))
+        out.append(_arm_row_from_metrics(m, cfg.label, n_gate, len(all_cands)))
     return out
 
 
@@ -217,6 +213,13 @@ def _format_report(rows_per_arm: list[list[_ArmRow]]) -> str:
                 f"| N≥{n_gate} | {arm_label} | {total_n} | **{sh_s}** | {mr_s} | {wr_s} |"
             )
         lines.append("")
+
+    # Sortino + EV decomposition (2026-05-18 evaluation upgrade)
+    lines.append(_ev_decomp_table(
+        [(arm_label, rows_per_arm[i]) for i, (arm_label, _, _) in enumerate(_ARM_CONFIGS)],
+        _N_VALUES,
+    ))
+
     return "\n".join(lines)
 
 

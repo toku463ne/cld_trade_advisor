@@ -30,9 +30,12 @@ from src.analysis.confluence_ichimoku_ab import (
     _candidates_for_stock_with_extra_valid,
     _load_fires,
 )
+from src.analysis._marginal import compute_marginal, marginal_table
 from src.analysis.confluence_strategy_backtest import (
     _ArmRow,
+    _arm_row_from_metrics,
     _build_corr_map,
+    _ev_decomp_table,
     _stocks_for_fy,
     _LOOKBACK_DAYS_CACHE,
     _EXIT_RULE,
@@ -77,7 +80,14 @@ def _merge(*srcs):
 
 
 def _run_arm(label, cfg, fires, stock_caches, corr_maps, zs_maps, valid_bars_extra):
-    out = []
+    """Return (rows_per_n_gate, results_per_n_gate).
+
+    `results_per_n_gate[N]` is the raw per-trade ExitResult list for that
+    N gate — kept around so the caller can compute marginal-contribution
+    metrics (added 2026-05-18) against the other arm.
+    """
+    out_rows: list[_ArmRow] = []
+    out_results: dict[int, list] = {}
     for n_gate in _N_VALUES:
         cands = []
         for code in stock_caches:
@@ -93,14 +103,9 @@ def _run_arm(label, cfg, fires, stock_caches, corr_maps, zs_maps, valid_bars_ext
         logger.info("  [{}] N={}: {} trades, sharpe={:.2f}",
                     label, n_gate, m.n,
                     m.sharpe if not math.isnan(m.sharpe) else float("nan"))
-        out.append(_ArmRow(
-            fy=cfg.label, n_gate=n_gate, n_trades=m.n, n_props=len(cands),
-            mean_r=m.mean_r if m.n > 0 else None,
-            sharpe=m.sharpe if (m.n > 0 and not math.isnan(m.sharpe)) else None,
-            win_rate=m.win_rate if m.n > 0 else None,
-            hold_bars=m.hold_bars if m.n > 0 else None,
-        ))
-    return out
+        out_rows.append(_arm_row_from_metrics(m, cfg.label, n_gate, len(cands)))
+        out_results[n_gate] = list(results)
+    return out_rows, out_results
 
 
 def _run_fy(cfg, base_fires):
@@ -134,18 +139,19 @@ def _run_fy(cfg, base_fires):
     # Build brk_wall@K=15 fires in-memory
     wall_fires = _build_brk_wall_fires(stock_caches)
 
-    arm_a = _run_arm("A baseline", cfg, base_fires,
-                     stock_caches, corr_maps, zs_maps, _VALID_BARS_EXTRA)
-    arm_b = _run_arm("B +brk_wall", cfg, _merge(base_fires, wall_fires),
-                     stock_caches, corr_maps, zs_maps, _VALID_BARS_EXTRA_WITH_WALL)
-    return arm_a, arm_b
+    arm_a_rows, arm_a_results = _run_arm("A baseline", cfg, base_fires,
+        stock_caches, corr_maps, zs_maps, _VALID_BARS_EXTRA)
+    arm_b_rows, arm_b_results = _run_arm("B +brk_wall", cfg, _merge(base_fires, wall_fires),
+        stock_caches, corr_maps, zs_maps, _VALID_BARS_EXTRA_WITH_WALL)
+    return arm_a_rows, arm_b_rows, arm_a_results, arm_b_results
 
 
 def _fmt(x):
     return "—" if x is None else f"{x:+.2f}"
 
 
-def _format_report(a_rows, b_rows) -> str:
+def _format_report(a_rows, b_rows,
+                   a_results_all: list, b_results_all: list) -> str:
     by_n_a = defaultdict(list); by_n_b = defaultdict(list)
     for r in a_rows: by_n_a[r.n_gate].append(r)
     for r in b_rows: by_n_b[r.n_gate].append(r)
@@ -205,6 +211,29 @@ def _format_report(a_rows, b_rows) -> str:
                 f"| N≥{n_gate} | {label} | {total_n} | **{_fmt(avg_sh)}** | {mr_s} | {wr_s} |"
             )
         lines.append("")
+
+    # Sortino + EV decomposition (2026-05-18 evaluation upgrade)
+    lines.append(_ev_decomp_table(
+        [("A baseline", a_rows), (f"B +brk_wall(K={_BRK_WALL_K})", b_rows)],
+        _N_VALUES,
+    ))
+
+    # Marginal contribution (2026-05-18 evaluation upgrade) — pooled per N gate
+    a_by_n: dict[int, list] = defaultdict(list)
+    b_by_n: dict[int, list] = defaultdict(list)
+    for n_gate, res in a_results_all:
+        a_by_n[n_gate].extend(res)
+    for n_gate, res in b_results_all:
+        b_by_n[n_gate].extend(res)
+    for n_gate in _N_VALUES:
+        if not a_by_n.get(n_gate) or not b_by_n.get(n_gate):
+            continue
+        report = compute_marginal(a_by_n[n_gate], b_by_n[n_gate])
+        lines.append(f"\n#### Marginal contribution at N≥{n_gate}")
+        lines.append(marginal_table(report,
+                                    a_label="A baseline",
+                                    b_label=f"B +brk_wall(K={_BRK_WALL_K})"))
+
     return "\n".join(lines)
 
 
@@ -226,12 +255,21 @@ def main() -> None:
 
     a_rows: list[_ArmRow] = []
     b_rows: list[_ArmRow] = []
+    # For marginal-contribution analysis (2026-05-18): collect per-FY
+    # raw ExitResult lists per N gate so we can pool and compare A vs B
+    # at the per-trade level after all FYs are done.
+    a_results_all: list[tuple[int, list]] = []
+    b_results_all: list[tuple[int, list]] = []
     for cfg in RS_FY_CONFIGS:
-        ra, rb = _run_fy(cfg, base_fires)
+        ra, rb, ra_res, rb_res = _run_fy(cfg, base_fires)
         a_rows.extend(ra)
         b_rows.extend(rb)
+        for n_gate, results in ra_res.items():
+            a_results_all.append((n_gate, results))
+        for n_gate, results in rb_res.items():
+            b_results_all.append((n_gate, results))
 
-    report = _format_report(a_rows, b_rows)
+    report = _format_report(a_rows, b_rows, a_results_all, b_results_all)
     print(report)
     _append_to_doc(report)
 

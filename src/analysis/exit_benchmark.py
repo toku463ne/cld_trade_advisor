@@ -217,15 +217,23 @@ class Metrics:
     mean_r:    float   = 0.0
     mean_rb:   float   = 0.0   # mean return per bar
     sharpe:    float   = float("nan")
+    sortino:   float   = float("nan")    # mean / std_of_negative_returns (annualized)
     win_rate:  float   = 0.0
     hold_bars: float   = 0.0
+    # EV decomposition (2026-05-18): EV = p_win·E[win] − p_loss·|E[loss]|
+    p_win:     float   = 0.0   # = win_rate (kept for explicit display)
+    avg_win:   float   = 0.0   # mean return among trades with r > 0
+    avg_loss:  float   = 0.0   # mean return among trades with r < 0 (negative)
     reasons:   dict[str, int] = field(default_factory=dict)
 
     def fmt_mean_r(self)  -> str: return f"{self.mean_r*100:+.2f}%"
     def fmt_mean_rb(self) -> str: return f"{self.mean_rb*100:+.4f}%"
     def fmt_sharpe(self)  -> str: return f"{self.sharpe:.2f}" if not math.isnan(self.sharpe) else "—"
+    def fmt_sortino(self) -> str: return f"{self.sortino:.2f}" if not math.isnan(self.sortino) else "—"
     def fmt_win(self)     -> str: return f"{self.win_rate*100:.1f}%"
     def fmt_hold(self)    -> str: return f"{self.hold_bars:.1f}"
+    def fmt_avg_win(self) -> str: return f"{self.avg_win*100:+.2f}%"
+    def fmt_avg_loss(self) -> str: return f"{self.avg_loss*100:+.2f}%"
     def fmt_reasons(self) -> str:
         return "  ".join(f"{k}:{v}" for k, v in sorted(self.reasons.items()))
 
@@ -244,12 +252,27 @@ def _metrics(results: list[ExitResult]) -> Metrics:
         sh    = (mr / std * math.sqrt(252)) if std > 0 else float("nan")
     except statistics.StatisticsError:
         sh = float("nan")
+    # Sortino: mean / std of NEGATIVE returns only (downside risk).
+    # Convention: replace positive returns with 0 in the std calc.
+    downside = [r if r < 0 else 0.0 for r in rets]
+    try:
+        downside_std = statistics.stdev(downside)
+        sortino = (mr / downside_std * math.sqrt(252)) if downside_std > 0 else float("nan")
+    except statistics.StatisticsError:
+        sortino = float("nan")
     wr  = sum(1 for r in rets if r > 0) / n
+    # EV decomposition: P(win)·E[win] − P(loss)·|E[loss]| (= mean_r identity).
+    wins   = [r for r in rets if r > 0]
+    losses = [r for r in rets if r < 0]
+    avg_w  = statistics.mean(wins)   if wins   else 0.0
+    avg_l  = statistics.mean(losses) if losses else 0.0
     rdict: dict[str, int] = defaultdict(int)
     for r in results:
         rdict[r.exit_reason] += 1
-    return Metrics(n=n, mean_r=mr, mean_rb=mrb, sharpe=sh,
-                   win_rate=wr, hold_bars=mh, reasons=dict(rdict))
+    return Metrics(n=n, mean_r=mr, mean_rb=mrb, sharpe=sh, sortino=sortino,
+                   win_rate=wr, hold_bars=mh,
+                   p_win=wr, avg_win=avg_w, avg_loss=avg_l,
+                   reasons=dict(rdict))
 
 
 # ── Per-FY runner ─────────────────────────────────────────────────────────────

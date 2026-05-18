@@ -117,6 +117,59 @@ Pooled across all FYs.  Spearman ρ of (score, signed_return) tests whether high
 | Q4 | 79 | 53.2% | +1.25% |
 
   Q4−Q1 mean_r spread: **+0.41pp** — **NOISE**
+## Strategy A/Bs (2026-05-18) — K=15 retested at strategy level
+
+### regime_sign A/B (K=15)
+
+Ran `regime_sign_brk_wall_ab.py` with brk_wall's default K=15.  Result:
+**trade-for-trade identical** with vs without brk_wall, every FY:
+
+| FY | with K=15 trades | without trades | Δ Sharpe |
+|----|---|---|---:|
+| FY2021 | 31 | 31 | +0.00 |
+| FY2022 | 31 | 31 | +0.00 |
+| FY2023 | 38 | 38 | +0.00 |
+| FY2024 | 36 | 36 | +0.00 |
+| FY2025 | 35 | 35 | +0.00 |
+
+Same as the prior K=10 result. brk_wall's (sign, kumo) cells never win
+the regime ranking against other signs' cells regardless of K.  The
+sign is inert in `regime_sign` at any K.
+
+### Confluence inclusion A/B (K=15)
+
+Ran `confluence_brk_wall_inclusion_ab.py` — tests whether adding
+brk_wall@K=15 to the current 10-sign bullish set improves Sharpe.
+
+| N gate | A baseline (10 signs) | B + brk_wall@K=15 | Δ Sharpe |
+|---|---:|---:|---:|
+| N≥1 | +0.76 | +0.39 | −0.37 |
+| N≥2 | +4.05 | +3.71 | −0.34 |
+| **N≥3** | **+3.72** | **+2.32** | **−1.40** |
+
+Per-FY at N≥3: B loses in 5/7 FYs.  FY2020 (−5.99) and FY2024 (−5.72)
+take the biggest hits.  Same dilution finding as K=10 — brk_wall
+fundamentally doesn't add value to confluence regardless of K.
+
+## Final ship decision
+
+**Revert to K=10 default.**  Rebenched with K=10 restored; benchmark.md
+returns to original brk_wall numbers (FY2025 OOS n=1005, DR 59.6%).
+
+`gate_use_low`-equivalent already exists on brk_wall via `low > wall`
+convention (always-on, no parameter).  `K` parameter remains available
+for future experiments.
+
+## What this confirms
+
+- brk_wall is structurally weak as a load-bearing sign — neither
+  better K nor scoring formulation makes it useful as an entry trigger
+- Its value is informational: catalogue completeness + Daily display
+- The `(close − wall) / wall` score is noise.  Should not be used in
+  ranking for any strategy.  (Already excluded; this re-confirms.)
+- The strict-K probe pattern (sweep K, then strategy A/B if interesting)
+  is becoming the standard methodology — established now for brk_kumo,
+  brk_tenkan, brk_sma, brk_wall.
 
 ## Confluence inclusion A/B — brk_wall@K=15
 
@@ -174,56 +227,78 @@ Probe run: 2026-05-18.  Tests whether adding brk_wall@K=15 to the current 10-sig
 | N≥3 | A baseline | 251 | **+3.72** | +2.21% | 57% |
 | N≥3 | B +brk_wall(K=15) | 243 | **+2.32** | +1.18% | 56% |
 
-## Strategy A/Bs (2026-05-18) — K=15 retested at strategy level
 
-### regime_sign A/B (K=15)
+### Sortino + EV decomposition (added 2026-05-18)
 
-Ran `regime_sign_brk_wall_ab.py` with brk_wall's default K=15.  Result:
-**trade-for-trade identical** with vs without brk_wall, every FY:
+EV = P(win)·E[win] + P(loss)·E[loss]  (E[loss] is negative, so the second term subtracts).  EV check should ≈ mean_r — minor differences come from FY-equal-weighted averaging.  Sortino penalizes only downside variance (good for asymmetric returns).
 
-| FY | with K=15 trades | without trades | Δ Sharpe |
-|----|---|---|---:|
-| FY2021 | 31 | 31 | +0.00 |
-| FY2022 | 31 | 31 | +0.00 |
-| FY2023 | 38 | 38 | +0.00 |
-| FY2024 | 36 | 36 | +0.00 |
-| FY2025 | 35 | 35 | +0.00 |
+| N gate | arm | Sharpe | Sortino | P(win) | avg_win | avg_loss | EV check |
+|--------|-----|---:|---:|---:|---:|---:|---:|
+| N ≥ 1 | A baseline | +0.76 | **+2.30** | 51.7% | +8.26% | -8.13% | +0.35% |
+| N ≥ 1 | B +brk_wall(K=15) | +0.39 | **+1.90** | 51.3% | +8.07% | -7.92% | +0.29% |
 
-Same as the prior K=10 result. brk_wall's (sign, kumo) cells never win
-the regime ranking against other signs' cells regardless of K.  The
-sign is inert in `regime_sign` at any K.
+| N ≥ 2 | A baseline | +4.05 | **+9.94** | 59.0% | +8.56% | -6.50% | +2.39% |
+| N ≥ 2 | B +brk_wall(K=15) | +3.71 | **+8.19** | 59.0% | +8.61% | -7.33% | +2.07% |
 
-### Confluence inclusion A/B (K=15)
+| N ≥ 3 | A baseline | +3.72 | **+8.70** | 57.4% | +9.23% | -7.18% | +2.25% |
+| N ≥ 3 | B +brk_wall(K=15) | +2.32 | **+4.44** | 56.0% | +8.64% | -7.99% | +1.32% |
 
-Ran `confluence_brk_wall_inclusion_ab.py` — tests whether adding
-brk_wall@K=15 to the current 10-sign bullish set improves Sharpe.
 
-| N gate | A baseline (10 signs) | B + brk_wall@K=15 | Δ Sharpe |
-|---|---:|---:|---:|
-| N≥1 | +0.76 | +0.39 | −0.37 |
-| N≥2 | +4.05 | +3.71 | −0.34 |
-| **N≥3** | **+3.72** | **+2.32** | **−1.40** |
+#### Marginal contribution at N≥1
 
-Per-FY at N≥3: B loses in 5/7 FYs.  FY2020 (−5.99) and FY2024 (−5.72)
-take the biggest hits.  Same dilution finding as K=10 — brk_wall
-fundamentally doesn't add value to confluence regardless of K.
+### Marginal contribution (added 2026-05-18)
 
-## Final ship decision
+Comparing **B +brk_wall(K=15)** against **A baseline** at the per-trade level.
 
-**Revert to K=10 default.**  Rebenched with K=10 restored; benchmark.md
-returns to original brk_wall numbers (FY2025 OOS n=1005, DR 59.6%).
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **-3** | B +brk_wall(K=15) − A baseline (turnover impact) |
+| A baseline max drawdown | +179.69% | peak-to-trough on cumulative trade returns |
+| B +brk_wall(K=15) max drawdown | +154.07% | same metric, expanded arm |
+| Δ drawdown | -25.62% | + = drawdown got WORSE under B +brk_wall(K=15) |
+| Daily-return correlation | **+0.636** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| A baseline's worst-quintile day mean | -15.43% | A's bad days |
+| B +brk_wall(K=15) on those same days | -10.77% | does new sign help when A loses? |
+| Tail-hedge lift | **+4.66%** | + = B +brk_wall(K=15) cushions A baseline's tail |
+| New-trade count (B-only) | 103 | trades introduced by the change |
+| New-trade win rate | 57.3% | quality of the marginal trades |
 
-`gate_use_low`-equivalent already exists on brk_wall via `low > wall`
-convention (always-on, no parameter).  `K` parameter remains available
-for future experiments.
 
-## What this confirms
+#### Marginal contribution at N≥2
 
-- brk_wall is structurally weak as a load-bearing sign — neither
-  better K nor scoring formulation makes it useful as an entry trigger
-- Its value is informational: catalogue completeness + Daily display
-- The `(close − wall) / wall` score is noise.  Should not be used in
-  ranking for any strategy.  (Already excluded; this re-confirms.)
-- The strict-K probe pattern (sweep K, then strategy A/B if interesting)
-  is becoming the standard methodology — established now for brk_kumo,
-  brk_tenkan, brk_sma, brk_wall.
+### Marginal contribution (added 2026-05-18)
+
+Comparing **B +brk_wall(K=15)** against **A baseline** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **+1** | B +brk_wall(K=15) − A baseline (turnover impact) |
+| A baseline max drawdown | +88.42% | peak-to-trough on cumulative trade returns |
+| B +brk_wall(K=15) max drawdown | +117.78% | same metric, expanded arm |
+| Δ drawdown | +29.36% | + = drawdown got WORSE under B +brk_wall(K=15) |
+| Daily-return correlation | **+0.544** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| A baseline's worst-quintile day mean | -11.50% | A's bad days |
+| B +brk_wall(K=15) on those same days | -8.05% | does new sign help when A loses? |
+| Tail-hedge lift | **+3.45%** | + = B +brk_wall(K=15) cushions A baseline's tail |
+| New-trade count (B-only) | 122 | trades introduced by the change |
+| New-trade win rate | 62.3% | quality of the marginal trades |
+
+
+#### Marginal contribution at N≥3
+
+### Marginal contribution (added 2026-05-18)
+
+Comparing **B +brk_wall(K=15)** against **A baseline** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **-8** | B +brk_wall(K=15) − A baseline (turnover impact) |
+| A baseline max drawdown | +83.01% | peak-to-trough on cumulative trade returns |
+| B +brk_wall(K=15) max drawdown | +100.94% | same metric, expanded arm |
+| Δ drawdown | +17.93% | + = drawdown got WORSE under B +brk_wall(K=15) |
+| Daily-return correlation | **+0.491** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| A baseline's worst-quintile day mean | -12.12% | A's bad days |
+| B +brk_wall(K=15) on those same days | -7.18% | does new sign help when A loses? |
+| Tail-hedge lift | **+4.93%** | + = B +brk_wall(K=15) cushions A baseline's tail |
+| New-trade count (B-only) | 135 | trades introduced by the change |
+| New-trade win rate | 57.8% | quality of the marginal trades |

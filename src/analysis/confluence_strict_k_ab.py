@@ -38,7 +38,9 @@ from src.analysis.confluence_ichimoku_ab import (
 )
 from src.analysis.confluence_strategy_backtest import (
     _ArmRow,
+    _arm_row_from_metrics,
     _build_corr_map,
+    _ev_decomp_table,
     _stocks_for_fy,
     _LOOKBACK_DAYS_CACHE,
     _EXIT_RULE,
@@ -105,13 +107,7 @@ def _run_arm(arm_label: str, cfg, fires_by_stock, stock_caches,
         logger.info("  [{}] N={}: {} trades, sharpe={:.2f}",
                     arm_label, n_gate, m.n,
                     m.sharpe if not math.isnan(m.sharpe) else float("nan"))
-        out.append(_ArmRow(
-            fy=cfg.label, n_gate=n_gate, n_trades=m.n, n_props=len(all_cands),
-            mean_r=m.mean_r if m.n > 0 else None,
-            sharpe=m.sharpe if (m.n > 0 and not math.isnan(m.sharpe)) else None,
-            win_rate=m.win_rate if m.n > 0 else None,
-            hold_bars=m.hold_bars if m.n > 0 else None,
-        ))
+        out.append(_arm_row_from_metrics(m, cfg.label, n_gate, len(all_cands)))
     return out
 
 
@@ -223,6 +219,13 @@ def _format_report(a_rows, b_rows, c_rows) -> str:
                 f" | {avg_wr*100:.0f}%" if avg_wr is not None else f" | —"
             )
         lines.append("")
+
+    # Sortino + EV decomposition (2026-05-18 evaluation upgrade)
+    lines.append(_ev_decomp_table(
+        [("A baseline", a_rows), ("B K=1 expanded", b_rows), ("C K=5 strict", c_rows)],
+        _N_VALUES,
+    ))
+
     return "\n".join(lines)
 
 

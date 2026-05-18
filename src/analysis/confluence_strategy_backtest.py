@@ -215,8 +215,94 @@ class _ArmRow:
     n_props:   int
     mean_r:    float | None
     sharpe:    float | None
-    win_rate:  float | None
-    hold_bars: float | None
+    sortino:   float | None = None    # 2026-05-18 evaluation upgrade
+    win_rate:  float | None = None
+    hold_bars: float | None = None
+    # EV decomposition (2026-05-18 evaluation upgrade)
+    avg_win:   float | None = None    # mean of trades with r > 0
+    avg_loss:  float | None = None    # mean of trades with r < 0 (negative)
+
+
+def _ev_decomp_table(
+    rows_groups: list[tuple[str, list["_ArmRow"]]],
+    n_values: list[int],
+) -> str:
+    """Return a markdown sub-section with Sortino + EV decomposition per (arm, N).
+
+    Added 2026-05-18 as part of the evaluation upgrade.  Designed to be
+    appended after the main aggregate table in any A/B `_format_report()`.
+
+    Args:
+        rows_groups: list of (arm_label, all _ArmRow rows for that arm).
+        n_values: list of N gate values (mirrors the script's _N_VALUES).
+
+    Output table columns:
+        N gate, arm, Sharpe, Sortino, P(win), avg_win, avg_loss,
+        EV check (should ≈ mean_r — sanity).
+    """
+    import statistics as _stats
+    lines = [
+        "",
+        "### Sortino + EV decomposition (added 2026-05-18)",
+        "",
+        "EV = P(win)·E[win] + P(loss)·E[loss]  (E[loss] is negative, so the second term subtracts).  "
+        "EV check should ≈ mean_r — minor differences come from FY-equal-weighted averaging.  "
+        "Sortino penalizes only downside variance (good for asymmetric returns).",
+        "",
+        "| N gate | arm | Sharpe | Sortino | P(win) | avg_win | avg_loss | EV check |",
+        "|--------|-----|---:|---:|---:|---:|---:|---:|",
+    ]
+    for n_gate in n_values:
+        for arm_label, rows_all in rows_groups:
+            rows = [r for r in rows_all if r.n_gate == n_gate]
+            sh   = [r.sharpe   for r in rows if r.sharpe   is not None]
+            so   = [r.sortino  for r in rows if r.sortino  is not None]
+            pw   = [r.win_rate for r in rows if r.win_rate is not None]
+            aw   = [r.avg_win  for r in rows if r.avg_win  is not None]
+            al   = [r.avg_loss for r in rows if r.avg_loss is not None]
+            avg_sh = _stats.mean(sh) if sh else None
+            avg_so = _stats.mean(so) if so else None
+            avg_pw = _stats.mean(pw) if pw else None
+            avg_aw = _stats.mean(aw) if aw else None
+            avg_al = _stats.mean(al) if al else None
+            ev_check = (avg_pw * avg_aw + (1 - avg_pw) * avg_al) \
+                       if (avg_pw is not None and avg_aw is not None and avg_al is not None) \
+                       else None
+            sh_s = f"{avg_sh:+.2f}" if avg_sh is not None else "—"
+            so_s = f"{avg_so:+.2f}" if avg_so is not None else "—"
+            pw_s = f"{avg_pw*100:.1f}%" if avg_pw is not None else "—"
+            aw_s = f"{avg_aw*100:+.2f}%" if avg_aw is not None else "—"
+            al_s = f"{avg_al*100:+.2f}%" if avg_al is not None else "—"
+            ev_s = f"{ev_check*100:+.2f}%" if ev_check is not None else "—"
+            lines.append(
+                f"| N ≥ {n_gate} | {arm_label} | {sh_s} | **{so_s}** | "
+                f"{pw_s} | {aw_s} | {al_s} | {ev_s} |"
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _arm_row_from_metrics(m, fy: str, n_gate: int, n_props: int) -> "_ArmRow":
+    """Build _ArmRow from a `_metrics()` result, with None for empty stats.
+
+    Threads through Sharpe + Sortino + EV decomposition (added 2026-05-18).
+    Callers in the various confluence A/B scripts should use this helper
+    to keep the EV columns populated uniformly.
+    """
+    if m.n == 0:
+        return _ArmRow(fy=fy, n_gate=n_gate, n_trades=0, n_props=n_props,
+                       mean_r=None, sharpe=None)
+    safe_float = lambda v: v if not math.isnan(v) else None
+    return _ArmRow(
+        fy=fy, n_gate=n_gate, n_trades=m.n, n_props=n_props,
+        mean_r=m.mean_r,
+        sharpe=safe_float(m.sharpe),
+        sortino=safe_float(m.sortino),
+        win_rate=m.win_rate,
+        hold_bars=m.hold_bars,
+        avg_win=m.avg_win if m.avg_win != 0.0 else None,
+        avg_loss=m.avg_loss if m.avg_loss != 0.0 else None,
+    )
 
 
 def _run_fy_arm(cfg: FyConfig, n_gate: int,
@@ -242,13 +328,7 @@ def _run_fy_arm(cfg: FyConfig, n_gate: int,
                 n_gate, m.n,
                 m.sharpe if not math.isnan(m.sharpe) else float("nan"),
                 m.mean_r)
-    return _ArmRow(
-        fy=cfg.label, n_gate=n_gate, n_trades=m.n, n_props=len(all_cands),
-        mean_r=m.mean_r if m.n > 0 else None,
-        sharpe=m.sharpe if (m.n > 0 and not math.isnan(m.sharpe)) else None,
-        win_rate=m.win_rate if m.n > 0 else None,
-        hold_bars=m.hold_bars if m.n > 0 else None,
-    )
+    return _arm_row_from_metrics(m, cfg.label, n_gate, len(all_cands))
 
 
 def _run_fy(cfg: FyConfig, fires_by_stock: dict) -> list[_ArmRow]:
@@ -357,6 +437,9 @@ def _format_report(all_rows: list[_ArmRow]) -> str:
         mr_s = f"{avg_mr*100:+.2f}%" if avg_mr is not None else "—"
         wr_s = f"{avg_wr*100:.0f}%" if avg_wr is not None else "—"
         lines.append(f"| **N ≥ {n_gate}** | {total_n} | **{sh_s}** | **{mr_s}** | {wr_s} |")
+    # Sortino + EV decomposition (2026-05-18 evaluation upgrade)
+    lines.append(_ev_decomp_table([("confluence", all_rows)], _N_VALUES))
+
     lines += [
         "",
         "### Baseline reference",

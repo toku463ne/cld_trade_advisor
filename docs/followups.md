@@ -134,6 +134,95 @@ shipped (with a date) or **Dropped** when intentionally abandoned.
   - Related memory: `project_sign_sector_factor.md`
     (rev_nhi × 銀行 A/B-negative — already excluded).
 
+### 4. Evaluation framework upgrades (2026-05-18 brainstorm)
+
+Operator-proposed extensions to the evaluation rubric.  Verdict + scope
+captured here; the three highest-priority items (Sortino + EV
+decomposition, BH-FDR, marginal contribution) are being implemented in
+the same session and will be removed from this list once shipped.
+
+#### Deferred — worth doing when triggered
+
+**(a) MAE / MFE / time-to-peak path statistics**
+
+- **What** — Per-fire path metrics: Max Adverse Excursion (worst
+  drawdown DURING trade), Max Favorable Excursion (best peak), and
+  bar-index of MFE.
+- **Why deferred** — These optimize EXIT rules, not entry signs.
+  Current ZsTpSl(2.0, 2.0, 0.3) is fixed and shipped.  Per-fire DR is
+  the entry-side metric.
+- **Trigger to revisit** — When we revisit exit rule tuning (e.g.,
+  tighter SL for high-MAE cohorts, longer hold for late-MFE cohorts).
+  Or if we want to compare ZsTpSl to alternatives at fine granularity.
+- **Implementation** — log per-fire (entry_bar_idx, mfe_bar_idx,
+  mae_bar_idx, mfe_pct, mae_pct) when running `_first_zigzag_peak`.
+  Aggregate to a "path quality" table per sign.
+- **Links** — `src/exit/zs_tp_sl.py`, `src/analysis/exit_benchmark.py`.
+
+**(b) Calmar / Omega ratio + pooled CVaR**
+
+- **What** — Beyond Sharpe and Sortino: Calmar = annualized_return /
+  max_drawdown; Omega = E[max(r−MAR, 0)] / E[max(MAR−r, 0)] around a
+  threshold MAR; CVaR(5%) = mean of worst-5% trade returns.
+- **Why deferred** — Calmar needs a continuous equity curve we don't
+  currently maintain (our trades are sparse).  CVaR is stable only at
+  n ≥ 100 — per-FY n=25-40 is too small.  Omega is theoretically
+  elegant but Sortino captures most of the same intuition more cheaply.
+- **Trigger to revisit** — When we have a live combined-strategy
+  equity curve (Daily-tab P&L view or similar).  CVaR becomes useful
+  once we pool across FYs and have n ≥ 200.
+- **Implementation** — build a daily equity series from
+  ConfluenceSignStrategy trades, compute running max, then Calmar +
+  CVaR + Omega are 5-line additions to `_metrics()`.
+- **Links** — `docs/evaluation_guide.md` §4.1.
+
+**(c) New regime axes — cross-sectional dispersion, N225 realized vol**
+
+- **What** — Add regime split axes beyond N225 bear/bull (ADX-based):
+  - **Cross-sectional dispersion** = std of daily returns across the
+    universe.  Low dispersion = "stocks move together" (correlation
+    regime).  High dispersion = idiosyncratic moves dominate.
+  - **N225 realized vol** (or VXJ index proxy) — high-vol vs low-vol
+    regimes likely flip mean-reversion vs continuation behavior.
+- **Why deferred** — Each new axis multiplies the regime-cell count
+  (currently 9 cells from ADX×Kumo).  Adding 2 more axes → 9 × 2 × 2
+  = 36 cells.  Per-cell sample sizes get thin fast.
+- **Trigger to revisit** — When we want to refine signs that show
+  bimodal per-FY behavior (works some years, fails others — possibly
+  vol-regime-conditional).  One focused probe per axis is cheap.
+- **Implementation** — extend `n225_regime_snapshots` table with
+  realized_vol_20 column; build cross-sectional-dispersion daily
+  series from stock returns; join to `SignBenchmarkEvent` via
+  fired_at date.  Mirror existing bear/bull tagging logic.
+- **Skip variants** — Yen trend already tested 2026-05-14
+  (`project_usdjpy_corr_axis` in memory; OOS-failed).
+
+**(d) Bootstrap CI in every A/B report template**
+
+- **What** — Add bootstrap 95% CI on pooled Sharpe + per-FY Sharpe to
+  every A/B's output table.  Currently bootstrap is run ad-hoc in
+  specific probes (`project_timestop40_bootstrap_reject` etc.).
+- **Why deferred** — Not a single missing piece — it's a template
+  change across ~6 A/B scripts (`regime_sign_*_ab.py`,
+  `confluence_*_ab.py`).  Worth doing in a single sweep when next
+  touching A/B scripts.
+- **Trigger to revisit** — Next time we write a new A/B script —
+  cherry-pick the template upgrade and back-port to existing ones.
+- **Implementation** — utility function in `src/analysis/_bootstrap.py`:
+  `bootstrap_ci(returns: list[float], stat_fn, n_iter=10000, alpha=0.05)`.
+  Call from each `_format_report()`.
+- **Links** — `docs/evaluation_guide.md` §6.
+
+**(e) Hierarchical Bayesian consistency — SKIP**
+
+- **What** — Model FY-level Sharpe with shrinkage (PyMC/Stan).
+- **Why we WON'T do this** — At n=25-40 trades/FY × 7 FYs, posteriors
+  would be dominated by the prior, not the data.  Bootstrap CI gives
+  most of the same insight with no model dependency.  Genuine
+  over-engineering at our scale.
+- **Trigger to revisit** — If/when we have ≥10 FYs of data AND ≥100
+  trades/FY (would need universe expansion).
+
 ---
 
 ## Done

@@ -246,15 +246,23 @@ def phase_report(summaries: list[_SignSummary], rows: list[_ScoreRow]) -> None:
         "",
         "### Summary",
         "",
-        "| Sign | n | score range | ρ | p(ρ) | verdict |",
-        "|------|---|-------------|---|------|---------|",
+        "ρ = Spearman correlation (score vs signed_return).  "
+        "p(ρ) = raw p-value of ρ.  "
+        "q(ρ) = Benjamini-Hochberg FDR-adjusted p, per sign-family.",
+        "",
+        "| Sign | n | score range | ρ | p(ρ) | q(ρ) | verdict |",
+        "|------|---|-------------|---|------|------|---------|",
     ]
+    # BH-FDR per sign family (2026-05-18 upgrade)
+    qmap = _compute_family_qvals(summaries)
     for s in summaries:
         rho_s = f"{s.rho:+.3f}" if s.rho is not None else "—"
+        q_val = qmap.get(s.sign)
+        q_s   = _fmt_p(q_val) if q_val is not None else "—"
         out.append(
             f"| {s.sign:<10} | {s.n_total:>6} | "
             f"{s.score_min:.3f}–{s.score_max:.3f} | "
-            f"{rho_s:>7} | {_fmt_p(s.p_rho):>7} | {_verdict(s)} |"
+            f"{rho_s:>7} | {_fmt_p(s.p_rho):>7} | {q_s:>7} | {_verdict(s)} |"
         )
 
     out += [
@@ -326,7 +334,12 @@ def _jp_fy(d: datetime.date) -> int:
 
 
 def _bh_fdr(pvals: list[float]) -> list[float]:
-    """Benjamini–Hochberg FDR-adjusted q-values."""
+    """Benjamini–Hochberg FDR-adjusted q-values.
+
+    Returns q[i] = smallest FDR level at which test i would be rejected.
+    Conventional reading: a sign with q < 0.05 is "discovery-rate-controlled
+    significant" even after correcting for multiple comparisons in the batch.
+    """
     m = len(pvals)
     if m == 0:
         return []
@@ -339,6 +352,53 @@ def _bh_fdr(pvals: list[float]) -> list[float]:
         prev = min(prev, val)
         q[i] = prev
     return q
+
+
+def _sign_family(sign: str) -> str:
+    """Return the family prefix for a sign name (used for grouping FDR tests).
+
+    Convention: sign names follow `<family>_<variant>` so the family is
+    everything before the first underscore.  Special-case `chiko` (no
+    underscore) → its own family.
+
+    Used by `_compute_family_qvals` to apply BH-FDR within each family
+    rather than across all signs.  Within-family signs share most data
+    paths (similar fire patterns), so within-family correction is the
+    statistically meaningful unit.
+    """
+    if "_" not in sign:
+        return sign        # e.g. "chiko"
+    return sign.split("_", 1)[0]
+
+
+def _compute_family_qvals(
+    summaries: "list[_SignSummary]",
+) -> dict[str, float | None]:
+    """Group p-values by sign family and apply BH-FDR within each family.
+
+    Returns {sign_name: q_value or None if p_rho is None}.  q-values come
+    from BH-adjustment across all signs in the same family with non-null
+    p_rho.
+
+    Added 2026-05-18 per operator request — addresses multiple-comparisons
+    bias when we test many signs in the same family (e.g., brk_kumo_hi,
+    brk_kumo_lo, brk_tenkan_hi, brk_tenkan_lo, brk_sma, brk_bol, brk_wall,
+    brk_floor — 8 brk_* signs).
+    """
+    by_family: dict[str, list[tuple[str, float]]] = {}
+    for s in summaries:
+        if s.p_rho is None:
+            continue
+        fam = _sign_family(s.sign)
+        by_family.setdefault(fam, []).append((s.sign, s.p_rho))
+    qmap: dict[str, float | None] = {s.sign: None for s in summaries}
+    for fam, items in by_family.items():
+        names = [n for n, _ in items]
+        pvals = [p for _, p in items]
+        qs    = _bh_fdr(pvals)
+        for n, q in zip(names, qs):
+            qmap[n] = q
+    return qmap
 
 
 def _classify_corr(c: float) -> str:
