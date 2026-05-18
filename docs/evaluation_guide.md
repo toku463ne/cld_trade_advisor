@@ -159,6 +159,64 @@ gate it to fire only in bear regimes.
 This is why benchmark.md tables show per-FY DR alongside bear/bull DR
 columns.
 
+### 2.6 EV decomposition (added 2026-05-18)
+
+`mean_r` (§2.2) combines win frequency and trade-size info into one
+number.  Decomposing it reveals which of those is doing the work:
+
+```
+EV = P(win) · E[win] + P(loss) · E[loss]      (E[loss] is negative)
+   = win_rate · avg_win − (1 − win_rate) · |avg_loss|
+```
+
+This is algebraically the same as `mean_r`, but separating the
+components tells us:
+
+  - **High win rate, small wins** vs **low win rate, big wins**
+  - **Whether losses are well-controlled** (small |E[loss]|) or
+    occasionally catastrophic
+  - **Kelly fraction** for sizing: `f* = EV / E[win²]` — needs the
+    decomposition
+
+Example reading: a sign with DR 55%, avg_win +2%, avg_loss −5% has
+EV = 0.55 × 2 − 0.45 × 5 = +1.1 − 2.25 = −1.15%.  The high win rate is
+illusory — the rare losses overwhelm the frequent small wins.
+
+The A/B output tables now include columns for `P(win)`, `avg_win`,
+`avg_loss`, and an `EV check` that should ≈ `mean_r` (sanity check on
+the decomposition).
+
+### 2.7 Multiple comparisons — Benjamini-Hochberg FDR (added 2026-05-18)
+
+When we test many signs (currently ~22) across many FYs (7) and
+regime cells (~9), we run hundreds of significance tests.  At p<0.05,
+about 5% of tests will "pass" by chance alone — that's 70+ false
+positives across our test grid.
+
+**False Discovery Rate (FDR)** is the expected fraction of "passes"
+that are flukes.  Controlling FDR at 5% means: of the tests we call
+significant, ≤ 5% are false discoveries.
+
+The **Benjamini-Hochberg (BH)** procedure adjusts p-values to control
+FDR.  Given `m` sorted p-values `p₁ ≤ p₂ ≤ … ≤ pₘ`:
+
+```
+q(p_k) = min over j ≥ k of  (p_j × m / j)      (capped at 1.0)
+```
+
+A test with `q < 0.05` is "FDR-significant" — meaningful even after
+correcting for the multiple tests.  We apply BH **within each sign
+family** (`brk_*`, `str_*`, etc.) since within-family signs share
+data paths and aren't statistically independent of all signs.
+
+The benchmark.md Score Calibration section now includes both `p(ρ)`
+(raw) and `q(ρ)` (FDR-adjusted).  A sign that's `p<0.05` but `q>0.10`
+is "weak — could be one of the family's false positives."
+
+Lightweight reading: if you tested 10 brk_* signs and 1 passed
+p<0.05, that's chance.  BH would assign that test q ≈ 0.50, telling
+you not to trust it without replication.
+
 ---
 
 ## 3. Score calibration (does the score rank fires?)
@@ -262,6 +320,36 @@ low variance are both rewarded.
 HUGE variance.  A Sharpe of +3 on n=25 has a typical 95% CI of roughly
 ±2.  Don't read a 0.2 Sharpe difference as meaningful at small n.
 
+### 4.1.1 Sortino ratio (added 2026-05-18)
+
+Sharpe penalizes **all** volatility — including upside.  But traders
+care more about losses than equal-sized wins.  Sortino fixes this:
+
+```
+downside_returns = [r if r < 0 else 0 for r in trade_returns]
+Sortino = mean(trade_returns) / std(downside_returns)
+```
+
+Only downside volatility is in the denominator.  Strategies with
+asymmetric returns (small frequent gains + rare big losses, or vice
+versa) get a more honest assessment.
+
+| Sharpe vs Sortino | What it tells you |
+|---|---|
+| Sortino ≈ Sharpe | symmetric return distribution |
+| Sortino > Sharpe | upside-skewed (good — big wins inflate Sharpe's std) |
+| Sortino << Sharpe | downside-skewed (bad — Sharpe is masking tail risk) |
+
+Example from this codebase (2026-05-18 brk_wall A/B at N≥3):
+  - A baseline:  Sharpe +3.72  Sortino +8.70
+  - B +brk_wall: Sharpe +2.32  Sortino +4.44
+
+Sortino drops by 4.26 (49%) vs Sharpe's 1.40 (38%) — the brk_wall
+addition hurts the downside-risk picture more than aggregate Sharpe
+shows.  Sortino reveals the worse story.
+
+The A/B output tables include both Sharpe and Sortino columns now.
+
 ### 4.2 Win rate
 
 ```
@@ -359,6 +447,48 @@ SHIP variant if:
 
 If we change the rule after seeing results, we're cheating
 (motivated reasoning).  Pre-registration forces honesty.
+
+### 5.4 Marginal contribution analysis (added 2026-05-18)
+
+Aggregate Sharpe/mean_r tells you whether the variant is better, but
+hides WHY.  When testing "add sign X to confluence", we now also
+report **per-trade marginal metrics** comparing A (baseline) vs B (A
++ X):
+
+| Metric | Math | Tells us |
+|---|---|---|
+| **Δ trade count** | `n(B) − n(A)` | turnover impact (more trades = more costs) |
+| **Δ max drawdown** | `dd(B) − dd(A)` where `dd = max(cum_peak − cum_now)` | did adding X make the worst-case loss worse? |
+| **Daily correlation** | Pearson corr of per-day return series A vs B | high (>0.7) = duplication, low (<0.3) = real diversification |
+| **Tail-hedge lift** | `mean(B on A's worst quintile days) − mean(A on those days)` | does X cushion when baseline loses? |
+| **New-trade win rate** | `wins / total` among trades B has that A doesn't | quality of the marginal trades introduced |
+
+Why these matter: a sign can pass the aggregate Sharpe gate but:
+  - DUPLICATE existing trades (high daily correlation → no real
+    diversification benefit)
+  - MAKE DRAWDOWN WORSE while leaving Sharpe flat (because the bad
+    days cluster)
+  - FAIL TO HEDGE on baseline's tail days (so it's not the kind of
+    addition that makes the strategy robust)
+
+Example from this codebase (2026-05-18 brk_wall A/B at N≥3):
+  - Daily correlation: +0.491 — moderate, not full duplication
+  - Tail-hedge lift: +4.93% — brk_wall actually HELPS on baseline's
+    worst days (positive lift)
+  - Δ drawdown: +17.93pp — but overall drawdown gets WORSE
+  - New-trade win rate: 57.8% — actually decent quality
+
+The aggregate Sharpe regression (−1.40) hides this nuance.  The
+marginal table reveals that brk_wall isn't useless — it provides some
+tail-hedge value but worsens drawdown.  The ship-NO decision stands,
+but for richer reasons than "Sharpe got worse".
+
+Implementation: `src/analysis/_marginal.py`.  `compute_marginal(a_results,
+b_results)` returns a `MarginalReport`; `marginal_table()` renders it as
+markdown.  Currently integrated into
+`src/analysis/confluence_brk_wall_inclusion_ab.py` as the proof of
+concept; other A/B scripts will adopt the pattern next time they're
+touched (template upgrade tracked in `docs/followups.md` §4d).
 
 ---
 
@@ -466,13 +596,24 @@ This guide explains the math; that guide explains the gates.
 
 ## 9. Where the metrics live
 
-| Output | Script | Section in benchmark.md |
+| Output | Script / Helper | Section in benchmark.md (or doc) |
 |---|---|---|
 | Per-FY DR / mean_r / perm_p | `sign_benchmark_multiyear.py --phase benchmark validate report` | "Multi-Year Benchmark" |
 | Bear/bull regime split | `sign_regime_analysis.py` | "Regime-Split Analysis" |
-| Spearman ρ + quartiles | `sign_score_calibration.py --by-regime` | "Score Calibration" |
+| Spearman ρ + quartiles + **q(ρ) FDR** | `sign_score_calibration.py --by-regime` | "Score Calibration" |
 | FY2025 OOS canonical | `sign_benchmark_multiyear.py --phase backtest` | "FY2025 OOS" |
-| Strategy A/B | `confluence_*_ab.py` or `regime_sign_*_ab.py` | top of A/B's own section |
+| Strategy A/B (Sharpe + **Sortino + EV decomp**) | `confluence_*_ab.py` or `regime_sign_*_ab.py` | top of A/B's own section + `_ev_decomp_table` helper |
+| **Marginal contribution** | `src/analysis/_marginal.py` (`compute_marginal`, `marginal_table`) | A/B's "Marginal contribution" sub-section |
+
+Shared helpers (added 2026-05-18):
+  - `Metrics.sortino`, `Metrics.avg_win`, `Metrics.avg_loss` in
+    `exit_benchmark.py` — used by every A/B's per-trade stats.
+  - `_arm_row_from_metrics()` in `confluence_strategy_backtest.py` —
+    consolidates `_ArmRow` creation across A/B scripts.
+  - `_ev_decomp_table()` in `confluence_strategy_backtest.py` —
+    produces the Sortino + EV decomposition sub-table.
+  - `_compute_family_qvals()` in `sign_score_calibration.py` —
+    BH-FDR adjustment grouped by sign family prefix.
 
 To rebench one sign end-to-end: `scripts/rebenchmark_sign.sh <sign_type>`.
 
@@ -497,6 +638,15 @@ that reuses `_first_zigzag_peak` and `BrkXxxDetector`; report to
 | **Q4 − Q1 spread** | Top-quartile mean_r minus bottom-quartile mean_r |
 | **Sharpe** | mean / std of per-trade returns |
 | **win_rate** | Fraction of trades with positive return |
+| **Sortino** | mean / std_of_DOWNSIDE_returns — penalizes only losses, not upside variance |
+| **EV decomposition** | Splitting mean_r into P(win)·E[win] + P(loss)·E[loss] — same number, more info |
+| **avg_win / avg_loss** | Mean return among trades with r>0 / r<0 respectively |
+| **BH-FDR** | Benjamini-Hochberg False Discovery Rate adjustment — controls expected fraction of false positives across multiple tests |
+| **q-value (q)** | BH-adjusted p-value — q<0.05 means "FDR-significant" even after multiple-test correction |
+| **Sign family** | Group of signs sharing a prefix (brk_*, str_*, etc.) — used as the BH-FDR grouping unit |
+| **Marginal contribution** | Per-trade comparison of A vs B (turnover, drawdown, daily corr, tail-hedge) beyond aggregate Sharpe |
+| **Tail-hedge lift** | How much arm B helps on arm A's worst-quintile days (positive = real diversification on the tail) |
+| **Daily correlation** | Pearson corr of per-day returns A vs B — high = trades duplicate, low = real diversification |
 | **FY** | Fiscal year (Apr to Mar; e.g., FY2024 = 2024-04-01 to 2025-03-31) |
 | **OOS** | Out-of-sample — data not used in any fitting decision |
 | **Walk-forward** | Train on FYs ≤ T-1, test on FY T |
@@ -567,3 +717,47 @@ reading it cold understands what changed and why.
 This is the pattern.  Per-fire is necessary but not sufficient.
 Strategy A/B is the binding gate.  Documentation makes the decision
 auditable in 6 months.
+
+---
+
+## 12. Deferred upgrades (not yet implemented)
+
+Operator brainstormed (2026-05-18) a longer list of evaluation
+extensions.  Three were implemented (Sortino + EV decomp, BH-FDR,
+marginal contribution).  The rest are tracked in
+`docs/followups.md` §4 with **why** and **trigger to revisit**:
+
+| Item | Status | Trigger to revisit |
+|---|---|---|
+| **MAE / MFE / time-to-peak path stats** | deferred | When we revisit exit-rule tuning |
+| **Calmar / Omega ratio / pooled CVaR** | deferred | When we have a continuous equity curve OR pool n ≥ 100 |
+| **New regime axes** (cross-sectional dispersion, N225 realized vol, VXJ) | deferred | When a sign shows bimodal per-FY behavior we want to explain |
+| **Bootstrap CI in every A/B template** | deferred | Next time we write a new A/B — back-port via sweep |
+| **Hierarchical Bayesian consistency** | SKIP | Only at n ≥ 100/FY and ≥ 10 FYs — overkill at our scale |
+
+When implementing any of these, link the implementation back to the
+followups entry and move it to the "Done" section.
+
+### What's the intuition behind each deferred item?
+
+- **MAE/MFE**: instead of "next zigzag peak" as a single point, track
+  the WORST and BEST price during the holding period.  A trade that
+  was up 8% before exit, or down 5% before TP fired, has hidden
+  information that point estimates miss.  Useful for exit-rule
+  tuning (e.g., tighter SL for high-MAE cohorts).
+- **Calmar / Omega / CVaR**: alternatives to Sharpe and Sortino that
+  capture different aspects of tail risk.  Calmar uses max drawdown
+  (needs equity curve); CVaR averages the worst α% of trades; Omega
+  is a ratio of upside expectation to downside around a threshold.
+- **Dispersion / vol / VXJ regimes**: we currently split only on
+  N225 bear/bull.  Cross-sectional dispersion (std of stock returns)
+  tells whether stocks are moving together or independently — affects
+  whether single-stock signs work.  Realized vol regime likely flips
+  mean-reversion vs continuation behavior.
+- **Bootstrap CI**: resampling trades to get a 95% CI around Sharpe.
+  Tells you whether a "0.5 Sharpe improvement" is real or could
+  easily be noise.  Already used ad-hoc in some probes; should be
+  template-default.
+- **Hierarchical Bayesian**: model FY-level Sharpe as draws from a
+  distribution with shrinkage.  Statistically principled but requires
+  more data than we have to be data-driven rather than prior-driven.
