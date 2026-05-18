@@ -41,6 +41,9 @@ from src.signs.brk_sma import BrkSmaDetector
 from src.signs.brk_bol import BrkBolDetector
 from src.signs.brk_wall import BrkWallDetector
 from src.signs.brk_floor import BrkFloorDetector
+from src.signs.brk_kumo import BrkKumoDetector
+from src.signs.brk_tenkan import BrkTenkanDetector
+from src.signs.chiko import ChikoDetector
 from src.signs.rev_peak import RevPeakDetector
 from src.signs.rev_nday import RevNDayDetector
 from src.signs.rev_nhold import RevNholdDetector
@@ -63,6 +66,9 @@ __all__ = [
     "BrkBolDetector",
     "BrkWallDetector",
     "BrkFloorDetector",
+    "BrkKumoDetector",
+    "BrkTenkanDetector",
+    "ChikoDetector",
     "RevPeakDetector",
     "RevNDayDetector",
     "RevNholdDetector",

@@ -7,9 +7,18 @@ confluence_strategy_backtest.py` (commit bc758d0):
     regime_sign baseline   171   +1.33   +0.77%   varies
     N ≥ 3 confluence       165   +3.80   +1.97%   59%
 
-Bullish set (brk_wall excluded per dilution finding):
+Bullish set, originally 7 signs (brk_wall excluded per dilution
+finding):
 
     str_hold, str_lead, str_lag, brk_sma, brk_bol, rev_lo, rev_nlo
+
+**2026-05-18: bullish set expanded to 10 signs** by adding the strict
+whole-bar ichimoku breakouts (`brk_kumo_hi`, `brk_tenkan_hi`,
+`chiko_hi`).  A/B (`src/analysis/confluence_ichimoku_ab.py`) showed the
+expanded set is tied with baseline at N≥3 (Sharpe +3.64 vs +3.80,
+Δ −0.16 within noise) with better mean_r (+2.11% vs +1.97%) and win%
+(60% vs 59%) and 6/7 FYs non-negative.  Operator decision: ship per
+"attend the conference trade if data doesn't clearly say no" intent.
 
 Each sign's fire is "valid" for `valid_bars[sign]` trading days after
 firing (per the detector defaults — str_hold/brk_bol=3, others=5).
@@ -43,7 +52,10 @@ from src.data.db import get_session
 from src.data.models import Stock
 from src.signs import (
     BrkBolDetector,
+    BrkKumoDetector,
     BrkSmaDetector,
+    BrkTenkanDetector,
+    ChikoDetector,
     RevNloDetector,
     RevPeakDetector,
     StrHoldDetector,
@@ -61,16 +73,19 @@ _GRAN = "1d"
 _HIGH_CORR_THRESHOLD = 0.6
 _LOW_CORR_THRESHOLD  = 0.3
 
-# 7-sign bullish set (brk_wall excluded — confluence-dilution finding)
+# 10-sign bullish set (brk_wall excluded — confluence-dilution finding).
+# Three ichimoku _hi signs added 2026-05-18 after strict-whole-bar
+# (low/high instead of close) version brought A/B to tied with baseline.
 _BULLISH_SIGNS: tuple[str, ...] = (
     "str_hold", "str_lead", "str_lag",
     "brk_sma",  "brk_bol",
     "rev_lo",   "rev_nlo",
+    "brk_kumo_hi", "brk_tenkan_hi", "chiko_hi",
 )
 
 # Per-sign valid_bars used to extend a fire's "still active" window.
 # Matches detector defaults (so confluence here is identical to what
-# bullish_confluence_v2_probe measured).
+# bullish_confluence_v2_probe measured for the original 7 signs).
 _VALID_BARS: dict[str, int] = {
     "str_hold": 3,
     "str_lead": 5,
@@ -79,6 +94,9 @@ _VALID_BARS: dict[str, int] = {
     "brk_bol":  3,
     "rev_lo":   5,
     "rev_nlo":  5,
+    "brk_kumo_hi":   5,
+    "brk_tenkan_hi": 5,
+    "chiko_hi":      5,
 }
 
 
@@ -110,6 +128,12 @@ def _build_detector(
         return RevPeakDetector(cache, side="lo")
     if sign == "rev_nlo":
         return RevNloDetector(cache, n225_cache)
+    if sign == "brk_kumo_hi":
+        return BrkKumoDetector(cache, side="hi")
+    if sign == "brk_tenkan_hi":
+        return BrkTenkanDetector(cache, side="hi")
+    if sign == "chiko_hi":
+        return ChikoDetector(cache, side="hi")
     return None
 
 

@@ -66,6 +66,9 @@ from src.signs import (
     BrkBolDetector,
     BrkWallDetector,
     BrkFloorDetector,
+    BrkKumoDetector,
+    BrkTenkanDetector,
+    ChikoDetector,
     BrkSmaDetector,
     CorrFlipDetector,
     CorrPeakDetector,
@@ -267,6 +270,12 @@ def _eval_stock(
         detector = BrkWallDetector(cache_det)
     elif sign_type == "brk_floor":
         detector = BrkFloorDetector(cache_det)
+    elif sign_type in ("brk_kumo_hi", "brk_kumo_lo"):
+        detector = BrkKumoDetector(cache_det, side=sign_type[-2:])
+    elif sign_type in ("brk_tenkan_hi", "brk_tenkan_lo"):
+        detector = BrkTenkanDetector(cache_det, side=sign_type[-2:])
+    elif sign_type in ("chiko_hi", "chiko_lo"):
+        detector = ChikoDetector(cache_det, side=sign_type[-2:])
     elif sign_type == "rev_lo":
         detector = RevPeakDetector(cache_det, proximity_pct=extra.proximity_pct, side="lo")
     elif sign_type == "rev_hi":

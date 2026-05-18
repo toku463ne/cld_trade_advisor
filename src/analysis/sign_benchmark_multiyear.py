@@ -100,6 +100,9 @@ SIGNS: list[str] = [
     "corr_flip", "corr_shift",
     "str_hold", "str_lead", "str_lag",
     "brk_sma", "brk_bol", "brk_wall", "brk_floor",
+    "brk_kumo_hi", "brk_kumo_lo",
+    "brk_tenkan_hi", "brk_tenkan_lo",
+    "chiko_hi", "chiko_lo",
     "rev_lo", "rev_hi", "rev_nhi", "rev_nlo", "rev_nhold",
 ]
 
