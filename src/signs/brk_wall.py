@@ -22,6 +22,37 @@ windowed peaks; canonical rebench numbers are weaker but still pass:
     ship as standalone proposal only
 
 Operator-chosen params (K=10, θ=0.05, lookback=120) reproduced here.
+**Now constructor-parameterized** so K/θ/lookback can be overridden for
+experiments; defaults preserve current production.
+
+**K-sweep 2026-05-18** (`src/analysis/brk_wall_k_sweep.py` + the two
+A/B scripts):
+
+  Per-fire pooled across FY2019–FY2025:
+    K=10 (current): n=5824, DR=52.9%, mean_r=+0.80%
+    K=15          : n=3449, DR=53.7%, mean_r=+0.86%  (+0.8pp DR)
+    K=20          : n=1613, DR=53.5%, mean_r=+0.83%
+    K=30          : n=314,  DR=51.0%, mean_r=+0.83%  (too sparse)
+
+  Score informativeness — uninformative at ALL K values:
+    K=10 Spearman ρ=+0.020 (p=0.122), Q4−Q1 spread +0.81pp — WEAK
+    K=15 Spearman ρ=+0.014 (p=0.400), Q4−Q1 spread +0.82pp — WEAK
+    K=20 Spearman ρ=-0.003 (p=0.909), Q4−Q1 spread -0.22pp — NOISE
+    K=30 Spearman ρ=-0.001 (p=0.992), Q4−Q1 spread +0.41pp — NOISE
+
+  Strategy A/B verdicts (K=15 tested, the per-fire winner):
+    - regime_sign A/B (K=15): trade-for-trade IDENTICAL with vs without
+      brk_wall — same result as K=10.  brk_wall remains inert in
+      regime_sign at any K.
+    - Confluence inclusion A/B (K=15): adding brk_wall to bullish set
+      REGRESSES Sharpe at N=3 (+3.72 → +2.32, Δ −1.40), 5/7 FYs lose.
+      Same dilution finding as K=10.
+
+  Final decision: **revert to K=10 default.**  Per-fire +0.8pp gain at
+  K=15 doesn't translate to any strategy lift.  K parameter remains
+  configurable for future experiments.
+
+  See `docs/analysis/brk_wall_tuning.md` for full per-FY tables.
 """
 from __future__ import annotations
 
@@ -34,9 +65,9 @@ import pandas as pd
 from src.signs.base import SignResult
 from src.simulator.cache import DataCache
 
-_K        = 10     # sideways window length (trading days)
-_THETA    = 0.05   # (max H − min L) / mean C tightness threshold
-_LOOKBACK = 120    # bars over which to search for walls (~6 months)
+_K        = 10     # sideways window length (trading days) — default (K-sweep 2026-05-18 confirmed K=10; K=15 had +0.8pp per-fire DR but zero/negative strategy impact)
+_THETA    = 0.05   # (max H − min L) / mean C tightness threshold — default
+_LOOKBACK = 120    # bars over which to search for walls (~6 months) — default
 
 SIGN_VALID: bool = True
 SIGN_NAMES: list[str] = ["brk_wall"]
@@ -60,7 +91,16 @@ class BrkWallDetector:
     the str_hold pattern.
     """
 
-    def __init__(self, stock_cache: DataCache) -> None:
+    def __init__(self, stock_cache: DataCache,
+                 K: int = _K, theta: float = _THETA,
+                 lookback: int = _LOOKBACK) -> None:
+        if K < 3:
+            raise ValueError(f"K must be >=3, got {K}")
+        if lookback <= K + 1:
+            raise ValueError(f"lookback ({lookback}) must exceed K+1 ({K+1})")
+        self._K_param        = K
+        self._theta_param    = theta
+        self._lookback_param = lookback
         self._stock_code = stock_cache.stock_code
         self._dts        = [b.dt for b in stock_cache.bars]
 
@@ -84,7 +124,7 @@ class BrkWallDetector:
         self._date_first_bar_idx = date_first_bar_idx
 
         trading_dates = sorted(date_hi)
-        if len(trading_dates) < _LOOKBACK + 5:
+        if len(trading_dates) < self._lookback_param + 5:
             self._fire_events: list[tuple[int, float]] = []
             return
 
@@ -92,19 +132,23 @@ class BrkWallDetector:
         lows  = np.array([date_lo[d] for d in trading_dates], dtype=float)
         closes = np.array([date_cl[d] for d in trading_dates], dtype=float)
 
+        K        = self._K_param
+        theta    = self._theta_param
+        lookback = self._lookback_param
+
         # 1. tight_window_high[i] = highs[i-K+1..i].max() if window tight, else NaN
         n = len(trading_dates)
         tight_high = np.full(n, np.nan)
-        for i in range(_K - 1, n):
-            wnd_hi = highs[i  - _K + 1 : i + 1].max()
-            wnd_lo = lows[i   - _K + 1 : i + 1].min()
-            wnd_mn = closes[i - _K + 1 : i + 1].mean()
-            if wnd_mn > 0 and (wnd_hi - wnd_lo) / wnd_mn <= _THETA:
+        for i in range(K - 1, n):
+            wnd_hi = highs[i  - K + 1 : i + 1].max()
+            wnd_lo = lows[i   - K + 1 : i + 1].min()
+            wnd_mn = closes[i - K + 1 : i + 1].mean()
+            if wnd_mn > 0 and (wnd_hi - wnd_lo) / wnd_mn <= theta:
                 tight_high[i] = wnd_hi
 
         # 2. wall[T] = max(tight_high[j] for j in [T-lookback, T-K-1])
-        s = pd.Series(tight_high).shift(_K + 1)
-        wall = s.rolling(_LOOKBACK - _K, min_periods=1).max().to_numpy()
+        s = pd.Series(tight_high).shift(K + 1)
+        wall = s.rolling(lookback - K, min_periods=1).max().to_numpy()
 
         # 3. Strict transition-gated fire: low[T] > wall[T-1] AND low[T-1] <= wall[T-1]
         fire_events: list[tuple[int, float]] = []

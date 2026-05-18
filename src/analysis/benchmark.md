@@ -896,18 +896,18 @@ Kumo states: ▲above cloud (+1) · ~inside (0) · ▼below cloud (−1)
 | brk_kumo_lo | ▼below  | 0.0573 | 56.3% |    1551 |      0 |       — | —      |
 | brk_floor  | ▼below  | 0.0533 | 59.1% |    1173 |      0 |       — | —      |
 | chiko_hi   | ~inside | 0.0523 | 60.2% |     777 |      0 |       — | —      |
-| brk_sma    | ▼below  | 0.0522 | 56.9% |     311 |      8 |   87.5% | +31.7% |
-| brk_sma    | ▲above  | 0.0520 | 51.5% |     809 |    251 |   55.0% | -0.9%  |
+| brk_sma    | ▼below  | 0.0522 | 56.9% |     311 |      0 |       — | —      |
+| brk_sma    | ▲above  | 0.0520 | 51.5% |     809 |      0 |       — | —      |
 | str_hold   | ~inside | 0.0520 | 59.8% |    1616 |      0 |       — | —      |
 | chiko_lo   | ▼below  | 0.0519 | 55.0% |    1623 |      0 |       — | —      |
-| brk_sma    | ~inside | 0.0518 | 51.4% |     181 |      6 |   50.0% | -5.8%  |
+| brk_sma    | ~inside | 0.0518 | 51.4% |     181 |      0 |       — | —      |
 | brk_tenkan_lo | ▼below  | 0.0517 | 54.8% |    5288 |      0 |       — | —      |
 | div_peer   | ▲above  | 0.0509 | 52.7% |     372 |      0 |       — | —      |
 | brk_bol    | ▼below  | 0.0503 | 52.5% |     444 |      0 |       — | —      |
 | div_gap    | ▼below  | 0.0499 | 56.9% |    1109 |      0 |       — | —      |
 | corr_shift | ~inside | 0.0496 | 58.7% |     109 |      0 |       — | —      |
 | div_gap    | ▲above  | 0.0492 | 56.7% |    1241 |      0 |       — | —      |
-| brk_wall   | ~inside | 0.0492 | 62.0% |     368 |      0 |       — | —      |
+| brk_wall   | ~inside | 0.0492 | 62.0% |     368 |     10 |   80.0% | +20.4% |
 | str_hold   | ▼below  | 0.0488 | 56.9% |    4936 |      0 |       — | —      |
 | corr_flip  | ▼below  | 0.0478 | 47.4% |     116 |      0 |       — | —      |
 | rev_nlo    | ~inside | 0.0476 | 42.8% |     615 |      0 |       — | —      |
@@ -943,7 +943,7 @@ Kumo states: ▲above cloud (+1) · ~inside (0) · ▼below cloud (−1)
 | chiko_hi   | ▲above  | 0.0403 | 49.0% |    3374 |      0 |       — | —      |
 | corr_flip  | ▲above  | 0.0402 | 53.5% |     303 |      0 |       — | —      |
 | brk_kumo_hi | ▲above  | 0.0395 | 48.5% |    2822 |      0 |       — | —      |
-| brk_wall   | ▲above  | 0.0382 | 49.8% |    2199 |      0 |       — | —      |
+| brk_wall   | ▲above  | 0.0382 | 49.8% |    2199 |    995 |   59.4% | -0.2%  |
 | brk_floor  | ~inside | 0.0375 | 56.6% |     311 |      0 |       — | —      |
 | rev_hi     | ▲above  | 0.0374 | 48.3% |    4277 |      0 |       — | —      |
 | str_lead   | ~inside | 0.0348 | 44.0% |     273 |      0 |       — | —      |
@@ -963,9 +963,9 @@ regime_n% = fraction of total events retained by the regime filter.
 | str_hold   | 0 | — | — | — | — | — |
 | str_lead   | 0 | — | — | — | — | — |
 | str_lag    | 0 | — | — | — | — | — |
-| brk_sma    |     265 |    55.8% |      265 |     55.8% |  +0.0% |      100% |
+| brk_sma    | 0 | — | — | — | — | — |
 | brk_bol    | 0 | — | — | — | — | — |
-| brk_wall   | 0 | — | — | — | — | — |
+| brk_wall   |    1005 |    59.6% |     1005 |     59.6% |  +0.0% |      100% |
 | brk_floor  | 0 | — | — | — | — | — |
 | brk_kumo_hi | 0 | — | — | — | — | — |
 | brk_kumo_lo | 0 | — | — | — | — | — |
