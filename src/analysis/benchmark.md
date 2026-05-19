@@ -1298,3 +1298,68 @@ Comparing **−{corr_shift, div_peer, str_lag}** against **baseline** at the per
 ## Required follow-up before ship
 
 Per [[project-rev-nhi-ui-only-salvage]], an aggregate PASS does NOT clear production swap.  Need bootstrap CI (both FY-level AND trade-level) showing lower CI bound above 0 before any EXCLUDE_SIGNS production change.  Failure mode to watch for: trade-level CI [−2, +4] (n thin) → AND-gate fail same as 2026-05-16.
+## regime_sign × bearish veto (2026-05-19)
+
+Probe run: 2026-05-19.  Tests whether vetoing regime_sign entries when bearish_count ≥ 2 at proposal date improves the strategy.
+
+- Bearish set: `rev_nhi, rev_hi, brk_kumo_lo, brk_tenkan_lo, chiko_lo`
+- Bearish valid_bars: 5
+- Veto threshold: skip proposals when bearish_count ≥ 2
+
+## Stage 0 — baseline trades stratified by bearish_count
+
+| bucket | n_pool | DR_pool | mean_r_pool | Sharpe_pool | n_hold | DR_hold | mean_r_hold |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| bearish = 0 | 55 | 56.4% | +2.15% | +2.71 | 23 | 56.5% | +3.95% |
+| bearish = 1 | 72 | 54.2% | +1.20% | +1.92 | 28 | 50.0% | +0.37% |
+| bearish = ≥2 | 44 | 63.6% | +2.41% | +4.33 | 19 | 57.9% | +2.92% |
+| **pool** | 171 | 57.3% | +1.82% | +2.73 | 70 | 54.3% | +2.24% |
+
+## Stage 1 — A/B aggregate (FY-equal-weighted)
+
+| arm | n | Sharpe | Sortino | mean_r | win% | avg_win | avg_loss |
+|-----|---:|---:|---:|---:|---:|---:|---:|
+| A baseline | 171 | **+2.83** | **+5.70** | +1.72% | 56.7% | +9.37% | -8.17% |
+| B veto≥2 | 168 | **+2.74** | **+7.08** | +1.89% | 57.4% | +9.14% | -8.25% |
+
+**Deltas**: ΔSh = **-0.10**, ΔSo = **+1.38**, ΔmeanR = **+0.16%**, Δn = -3
+
+### Per-FY
+
+| FY | base n | base Sh | veto n | veto Sh | ΔSh | ΔmeanR |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 0 | — | 0 | — | **—** | — |
+| FY2020 | 0 | — | 0 | — | **—** | — |
+| FY2021 | 31 | -1.06 | 31 | -5.20 | **-4.14** | -2.40% |
+| FY2022 | 31 | +1.73 | 30 | +3.06 | **+1.34** | +1.01% |
+| FY2023 | 38 | +6.91 | 34 | +5.72 | **-1.18** | -0.33% |
+| FY2024 | 36 | +1.44 | 37 | +1.59 | **+0.14** | +0.16% |
+| FY2025 | 35 | +5.16 | 36 | +8.51 | **+3.36** | +2.37% |
+
+## Pre-registered gate
+
+- ΔSharpe ≥ +0.30 → -0.10 (✗)
+- ΔSortino ≥ +0.50 → +1.38 (✓)
+- ≥ 5/7 FYs non-negative → 3/5 (✗)
+- FY2024 + FY2025 both non-negative → ✓
+
+## Verdict: **REJECT**
+
+## Marginal contribution: baseline → veto
+
+### Marginal contribution (added 2026-05-18)
+
+Comparing **veto≥2** against **baseline** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **-3** | veto≥2 − baseline (turnover impact) |
+| baseline max drawdown | +74.62% | peak-to-trough on cumulative trade returns |
+| veto≥2 max drawdown | +130.78% | same metric, expanded arm |
+| Δ drawdown | +56.16% | + = drawdown got WORSE under veto≥2 |
+| Daily-return correlation | **+0.645** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| baseline's worst-quintile day mean | -13.07% | A's bad days |
+| veto≥2 on those same days | -8.40% | does new sign help when A loses? |
+| Tail-hedge lift | **+4.67%** | + = veto≥2 cushions baseline's tail |
+| New-trade count (B-only) | 74 | trades introduced by the change |
+| New-trade win rate | 58.1% | quality of the marginal trades |
