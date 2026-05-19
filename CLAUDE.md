@@ -145,6 +145,16 @@ which mode to use **at entry time**:
 - Take **one position only** — holding multiple high-corr stocks simultaneously
   is false diversification (they are the same bet).
 - Exit rules follow the same N225-linked logic (time stop, ATR stop, zigzag HIGH).
+- **Caveat (2026-05-19)**: "ride N225 trend" is the diversification rule, not
+  the EV rule.  Per-fire sign EV for high-corr stocks is **anti-correlated**
+  with N225 trend_score — ~12 of 22 signs show HIGHER DR when N225 is in a
+  bearish trend regime (clean non-semantic example: `brk_floor` DR 62→60→45
+  across N225 score terciles, replicates on FY2024+FY2025 holdout).
+  Mechanical reading: in bullish N225 regimes a high-corr stock breakout is
+  momentum continuation into already-extended levels (mean-rev risk); in
+  bearish regimes the same breakout is divergence vs a weak tide (real
+  alpha).  Do NOT propose "skip high-corr longs when N225 is bearish" — the
+  data shows the opposite is true.
 
 ### Low-corr mode  (|corr to N225| ≤ ~0.3)
 - The stock moves independently of the index — it carries genuine alpha.
@@ -153,6 +163,11 @@ which mode to use **at entry time**:
 - **Multiple simultaneous positions are acceptable** because their moves are
   genuinely uncorrelated; each adds real diversification.
 - Apply the same exit discipline (time stop, ATR stop, zigzag exit).
+- **Caveat (2026-05-19)**: "moves independently" is the *price-path* claim,
+  not the *sign-EV* claim.  Low-corr stock sign EV still depends on N225
+  regime — DR swings of 15-25pp across N225 score terciles are typical.
+  Low-corr means the daily-returns correlation is weak, NOT that sign
+  outcomes are regime-agnostic.
 
 ### Implications for strategy design and backtest evaluation
 - When reviewing multi-stock backtests, count **concurrent high-corr positions
@@ -166,9 +181,18 @@ which mode to use **at entry time**:
 - CorrRegime (`src/indicators/corr_regime.py`) measures the fraction of
   universe stocks with corr > 0.70; block *new* entries (especially high-corr
   ones) when this fraction exceeds its historical 80th percentile.
-- Evidence base: early_peak_iv analysis showed high-corr stocks in a bear
-  N225 environment confirm peaks at only 54%, vs 66% for low-corr stocks —
-  confirming that corr regime is a meaningful risk gate.
+- **Evidence base**:
+  - early_peak_iv analysis showed high-corr stocks in a bear N225 environment
+    confirm peaks at only 54%, vs 66% for low-corr stocks — corr regime is a
+    meaningful risk gate.
+  - 2026-05-19 N225-trend-score × corr Stage 0 (`docs/analysis/n225_trend_score_corr_stage0.md`):
+    H1 (monotone-up in high-corr) **FAILS** but the INVERSE pattern is real
+    (see High-corr caveat above).  H2 (flat in low-corr) **FAILS** too — see
+    Low-corr caveat.  Pre-registered Stage-1 path (regime-conditional gate)
+    not taken: brk_floor is the cleanest non-semantic carrier of the inverse
+    pattern and is already REJECT'd.  Any future "high-corr × N225 regime"
+    gate proposal must check this memory first to avoid re-running the same
+    n-thin trap.
 
 ## Rebenchmarking a Sign
 
