@@ -1036,3 +1036,202 @@ Comparing **WITH brk_wall** against **WITHOUT brk_wall** at the per-trade level.
 | Tail-hedge lift | **+0.00%** | + = WITH brk_wall cushions WITHOUT brk_wall's tail |
 | New-trade count (B-only) | 0 | trades introduced by the change |
 | New-trade win rate | — | quality of the marginal trades |
+## Leave-one-out sweep (regime_sign 2026-05-19)
+
+Probe run: 2026-05-19.  Tests whether removing any individually-negative-Sharpe sign from the regime_sign ranking improves the strategy.  Same min_dr=0.52, same ZsTpSl(2.0,2.0,0.3) exit, same portfolio cap as production.
+
+**Candidates** (selected from aggregate per-sign breakdown in regime_sign_backtest.md, all negative aggregate Sharpe over FY2019-FY2024):
+
+| sign | prior aggregate n | prior Sharpe |
+|---|---:|---:|
+| rev_nhi    | 11 | −6.75 |
+| corr_shift | 17 | −3.36 |
+| div_peer   | 11 | −1.86 |
+| str_lag    | 11 | −0.84 |
+
+## Aggregate (FY-equal-weighted)
+
+| arm | n | Sharpe | Sortino | mean_r | win% | avg_win | avg_loss |
+|-----|---:|---:|---:|---:|---:|---:|---:|
+| baseline | 171 | **+2.83** | **+5.70** | +1.72% | 56.7% | +9.37% | -8.17% |
+| −rev_nhi | 170 | **+2.91** | **+5.97** | +1.77% | 55.3% | +9.41% | -7.68% |
+| −corr_shift | 175 | **+3.45** | **+6.95** | +2.03% | 57.0% | +9.83% | -7.93% |
+| −div_peer | 169 | **+3.12** | **+6.22** | +1.87% | 60.1% | +8.65% | -8.09% |
+| −str_lag | 169 | **+3.22** | **+6.38** | +1.99% | 57.3% | +9.74% | -8.16% |
+
+### Aggregate deltas vs baseline
+
+| arm | ΔSharpe | ΔSortino | ΔmeanR | Δn_trades |
+|-----|---:|---:|---:|---:|
+| −rev_nhi | **+0.07** | **+0.27** | **+0.05%** | -1 |
+| −corr_shift | **+0.62** | **+1.25** | **+0.30%** | +4 |
+| −div_peer | **+0.28** | **+0.52** | **+0.15%** | -2 |
+| −str_lag | **+0.38** | **+0.68** | **+0.26%** | -2 |
+
+### Drop `rev_nhi`
+
+#### − rev_nhi — per-FY
+
+| FY | base n | base Sh | arm n | arm Sh | ΔSh | ΔmeanR |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 0 | — | 0 | — | **—** | — |
+| FY2020 | 0 | — | 0 | — | **—** | — |
+| FY2021 | 31 | -1.06 | 30 | -2.34 | **-1.29** | -0.69% |
+| FY2022 | 31 | +1.73 | 33 | +2.65 | **+0.93** | +0.78% |
+| FY2023 | 38 | +6.91 | 36 | +8.26 | **+1.35** | +0.39% |
+| FY2024 | 36 | +1.44 | 36 | +1.44 | **+0.00** | +0.00% |
+| FY2025 | 35 | +5.16 | 35 | +4.53 | **-0.63** | -0.26% |
+
+**Verdict for `−rev_nhi`**: **REJECT**
+
+Pre-registered gate:
+- Δ Sharpe (FY-equal-weighted) = +0.07 (✗ ≥ +0.30)
+- Δ Sortino                    = +0.27 (✗ ≥ +0.50)
+- FYs with non-negative ΔSharpe = 3/5 (✗ ≥ 5)
+- FY2024 + FY2025 both non-negative = ✗
+
+#### Marginal contribution: baseline → −rev_nhi
+
+### Marginal contribution (added 2026-05-18)
+
+Comparing **−rev_nhi** against **baseline** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **-1** | −rev_nhi − baseline (turnover impact) |
+| baseline max drawdown | +74.62% | peak-to-trough on cumulative trade returns |
+| −rev_nhi max drawdown | +76.42% | same metric, expanded arm |
+| Δ drawdown | +1.80% | + = drawdown got WORSE under −rev_nhi |
+| Daily-return correlation | **+0.852** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| baseline's worst-quintile day mean | -13.07% | A's bad days |
+| −rev_nhi on those same days | -10.76% | does new sign help when A loses? |
+| Tail-hedge lift | **+2.30%** | + = −rev_nhi cushions baseline's tail |
+| New-trade count (B-only) | 27 | trades introduced by the change |
+| New-trade win rate | 51.9% | quality of the marginal trades |
+
+
+### Drop `corr_shift`
+
+#### − corr_shift — per-FY
+
+| FY | base n | base Sh | arm n | arm Sh | ΔSh | ΔmeanR |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 0 | — | 0 | — | **—** | — |
+| FY2020 | 0 | — | 0 | — | **—** | — |
+| FY2021 | 31 | -1.06 | 32 | +0.55 | **+1.61** | +1.06% |
+| FY2022 | 31 | +1.73 | 33 | +0.81 | **-0.92** | -0.78% |
+| FY2023 | 38 | +6.91 | 38 | +8.46 | **+1.55** | +0.65% |
+| FY2024 | 36 | +1.44 | 36 | +1.44 | **+0.00** | +0.00% |
+| FY2025 | 35 | +5.16 | 36 | +6.02 | **+0.86** | +0.58% |
+
+**Verdict for `−corr_shift`**: **REJECT**
+
+Pre-registered gate:
+- Δ Sharpe (FY-equal-weighted) = +0.62 (✓ ≥ +0.30)
+- Δ Sortino                    = +1.25 (✓ ≥ +0.50)
+- FYs with non-negative ΔSharpe = 4/5 (✗ ≥ 5)
+- FY2024 + FY2025 both non-negative = ✓
+
+#### Marginal contribution: baseline → −corr_shift
+
+### Marginal contribution (added 2026-05-18)
+
+Comparing **−corr_shift** against **baseline** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **+4** | −corr_shift − baseline (turnover impact) |
+| baseline max drawdown | +74.62% | peak-to-trough on cumulative trade returns |
+| −corr_shift max drawdown | +57.80% | same metric, expanded arm |
+| Δ drawdown | -16.82% | + = drawdown got WORSE under −corr_shift |
+| Daily-return correlation | **+0.814** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| baseline's worst-quintile day mean | -13.07% | A's bad days |
+| −corr_shift on those same days | -9.27% | does new sign help when A loses? |
+| Tail-hedge lift | **+3.79%** | + = −corr_shift cushions baseline's tail |
+| New-trade count (B-only) | 43 | trades introduced by the change |
+| New-trade win rate | 55.8% | quality of the marginal trades |
+
+
+### Drop `div_peer`
+
+#### − div_peer — per-FY
+
+| FY | base n | base Sh | arm n | arm Sh | ΔSh | ΔmeanR |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 0 | — | 0 | — | **—** | — |
+| FY2020 | 0 | — | 0 | — | **—** | — |
+| FY2021 | 31 | -1.06 | 31 | -1.27 | **-0.21** | -0.11% |
+| FY2022 | 31 | +1.73 | 29 | +2.11 | **+0.38** | +0.23% |
+| FY2023 | 38 | +6.91 | 36 | +7.43 | **+0.52** | -0.01% |
+| FY2024 | 36 | +1.44 | 38 | +2.17 | **+0.73** | +0.63% |
+| FY2025 | 35 | +5.16 | 35 | +5.16 | **+0.00** | +0.00% |
+
+**Verdict for `−div_peer`**: **REJECT**
+
+Pre-registered gate:
+- Δ Sharpe (FY-equal-weighted) = +0.28 (✗ ≥ +0.30)
+- Δ Sortino                    = +0.52 (✓ ≥ +0.50)
+- FYs with non-negative ΔSharpe = 4/5 (✗ ≥ 5)
+- FY2024 + FY2025 both non-negative = ✓
+
+#### Marginal contribution: baseline → −div_peer
+
+### Marginal contribution (added 2026-05-18)
+
+Comparing **−div_peer** against **baseline** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **-2** | −div_peer − baseline (turnover impact) |
+| baseline max drawdown | +74.62% | peak-to-trough on cumulative trade returns |
+| −div_peer max drawdown | +63.70% | same metric, expanded arm |
+| Δ drawdown | -10.92% | + = drawdown got WORSE under −div_peer |
+| Daily-return correlation | **+0.754** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| baseline's worst-quintile day mean | -13.07% | A's bad days |
+| −div_peer on those same days | -9.43% | does new sign help when A loses? |
+| Tail-hedge lift | **+3.64%** | + = −div_peer cushions baseline's tail |
+| New-trade count (B-only) | 46 | trades introduced by the change |
+| New-trade win rate | 60.9% | quality of the marginal trades |
+
+
+### Drop `str_lag`
+
+#### − str_lag — per-FY
+
+| FY | base n | base Sh | arm n | arm Sh | ΔSh | ΔmeanR |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 0 | — | 0 | — | **—** | — |
+| FY2020 | 0 | — | 0 | — | **—** | — |
+| FY2021 | 31 | -1.06 | 30 | +1.05 | **+2.10** | +1.42% |
+| FY2022 | 31 | +1.73 | 31 | +1.73 | **+0.00** | +0.00% |
+| FY2023 | 38 | +6.91 | 38 | +6.91 | **+0.00** | +0.00% |
+| FY2024 | 36 | +1.44 | 35 | +1.25 | **-0.19** | -0.09% |
+| FY2025 | 35 | +5.16 | 35 | +5.16 | **+0.00** | +0.00% |
+
+**Verdict for `−str_lag`**: **REJECT**
+
+Pre-registered gate:
+- Δ Sharpe (FY-equal-weighted) = +0.38 (✓ ≥ +0.30)
+- Δ Sortino                    = +0.68 (✓ ≥ +0.50)
+- FYs with non-negative ΔSharpe = 4/5 (✗ ≥ 5)
+- FY2024 + FY2025 both non-negative = ✗
+
+#### Marginal contribution: baseline → −str_lag
+
+### Marginal contribution (added 2026-05-18)
+
+Comparing **−str_lag** against **baseline** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **-2** | −str_lag − baseline (turnover impact) |
+| baseline max drawdown | +74.62% | peak-to-trough on cumulative trade returns |
+| −str_lag max drawdown | +53.28% | same metric, expanded arm |
+| Δ drawdown | -21.34% | + = drawdown got WORSE under −str_lag |
+| Daily-return correlation | **+0.886** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| baseline's worst-quintile day mean | -13.07% | A's bad days |
+| −str_lag on those same days | -10.91% | does new sign help when A loses? |
+| Tail-hedge lift | **+2.16%** | + = −str_lag cushions baseline's tail |
+| New-trade count (B-only) | 14 | trades introduced by the change |
+| New-trade win rate | 42.9% | quality of the marginal trades |
+
