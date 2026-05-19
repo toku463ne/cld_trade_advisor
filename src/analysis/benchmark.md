@@ -1234,4 +1234,67 @@ Comparing **−str_lag** against **baseline** at the per-trade level.
 | Tail-hedge lift | **+2.16%** | + = −str_lag cushions baseline's tail |
 | New-trade count (B-only) | 14 | trades introduced by the change |
 | New-trade win rate | 42.9% | quality of the marginal trades |
+## Combined-drop A/B (regime_sign 2026-05-19)
 
+Probe run: 2026-05-19.  Combined removal of {corr_shift, div_peer, str_lag} from regime_sign ranking.
+
+Follow-up to the 2026-05-19 leave-one-out sweep — each of these 3 signs was a near-miss individually.  Tests whether bundling the removals clears the same pre-registered gate.
+
+## Aggregate (FY-equal-weighted)
+
+| arm | n | Sharpe | Sortino | mean_r | win% | avg_win | avg_loss |
+|-----|---:|---:|---:|---:|---:|---:|---:|
+| baseline | 171 | **+2.83** | **+5.70** | +1.72% | 56.7% | +9.37% | -8.17% |
+| −{corr_shift, div_peer, str_lag} | 170 | **+4.45** | **+8.66** | +2.73% | 64.9% | +8.87% | -8.44% |
+
+**Aggregate deltas:**
+
+- ΔSharpe = **+1.62**
+- ΔSortino = **+2.97**
+- ΔmeanR = **+1.00%**
+- Δn_trades = -1
+
+#### −{corr_shift, div_peer, str_lag} — per-FY
+
+| FY | base n | base Sh | arm n | arm Sh | ΔSh | ΔmeanR |
+|----|---:|---:|---:|---:|---:|---:|
+| FY2019 | 0 | — | 0 | — | **—** | — |
+| FY2020 | 0 | — | 0 | — | **—** | — |
+| FY2021 | 31 | -1.06 | 29 | +3.15 | **+4.21** | +2.62% |
+| FY2022 | 31 | +1.73 | 33 | +2.85 | **+1.12** | +0.76% |
+| FY2023 | 38 | +6.91 | 35 | +8.31 | **+1.40** | +0.48% |
+| FY2024 | 36 | +1.44 | 37 | +1.92 | **+0.48** | +0.56% |
+| FY2025 | 35 | +5.16 | 36 | +6.02 | **+0.86** | +0.58% |
+
+## Verdict: **PASS**
+
+Pre-registered gate:
+- Δ Sharpe (FY-equal-weighted) = +1.62 (✓ ≥ +0.30)
+- Δ Sortino                    = +2.97 (✓ ≥ +0.50)
+- FYs with non-negative ΔSharpe = 5/5 (✓ ≥ 5)
+- FY2024 + FY2025 both non-negative = ✓
+
+## Marginal contribution: baseline → combined-drop
+
+
+### Marginal contribution (added 2026-05-18)
+
+Comparing **−{corr_shift, div_peer, str_lag}** against **baseline** at the per-trade level.
+
+| Metric | Value | Interpretation |
+|--------|------:|----------------|
+| Δ trade count | **-1** | −{corr_shift, div_peer, str_lag} − baseline (turnover impact) |
+| baseline max drawdown | +74.62% | peak-to-trough on cumulative trade returns |
+| −{corr_shift, div_peer, str_lag} max drawdown | +61.11% | same metric, expanded arm |
+| Δ drawdown | -13.51% | + = drawdown got WORSE under −{corr_shift, div_peer, str_lag} |
+| Daily-return correlation | **+0.585** | A vs B per-day returns.  High (>0.7) = same bets; low (<0.3) = real diversification |
+| baseline's worst-quintile day mean | -13.07% | A's bad days |
+| −{corr_shift, div_peer, str_lag} on those same days | -6.27% | does new sign help when A loses? |
+| Tail-hedge lift | **+6.80%** | + = −{corr_shift, div_peer, str_lag} cushions baseline's tail |
+| New-trade count (B-only) | 73 | trades introduced by the change |
+| New-trade win rate | 64.4% | quality of the marginal trades |
+
+
+## Required follow-up before ship
+
+Per [[project-rev-nhi-ui-only-salvage]], an aggregate PASS does NOT clear production swap.  Need bootstrap CI (both FY-level AND trade-level) showing lower CI bound above 0 before any EXCLUDE_SIGNS production change.  Failure mode to watch for: trade-level CI [−2, +4] (n thin) → AND-gate fail same as 2026-05-16.
