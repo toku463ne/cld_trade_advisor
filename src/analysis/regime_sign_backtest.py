@@ -82,6 +82,12 @@ PRIOR_BENCH_SETS: dict[str, list[str]] = {
 
 EXCLUDE_SIGNS: frozenset[str] = frozenset()
 
+# Optional proposal-filter hook (used by trend_score Stage 1 ceiling A/B).
+# If set, `run_fy` calls this with each SignalProposal after propose_range;
+# returning False drops the proposal before candidate construction.
+# Default None = keep all (current production behaviour).
+PROPOSAL_FILTER = None  # type: ignore[assignment]
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -177,6 +183,11 @@ def run_fy(config: FyConfig) -> FyBacktestResult:
     all_proposals: list[SignalProposal] = [
         p for ps in proposals_by_date.values() for p in ps
     ]
+    n_before_filter = len(all_proposals)
+    if PROPOSAL_FILTER is not None:
+        all_proposals = [p for p in all_proposals if PROPOSAL_FILTER(p)]
+        logger.info("  PROPOSAL_FILTER dropped {} of {} proposals",
+                    n_before_filter - len(all_proposals), n_before_filter)
     logger.info("  {} proposals on {} active dates",
                 len(all_proposals), len(proposals_by_date))
 
