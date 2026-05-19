@@ -85,7 +85,16 @@ _JST           = datetime.timezone(datetime.timedelta(hours=9))
 # canonical rebench contradicted the probe's short-edge claim
 # (canonical short-DR pooled = 48.3%, not the 67% the probe suggested).
 # Neither direction strong enough to surface as a proposal row.
-_HIDDEN_PROPOSAL_SIGNS: frozenset[str] = frozenset({"rev_nhi", "rev_hi", "brk_floor"})
+# corr_shift, div_peer, str_lag: 2026-05-19 combined-drop A/B
+# (project-regime-sign-combined-drop-bootstrap) — FY-level CI
+# [+0.47, +2.89] PASS + 5/5 FYs positive, but trade-level CI [-2.16, +4.90]
+# failed AND-gate at n=170.  Same UI-only salvage pattern as rev_nhi
+# 2026-05-16: hide from Daily-tab proposals while keeping production
+# ranking unchanged.  Revisit when universe expansion lifts effective n.
+_HIDDEN_PROPOSAL_SIGNS: frozenset[str] = frozenset({
+    "rev_nhi", "rev_hi", "brk_floor",
+    "corr_shift", "div_peer", "str_lag",
+})
 
 # ── Decision factors (Daily tab factor panel) ─────────────────────────────────
 # Per evaluation_criteria.md §5.11: every factor shown must carry measured
