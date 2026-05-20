@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, SmallInteger, String, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.data.models import Base
@@ -285,6 +286,80 @@ class PeakFeatureRecord(Base):
     outcome_magnitude: Mapped[float | None] = mapped_column(Float,   nullable=True)
 
     run: Mapped["PeakFeatureRun"] = relationship("PeakFeatureRun", back_populates="records")
+
+
+# ── Sign-fire feature models (per-fire enrichment for characterization) ───────
+
+
+class SignFeatureRun(Base):
+    """One execution of the per-fire enrichment collector (sign_features.py)."""
+
+    __tablename__ = "sign_feature_runs"
+
+    id:          Mapped[int]               = mapped_column(Integer, primary_key=True, autoincrement=True)
+    label:       Mapped[str]               = mapped_column(String(64), nullable=False)
+    fwd_h:       Mapped[int]               = mapped_column(Integer, nullable=False)   # fixed-horizon bars
+    valid_bars:  Mapped[int]               = mapped_column(Integer, nullable=False)   # co-fire validity window
+    corr_window: Mapped[int]               = mapped_column(Integer, nullable=False)
+    n_records:   Mapped[int]               = mapped_column(Integer, nullable=False)
+    created_at:  Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    records: Mapped[list["SignFeatureRecord"]] = relationship(
+        "SignFeatureRecord", back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class SignFeatureRecord(Base):
+    """Context features + forward outcomes at each sign fire (daily, FY2010+)."""
+
+    __tablename__ = "sign_feature_records"
+    __table_args__ = (
+        Index("ix_sfr_run",   "run_id"),
+        Index("ix_sfr_stock", "run_id", "stock_code"),
+        Index("ix_sfr_sign",  "run_id", "sign_type"),
+        Index("ix_sfr_fy",    "run_id", "fy"),
+    )
+
+    id:         Mapped[int]            = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id:     Mapped[int]            = mapped_column(Integer, ForeignKey("sign_feature_runs.id", ondelete="CASCADE"), nullable=False)
+    stock_code: Mapped[str]            = mapped_column(String(30), nullable=False)
+    fired_on:   Mapped[datetime.date]  = mapped_column(Date, nullable=False)
+    fy:         Mapped[str]            = mapped_column(String(8), nullable=False)
+    sign_type:  Mapped[str]            = mapped_column(String(32), nullable=False)
+    sign_score: Mapped[float | None]   = mapped_column(Float, nullable=True)
+
+    # Own indicator distances (1d, look-ahead-safe)
+    sma_dist:    Mapped[float | None] = mapped_column(Float, nullable=True)
+    kumo_dist:   Mapped[float | None] = mapped_column(Float, nullable=True)
+    chiko_dist:  Mapped[float | None] = mapped_column(Float, nullable=True)
+    tenkan_dist: Mapped[float | None] = mapped_column(Float, nullable=True)
+    zz_momentum: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Rolling daily-return correlations
+    corr_n225: Mapped[float | None] = mapped_column(Float, nullable=True)
+    corr_gspc: Mapped[float | None] = mapped_column(Float, nullable=True)
+    corr_hsi:  Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Co-fire directional counts (signs valid within valid_bars window, incl. self)
+    valid_n:         Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bullish_valid_n: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bearish_valid_n: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # ^N225 self-contained sign directional counts that day
+    n225_bullish_n: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    n225_bearish_n: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Outcomes (LABELS — forward-looking)
+    out_direction: Mapped[int | None]   = mapped_column(Integer, nullable=True)   # +1=HIGH first
+    out_bars:      Mapped[int | None]   = mapped_column(Integer, nullable=True)
+    out_magnitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fwd_ret_h:     Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Sparse per-sign score maps (full fidelity; queryable via JSONB operators)
+    cofire_scores: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    n225_scores:   Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    run: Mapped["SignFeatureRun"] = relationship("SignFeatureRun", back_populates="records")
 
 
 class StockClusterMember(Base):
