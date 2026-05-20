@@ -340,14 +340,11 @@ class SignFeatureRecord(Base):
     corr_gspc: Mapped[float | None] = mapped_column(Float, nullable=True)
     corr_hsi:  Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    # Co-fire directional counts (signs valid within valid_bars window, incl. self)
-    valid_n:         Mapped[int | None] = mapped_column(Integer, nullable=True)
-    bullish_valid_n: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    bearish_valid_n: Mapped[int | None] = mapped_column(Integer, nullable=True)
-
-    # ^N225 self-contained sign directional counts that day
-    n225_bullish_n: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    n225_bearish_n: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Co-fire intensity (direction-AGNOSTIC; signs valid within valid_bars window,
+    # incl. self). Directionality (bullish/bearish) is deliberately NOT stored —
+    # it is a conclusion to be derived from this table, not an input baked into it.
+    valid_n:      Mapped[int | None] = mapped_column(Integer, nullable=True)   # co-firing stock signs
+    n225_valid_n: Mapped[int | None] = mapped_column(Integer, nullable=True)   # self-contained signs valid on ^N225
 
     # Outcomes (LABELS — forward-looking)
     out_direction: Mapped[int | None]   = mapped_column(Integer, nullable=True)   # +1=HIGH first

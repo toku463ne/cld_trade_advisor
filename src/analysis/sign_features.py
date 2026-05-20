@@ -74,19 +74,10 @@ _LOAD_END = datetime.datetime(2026, 6, 1, tzinfo=datetime.timezone.utc)
 _SMA_N, _PEAK_SIZE, _PEAK_MID = 50, 5, 2
 _CHIKO_LAG, _KUMO_DISP = 26, 26
 
-_BULLISH = {
-    "str_hold", "str_lead", "str_lag", "brk_sma", "brk_bol", "rev_lo", "rev_nlo",
-    "brk_kumo_hi", "brk_tenkan_hi", "chiko_hi", "brk_floor",
-}
-_BEARISH = {
-    "rev_nhi", "rev_hi", "brk_kumo_lo", "brk_tenkan_lo", "chiko_lo", "brk_wall",
-}
-
-# ^N225 self-contained sign columns by direction (for n225 directional counts)
-_N225_BULL_KEYS = ["n225_brk_sma", "n225_brk_bol", "n225_brk_kumo_hi",
-                   "n225_brk_tenkan_hi", "n225_chiko_hi", "n225_brk_floor", "n225_rev_lo"]
-_N225_BEAR_KEYS = ["n225_brk_kumo_lo", "n225_brk_tenkan_lo", "n225_chiko_lo",
-                   "n225_brk_wall", "n225_rev_hi", "n225_rev_nhi"]
+# NOTE: this collector deliberately stores NO bullish/bearish classification.
+# Whether a sign is bullish or bearish (and in which situation) is a CONCLUSION
+# to be derived from this table's measured outcomes — not an assumption baked in.
+# Directional grouping lives in the analysis layer (sign_characteristics.py).
 
 
 def _fy_label(d: datetime.date) -> str:
@@ -260,10 +251,9 @@ def _write_db(records: list[dict], label: str) -> int:
             "zz_momentum": _fl(r.get("zz_momentum")),
             "corr_n225": _fl(r.get("corr_n225")), "corr_gspc": _fl(r.get("corr_gspc")),
             "corr_hsi": _fl(r.get("corr_hsi")),
-            "valid_n": _it(r.get("valid_n")), "bullish_valid_n": _it(r.get("bullish_valid_n")),
-            "bearish_valid_n": _it(r.get("bearish_valid_n")),
-            "n225_bullish_n": sum(1 for k in _N225_BULL_KEYS if _na(r.get(k)) is not None),
-            "n225_bearish_n": sum(1 for k in _N225_BEAR_KEYS if _na(r.get(k)) is not None),
+            "valid_n": _it(r.get("valid_n")),
+            "n225_valid_n": sum(1 for k in r
+                                if k.startswith("n225_") and _na(r.get(k)) is not None),
             "out_direction": _it(r.get("out_direction")), "out_bars": _it(r.get("out_bars")),
             "out_magnitude": _fl(r.get("out_magnitude")), "fwd_ret_h": _fl(r.get("fwd_ret_h")),
             "cofire_scores": cofire or None, "n225_scores": n225 or None,
@@ -350,20 +340,14 @@ def run(pkl_out: str | None, to_db: bool, label: str) -> int:
                 "out_magnitude": r["out_magnitude"],
             }
 
-            # Co-fire context
-            b_n = w_n = tot = 0
+            # Co-fire context — raw per-sign scores + direction-agnostic count only
+            tot = 0
             for sg in all_signs:
                 sc = _valid_score(sg, idx)
                 rec[f"valid_{sg}"] = sc
                 if sc is not None:
                     tot += 1
-                    if sg in _BULLISH:
-                        b_n += 1
-                    elif sg in _BEARISH:
-                        w_n += 1
             rec["valid_n"] = tot
-            rec["bullish_valid_n"] = b_n
-            rec["bearish_valid_n"] = w_n
 
             # Indicator distances
             if d in dist.index:

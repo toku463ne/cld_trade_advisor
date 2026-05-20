@@ -3,11 +3,17 @@
 A durable, queryable snapshot of the **context and forward outcome at every sign
 fire** (daily, FY2010–FY2025). One row = one sign firing on one stock on one day.
 
-Produced by `src/analysis/sign_features.py` (`--to-db`); schema added in Alembic
-migration `d3f9a1c7e2b8`. It exists so the discover/validate/holdout
-characterization (`sign_characteristics.py`, see `sign_feature_records`'s sibling
-report `sign_characteristics.md`) runs on stored features rather than an
-ephemeral pickle.
+**Pure-data table.** It holds only *measured observations* — no interpretive
+labels (e.g. bullish/bearish). The intent is to support evidence-grounded
+statements *derived from it*, such as "according to `sign_feature_records`
+FY2010–FY2016 data, `str_lag` is bearish in situation X." Any directionality is a
+conclusion drawn from the stored outcomes, never an input baked into the table.
+
+Produced by `src/analysis/sign_features.py` (`--to-db`); schema in Alembic
+migrations `d3f9a1c7e2b8` (create) and `e5a2c9b14f37` (drop a-priori directional
+counts → pure data). It exists so the discover/validate/holdout characterization
+(`sign_characteristics.py`, sibling report `sign_characteristics.md`) runs on
+stored features rather than an ephemeral pickle.
 
 ## Relationship to other tables
 
@@ -81,21 +87,21 @@ context).
 
 | column | meaning |
 |---|---|
-| `valid_n` | count of signs valid on this bar (**includes the firing sign itself**) |
-| `bullish_valid_n` | of those, how many are in the bullish set¹ |
-| `bearish_valid_n` | of those, how many are in the bearish set² |
-| `cofire_scores` | JSONB map `{sign: score}` for every valid sign — full detail behind the counts |
+| `valid_n` | count of signs valid on this bar (**includes the firing sign itself**), **direction-agnostic** |
+| `cofire_scores` | JSONB map `{sign: score}` for every valid sign — the full raw detail |
 
-¹ bullish set: `str_hold, str_lead, str_lag, brk_sma, brk_bol, rev_lo, rev_nlo,
-brk_kumo_hi, brk_tenkan_hi, chiko_hi, brk_floor`
-² bearish set: `rev_nhi, rev_hi, brk_kumo_lo, brk_tenkan_lo, chiko_lo, brk_wall`
-(signs in neither set — `corr_flip/shift`, `div_gap/peer`, `rev_nhold` — count
-toward `valid_n` only.)
+> **Pure-data principle:** the table stores **no bullish/bearish grouping.**
+> Whether a co-firing sign is bullish or bearish (and in which situation) is a
+> *conclusion to be derived from this table's measured outcomes*, not an input
+> baked in — and the discover data shows ~8 of the a-priori labels disagree with
+> measured forward returns. Directional co-fire counts are computed in the
+> analysis layer (`sign_characteristics.py`) from `cofire_scores`, where the
+> grouping is an explicit, documented interpretive choice.
 
-> **Self-inflation caveat:** because `cofire_scores`/counts include the firing
-> sign, a sign's own direction count is never zero. This is a constant offset
-> per sign, so *within-sign* bucket contrasts are unaffected, but raw count
-> *levels* are not comparable across signs.
+> **Self-inflation caveat:** `cofire_scores` / `valid_n` include the firing sign,
+> so the count is never zero. Constant offset per sign → within-sign bucket
+> contrasts are unaffected, but raw `valid_n` *levels* are not comparable across
+> signs.
 
 ### ^N225 context (the index's own signal that day)
 
@@ -105,12 +111,11 @@ meaningful on the index; relative signs (`str_*`, `div_*`, `corr_*`,
 
 | column | meaning |
 |---|---|
-| `n225_bullish_n` | count of bullish self-contained signs valid on `^N225`³ |
-| `n225_bearish_n` | count of bearish self-contained signs valid on `^N225`⁴ |
-| `n225_scores` | JSONB map `{sign: score}` of self-contained signs valid on `^N225` |
+| `n225_valid_n` | count of self-contained signs valid on `^N225` that day, **direction-agnostic** |
+| `n225_scores` | JSONB map `{sign: score}` of self-contained signs valid on `^N225` — the full raw detail |
 
-³ `brk_sma, brk_bol, brk_kumo_hi, brk_tenkan_hi, chiko_hi, brk_floor, rev_lo`
-⁴ `brk_kumo_lo, brk_tenkan_lo, chiko_lo, brk_wall, rev_hi, rev_nhi`
+(As with co-fire context, no bullish/bearish split is stored; derive it in the
+analysis layer from `n225_scores`.)
 
 ### Outcomes (LABELS — forward-looking, never use as features)
 
@@ -166,22 +171,22 @@ JSONB (sparse per-sign maps):
 ```sql
 -- fires where ^N225 had brk_sma valid that day
 SELECT count(*) FROM sign_feature_records
-WHERE run_id = 2 AND n225_scores ? 'brk_sma';
+WHERE run_id = 3 AND n225_scores ? 'brk_sma';
 
 -- fires where rev_nhi was a co-firing sign, with its score
 SELECT stock_code, fired_on, (cofire_scores->>'rev_nhi')::float AS rev_nhi_score
 FROM sign_feature_records
-WHERE run_id = 2 AND cofire_scores ? 'rev_nhi';
+WHERE run_id = 3 AND cofire_scores ? 'rev_nhi';
 ```
 
 ## Provenance / regeneration
 
 ```bash
 PYTHONPATH=. uv run --env-file devenv python -m src.analysis.sign_features \
-    --to-db --out /tmp/sign_features.pkl --label fy2010_2025_h20
+    --to-db --out /tmp/sign_features.pkl --label fy2010_2025_h20_puredata
 ```
 
 Deterministic given `ohlcv_1d` (backfilled to 2008) + `sign_benchmark_events`
 (FY2010–FY2025). Each invocation writes a new `sign_feature_runs` row; downstream
-analysis reads the latest. Current populated run: `run_id=2`,
-`label=fy2010_2025_h20`, 352,513 records.
+analysis reads the latest. Current populated run: `run_id=3`,
+`label=fy2010_2025_h20_puredata`, 352,513 records.

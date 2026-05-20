@@ -454,25 +454,5 @@ Effect = mean_fwd(top bucket) − mean_fwd(bottom bucket), in pp. `*` = clears d
 
 - FY2025 blind: fires above median characteristic-score mean_fwd=+3.04pp (n=5521) vs at/below +3.91pp (n=16658) → Δ=-0.87pp
 
-## Universe-beta control on `corr_hsi` (2026-05-20 follow-up)
-
-The cross-sign dominance of "more bullish when `corr_hsi` low" is **mostly a
-non-stationary universe tilt, not a sign edge.** Baseline over 920k stock-days
-(no signs): |corr_hsi|-low minus -high forward return = **+1.23pp in discover
-(p<1e-4) but −0.28pp validate, +0.37pp holdout, −3.66pp FY2025** — it flips sign
-by regime. This is the mechanism behind the failed FY2025 assembly: its most
-common "favorable" condition was a discover-era artifact that reversed OOS.
-
-Residualizing each fire against the universe bucket mean, only **5 signs show
-significant sign-specific excess**: `brk_kumo_hi` (+1.08pp), `brk_kumo_lo`
-(+1.22), `brk_sma` (+1.58), `brk_tenkan_hi` (+0.90), `rev_nlo` (+2.48). All
-other signs' `corr_hsi` column is inherited beta — **down-weight it.** Of the
-five, only **`brk_kumo_hi`** is also holdout-confirmed → the one trustworthy
-`corr_hsi` characteristic. `rev_nhi`'s holdout corr_hsi number is inherited
-beta (excess −0.07) despite confirming — discount it.
-
-Characteristics that survive this scrub (non-corr, OOS-confirmed): `str_hold`
-below its sma/kumo/chiko lines; `str_lag` × N225-bearish context.
-
 ---
 _Note: co-fire count features include the firing sign itself; within-sign bucket contrasts are unaffected (constant offset), but cross-sign count levels are not directly comparable. Distance/correlation/N225 features are fire-time legal; outcome labels are forward-looking and never used as inputs._

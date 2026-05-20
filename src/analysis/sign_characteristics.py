@@ -110,6 +110,15 @@ _N225_BULL = ["n225_brk_sma", "n225_brk_bol", "n225_brk_kumo_hi",
 _N225_BEAR = ["n225_brk_kumo_lo", "n225_brk_tenkan_lo", "n225_chiko_lo",
               "n225_brk_wall", "n225_rev_hi", "n225_rev_nhi"]
 
+# Directional grouping is an ANALYSIS-LAYER interpretive choice (a priori sign
+# *design* intent), deliberately NOT stored in sign_feature_records. NOTE: the
+# discover data shows ~8 of these labels disagree with measured forward returns,
+# so the co-fire-direction features are "designed-direction" context, not
+# validated bullishness — interpret accordingly.
+_BULLISH = {"str_hold", "str_lead", "str_lag", "brk_sma", "brk_bol", "rev_lo",
+            "rev_nlo", "brk_kumo_hi", "brk_tenkan_hi", "chiko_hi", "brk_floor"}
+_BEARISH = {"rev_nhi", "rev_hi", "brk_kumo_lo", "brk_tenkan_lo", "chiko_lo", "brk_wall"}
+
 
 def _prep(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
@@ -119,9 +128,13 @@ def _prep(df: pd.DataFrame) -> pd.DataFrame:
     df["b_corr_hsi"] = df["corr_hsi"].map(_corr_bucket)
     for c in ("sma_dist", "kumo_dist", "chiko_dist", "tenkan_dist", "zz_momentum"):
         df[f"b_{c}"] = df[c].map(_sign_bucket)
-    # co-fire counts EXCLUDING self (a sign's own fire inflates its direction's count)
-    df["b_bull"] = df["bullish_valid_n"].map(_count_bucket_b)
-    df["b_bear"] = df["bearish_valid_n"].map(_count_bucket_w)
+    # Co-fire direction counts derived HERE from raw valid_<sign> scores (the
+    # table stores no bullish/bearish grouping). Includes self — constant offset
+    # per sign, so within-sign bucket contrasts are unaffected.
+    bull_cols = [f"valid_{s}" for s in _BULLISH if f"valid_{s}" in df.columns]
+    bear_cols = [f"valid_{s}" for s in _BEARISH if f"valid_{s}" in df.columns]
+    df["b_bull"] = df[bull_cols].notna().sum(axis=1).map(_count_bucket_b)
+    df["b_bear"] = df[bear_cols].notna().sum(axis=1).map(_count_bucket_w)
     # N225 directional presence counts
     df["b_n225_bull"] = df[_N225_BULL].notna().sum(axis=1).map(_present_bucket)
     df["b_n225_bear"] = df[_N225_BEAR].notna().sum(axis=1).map(_present_bucket)
