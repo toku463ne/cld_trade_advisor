@@ -105,22 +105,35 @@ FEATURES: list[Feat] = [
     Feat("own_score", "b_score", "T3", "T1"),
 ]
 
-_N225_BULL = ["n225_brk_sma", "n225_brk_bol", "n225_brk_kumo_hi",
-              "n225_brk_tenkan_hi", "n225_chiko_hi", "n225_brk_floor", "n225_rev_lo"]
-_N225_BEAR = ["n225_brk_kumo_lo", "n225_brk_tenkan_lo", "n225_chiko_lo",
-              "n225_brk_wall", "n225_rev_hi", "n225_rev_nhi"]
-
-# Directional grouping is an ANALYSIS-LAYER interpretive choice (a priori sign
-# *design* intent), deliberately NOT stored in sign_feature_records. NOTE: the
-# discover data shows ~8 of these labels disagree with measured forward returns,
-# so the co-fire-direction features are "designed-direction" context, not
-# validated bullishness — interpret accordingly.
-_BULLISH = {"str_hold", "str_lead", "str_lag", "brk_sma", "brk_bol", "rev_lo",
-            "rev_nlo", "brk_kumo_hi", "brk_tenkan_hi", "chiko_hi", "brk_floor"}
-_BEARISH = {"rev_nhi", "rev_hi", "brk_kumo_lo", "brk_tenkan_lo", "chiko_lo", "brk_wall"}
+# Directionality is NOT hard-coded here — it is derived from discover data at
+# runtime (see `_derive_direction`) and applied to the co-fire / n225 features.
+# The a-priori design labels disagreed with measured returns ~8/17 times.
 
 
-def _prep(df: pd.DataFrame) -> pd.DataFrame:
+def _derive_direction(disc: pd.DataFrame, thresh: float = 0.001
+                      ) -> tuple[set, set, list]:
+    """Classify each sign bullish/bearish/neutral from DISCOVER measured returns.
+
+    Replaces the a-priori design labels (which disagree with the data ~half the
+    time). Frozen from discover and applied forward → no leakage. A sign is
+    bullish if its discover mean fwd_ret exceeds the discover universe mean by
+    `thresh`, bearish if below by `thresh`, else neutral.
+    """
+    base = disc["fwd_ret_h"].mean()
+    bull, bear, table = set(), set(), []
+    for sg, g in disc.groupby("sign_type"):
+        exc = g["fwd_ret_h"].mean() - base
+        lab = "bullish" if exc > thresh else "bearish" if exc < -thresh else "neutral"
+        if lab == "bullish":
+            bull.add(sg)
+        elif lab == "bearish":
+            bear.add(sg)
+        table.append((sg, lab, exc, len(g)))
+    table.sort(key=lambda t: t[2])
+    return bull, bear, table
+
+
+def _prep(df: pd.DataFrame, bull_set: set, bear_set: set) -> pd.DataFrame:
     df = df.copy()
     df["split"] = df["fy"].map(_split)
     df["b_corr_n225"] = df["corr_n225"].map(_corr_bucket)
@@ -128,16 +141,20 @@ def _prep(df: pd.DataFrame) -> pd.DataFrame:
     df["b_corr_hsi"] = df["corr_hsi"].map(_corr_bucket)
     for c in ("sma_dist", "kumo_dist", "chiko_dist", "tenkan_dist", "zz_momentum"):
         df[f"b_{c}"] = df[c].map(_sign_bucket)
-    # Co-fire direction counts derived HERE from raw valid_<sign> scores (the
-    # table stores no bullish/bearish grouping). Includes self — constant offset
-    # per sign, so within-sign bucket contrasts are unaffected.
-    bull_cols = [f"valid_{s}" for s in _BULLISH if f"valid_{s}" in df.columns]
-    bear_cols = [f"valid_{s}" for s in _BEARISH if f"valid_{s}" in df.columns]
+    # Co-fire direction counts use DATA-DERIVED (discover-frozen) directionality,
+    # not a-priori design labels. Includes self — constant offset per sign, so
+    # within-sign bucket contrasts are unaffected.
+    bull_cols = [f"valid_{s}" for s in bull_set if f"valid_{s}" in df.columns]
+    bear_cols = [f"valid_{s}" for s in bear_set if f"valid_{s}" in df.columns]
     df["b_bull"] = df[bull_cols].notna().sum(axis=1).map(_count_bucket_b)
     df["b_bear"] = df[bear_cols].notna().sum(axis=1).map(_count_bucket_w)
-    # N225 directional presence counts
-    df["b_n225_bull"] = df[_N225_BULL].notna().sum(axis=1).map(_present_bucket)
-    df["b_n225_bear"] = df[_N225_BEAR].notna().sum(axis=1).map(_present_bucket)
+    # ^N225 directional presence — same data-derived labels applied to its signs
+    n225_bull = [f"n225_{s}" for s in bull_set if f"n225_{s}" in df.columns]
+    n225_bear = [f"n225_{s}" for s in bear_set if f"n225_{s}" in df.columns]
+    df["b_n225_bull"] = (df[n225_bull].notna().sum(axis=1).map(_present_bucket)
+                         if n225_bull else None)
+    df["b_n225_bear"] = (df[n225_bear].notna().sum(axis=1).map(_present_bucket)
+                         if n225_bear else None)
     return df
 
 
@@ -222,7 +239,31 @@ class Cell:
     fdr: bool = False
 
 
-def _scan(df: pd.DataFrame, signs: list[str]) -> list[Cell]:
+# Stock-state features have an all-stock-day universe baseline (universe_baseline.py);
+# their effects are residualized against it → sign-specific EXCESS, not inherited
+# beta. Fire-context features (co-fire, n225 co-fire, own_score) have no
+# all-stock-day analog and are reported raw.
+STOCK_STATE = {"corr_n225", "corr_gspc", "corr_hsi",
+               "sma_dist", "kumo_dist", "chiko_dist", "tenkan_dist", "zz_momentum"}
+
+
+def _resid(sub: pd.DataFrame, f: "Feat", split: str, univ: dict) -> np.ndarray:
+    """fwd_ret residualized against the all-stock-day universe bucket mean.
+
+    For stock-state features, subtract univ[feature][split][bucket] per fire so
+    the result is excess over the universe tilt. Fire-context features unchanged.
+    """
+    fwd = sub["fwd_ret_h"].to_numpy()
+    if f.name not in STOCK_STATE:
+        return fwd
+    ub = univ.get(f.name, {}).get(split, {})
+    if not ub:
+        return fwd
+    base = sub[f.col].map(lambda b: ub.get(b, 0.0)).to_numpy()
+    return fwd - base
+
+
+def _scan(df: pd.DataFrame, signs: list[str], split: str, univ: dict) -> list[Cell]:
     cells: list[Cell] = []
     for sg in signs:
         s = df[df["sign_type"] == sg]
@@ -231,8 +272,8 @@ def _scan(df: pd.DataFrame, signs: list[str]) -> list[Cell]:
             bot = s[s[f.col] == f.bottom]
             if len(top) < _MIN_N or len(bot) < _MIN_N:
                 continue
-            ar = top["fwd_ret_h"].to_numpy()
-            br = bot["fwd_ret_h"].to_numpy()
+            ar = _resid(top, f, split, univ)
+            br = _resid(bot, f, split, univ)
             eff, _, p = _welch(ar, br)
             dr_t = (top["out_direction"] == 1).mean()
             dr_b = (bot["out_direction"] == 1).mean()
@@ -250,10 +291,29 @@ def _fmt_pp(x: float) -> str:
     return "—" if (x is None or (isinstance(x, float) and math.isnan(x))) else f"{x*100:+.2f}"
 
 
-def run(pkl: str, out: str) -> None:
+def run(pkl: str, out: str, univ_path: str = "/tmp/universe_baseline.pkl") -> None:
     logger.info("Loading {}", pkl)
-    df = _prep(pd.read_pickle(pkl))
-    df = df[df["fwd_ret_h"].notna()]
+    raw = pd.read_pickle(pkl)
+    raw = raw[raw["fwd_ret_h"].notna()].copy()
+    # Winsorize forward returns (must match universe_baseline._WINSOR) so the
+    # rare extreme-move fire and the baseline are on the same robust scale.
+    raw["fwd_ret_h"] = raw["fwd_ret_h"].clip(-0.6, 0.6)
+    raw["split"] = raw["fy"].map(_split)
+
+    # Universe baseline (all-stock-day) for residualization → sign-specific excess.
+    try:
+        univ = pd.read_pickle(univ_path)
+    except FileNotFoundError:
+        raise SystemExit(f"Universe baseline {univ_path} missing — run "
+                         f"`python -m src.analysis.universe_baseline` first.")
+
+    # Data-derived directionality (frozen from discover), replacing design labels.
+    bull_set, bear_set, dir_table = _derive_direction(raw[raw["split"] == "discover"])
+    logger.info("data-derived direction: {} bullish, {} bearish, {} neutral",
+                len(bull_set), len(bear_set),
+                len(dir_table) - len(bull_set) - len(bear_set))
+
+    df = _prep(raw, bull_set, bear_set)
     disc = df[df["split"] == "discover"].copy()
     val = df[df["split"] == "validate"].copy()
     hold = df[df["split"] == "holdout"].copy()
@@ -266,8 +326,8 @@ def run(pkl: str, out: str) -> None:
 
     signs = sorted(df["sign_type"].unique())
     logger.info("discover scan: {} signs × {} features", len(signs), len(FEATURES))
-    dcells = {(c.sign, c.feat): c for c in _scan(disc, signs)}
-    vcells = {(c.sign, c.feat): c for c in _scan(val, signs)}
+    dcells = {(c.sign, c.feat): c for c in _scan(disc, signs, "discover", univ)}
+    vcells = {(c.sign, c.feat): c for c in _scan(val, signs, "validate", univ)}
 
     # ── Survival: same sign + >=50% magnitude + validate FDR ─────────────────
     survivors: list[tuple[str, str, str, float, float]] = []  # sign,feat,fav_lbl,disc_eff,val_eff
@@ -292,8 +352,8 @@ def run(pkl: str, out: str) -> None:
     for sign, feat, fav, deff, veff in survivors:
         f = feat_by_name[feat]
         s = hold[hold["sign_type"] == sign]
-        favm = s[s[f.col] == fav]["fwd_ret_h"].to_numpy()
-        rest = s[(s[f.col].notna()) & (s[f.col] != fav)]["fwd_ret_h"].to_numpy()
+        favm = _resid(s[s[f.col] == fav], f, "holdout", univ)
+        rest = _resid(s[(s[f.col].notna()) & (s[f.col] != fav)], f, "holdout", univ)
         d, lo, hi = _boot_ci(favm, rest, rng)
         holdout_rows.append((sign, feat, fav, deff, veff, d, lo, hi, len(favm)))
 
@@ -325,23 +385,38 @@ def run(pkl: str, out: str) -> None:
         fy25_lines.append(f"FY2025 blind: only {len(cov)} fires carry a surviving "
                           f"characteristic — too thin for the assembled-score test.")
 
-    _write_report(out, df, signs, dcells, survivors, holdout_rows, fy25_lines)
+    _write_report(out, df, signs, dcells, survivors, holdout_rows, fy25_lines, dir_table)
     logger.info("Wrote report → {}", out)
 
 
-def _write_report(out, df, signs, dcells, survivors, holdout_rows, fy25_lines) -> None:
+def _write_report(out, df, signs, dcells, survivors, holdout_rows, fy25_lines,
+                  dir_table) -> None:
     import os
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     L: list[str] = []
     L.append("# Sign Characteristics — discover / validate / holdout\n")
     L.append(f"_Generated by `sign_characteristics.py`. Primary metric: fixed-H forward "
-             f"return. Splits: discover FY2010-16 (n={int((df.split=='discover').sum())}), "
+             f"return (winsorized ±60%). Splits: discover FY2010-16 (n={int((df.split=='discover').sum())}), "
              f"validate FY2017-21 (n={int((df.split=='validate').sum())}), holdout FY2022-24 "
              f"(n={int((df.split=='holdout').sum())}), strategy FY2025 "
              f"(n={int((df.split=='strategy').sum())})._\n")
-    L.append("Effect = mean_fwd(top bucket) − mean_fwd(bottom bucket), in pp. "
-             "`*` = clears discover BH-FDR (α=0.10). Co-fire counts exclude semantic "
-             "self-inflation only at interpretation — see note.\n")
+    L.append("**Stock-state features (corr_*, *_dist, zz_momentum) are RESIDUALIZED** "
+             "against the all-stock-day universe baseline (`universe_baseline.py`), so "
+             "their effect = the sign's *excess* over the universe tilt, not inherited "
+             "beta. Fire-context features (co-fire, n225, own_score) are raw.\n")
+    L.append("Effect = mean_fwd(top) − mean_fwd(bottom), pp. `*` = clears discover "
+             "BH-FDR (α=0.10). `✓` = survived validation.\n")
+
+    # ── Data-derived directionality (replaces a-priori labels) ───────────────
+    L.append("## Data-derived directionality (discover FY2010-16)\n")
+    L.append("Each sign classified by measured discover excess vs the universe mean — "
+             "NOT design intent. Co-fire direction features use these (frozen) labels.\n")
+    L.append("| direction | signs |")
+    L.append("|---|---|")
+    for lab in ("bullish", "neutral", "bearish"):
+        sgs = [f"`{s}`" for s, l, *_ in dir_table if l == lab]
+        L.append(f"| {lab} | {', '.join(sgs) if sgs else '—'} |")
+    L.append("")
 
     # ── Master matrix ────────────────────────────────────────────────────────
     L.append("## Master matrix — discover effect (pp forward return)\n")
