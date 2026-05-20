@@ -407,6 +407,36 @@ def _write_report(out, df, signs, dcells, survivors, holdout_rows, fy25_lines,
     L.append("Effect = mean_fwd(top) − mean_fwd(bottom), pp. `*` = clears discover "
              "BH-FDR (α=0.10). `✓` = survived validation.\n")
 
+    # ── Summary / conclusions (computed from this run) ───────────────────────
+    corr_feats = {"corr_n225", "corr_gspc", "corr_hsi"}
+    n_fdr = sum(c.fdr for c in dcells.values())
+    oos = [(sgn, ft, fv, d, lo, hi) for (sgn, ft, fv, de, ve, d, lo, hi, nf) in holdout_rows
+           if not math.isnan(lo) and lo > 0]
+    corr_surv = [s for s in survivors if s[1] in corr_feats]
+    corr_oos = [o for o in oos if o[1] in corr_feats]
+    L.append("## Summary\n")
+    L.append(f"- Grid: {len(signs)} signs × {len(FEATURES)} features → **{n_fdr}** cells "
+             f"clear discover BH-FDR, **{len(survivors)}** survive validation, "
+             f"**{len(oos)}** confirm out-of-sample in the holdout (bootstrap CI excludes 0).")
+    L.append(f"- **Correlation features are universe beta, not sign edges.** "
+             f"Of {len(corr_surv)} surviving `corr_*` cells, **{len(corr_oos)}** confirm OOS "
+             f"after residualizing against the all-stock-day baseline"
+             + ("" if corr_oos else " — the cross-sign 'low corr → bullish' pattern was"
+                " inherited regime tilt, not a sign edge") + ".")
+    if oos:
+        L.append("- **Durable, sign-specific characteristics** (OOS-confirmed, non-beta):")
+        for sgn, ft, fv, d, lo, hi in sorted(oos, key=lambda o: -o[3]):
+            L.append(f"    - `{sgn}` more bullish when `{ft}`=`{fv}` "
+                     f"(holdout {_fmt_pp(d)}pp, CI [{lo*100:+.2f}, {hi*100:+.2f}])")
+    else:
+        L.append("- No characteristic confirmed out-of-sample after residualization.")
+    for ln in fy25_lines:
+        L.append(f"- **{ln}**")
+    L.append("\n_Forward returns winsorized ±60%; stock-state effects are excess over "
+             "the all-stock-day universe baseline; directionality is data-derived "
+             "(discover-frozen). Distance/correlation features are fire-time legal; "
+             "outcomes are forward-looking labels._\n")
+
     # ── Data-derived directionality (replaces a-priori labels) ───────────────
     L.append("## Data-derived directionality (discover FY2010-16)\n")
     L.append("Each sign classified by measured discover excess vs the universe mean — "
