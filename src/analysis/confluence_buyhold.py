@@ -14,14 +14,16 @@ Metrics per series: total return, daily Sharpe (×√252), max drawdown, % time
 invested. Risk-adjusted (Sharpe, maxDD) is the verdict; total return alone is
 unfair to a more selective book.
 
-OUTCOME (2026-05-21): CONFLUENCE WINS, defensively. Stitched confluence +300.9% /
-daily-Sharpe +1.01 / maxDD −26.9% vs N225 BH +183%/+0.75/−31.6% vs universe BH
-+267%/+0.98/−33.6%. Beats N225 on all 3; beats universe on return+drawdown, ties
-Sharpe. Win shape = trades upside for downside protection (crushes down/flat FYs
-— FY2024 +42.5% vs N225 −10.5%; lags bull rebounds FY2020/23/25). NOTE: ~95%
-invested (not cash-timing) — it's a concentrated rotating 4-name long book with a
-defensive selection + ZsTpSl-exit tilt. REAL daily Sharpe ≈1.0, NOT the per-trade
-benchmark +3.4. See memory project_confluence_buyhold_win.md.
+OUTCOME (2026-05-21, FY2018 included): confluence beats the INDEX but only TIES
+the equal-weight universe risk-adjusted. Stitched (9 FYs) confluence +256.9% /
+daily-Sharpe +0.84 / maxDD −29.9% vs N225 BH +180.6%/+0.68/−32.8% vs universe BH
++253.2%/+0.86/−33.6%(−36.0). Beats N225 on all 3; vs universe it's a WASH on
+Sharpe (+0.84 vs +0.86) and return, only a drawdown edge. (An earlier FY2018-
+EXCLUDED run looked stronger — +1.01 Sharpe, clear universe win — that gap
+inflated it.) NOTE: ~96% invested (not cash-timing) — concentrated rotating
+4-name long book. REAL daily Sharpe ≈0.8-1.0, NOT the per-trade benchmark +3.4.
+Does NOT reliably avoid bears (FY2018 + FY2021 amplified drawdowns; see
+confluence_drawdown_cond.py + memory project_confluence_buyhold_win.md).
 
 Run: PYTHONPATH=. uv run --env-file devenv python -m src.analysis.confluence_buyhold
 """
@@ -50,7 +52,9 @@ _BULLISH = {"str_hold": 3, "str_lead": 5, "str_lag": 5, "brk_sma": 5, "brk_bol":
 _N_GATE = 3
 _SLOTS = 4
 _FYS = [FyConfig("FY2017", datetime.date(2017, 4, 1), datetime.date(2018, 3, 31),
-                 "classified2016")] + list(RS_FY_CONFIGS)
+                 "classified2016"),
+        FyConfig("FY2018", datetime.date(2018, 4, 1), datetime.date(2019, 3, 31),
+                 "classified2017")] + list(RS_FY_CONFIGS)
 
 
 def _closes(cache: DataCache) -> tuple[list[datetime.date], dict]:
