@@ -422,6 +422,11 @@ def _proposals_to_json(
             "stock":     p.stock_code,
             "name":      name_map.get(p.stock_code),
             "sign":      p.sign_type,
+            # Which strategy produced this row — drives the Daily strategy
+            # switch.  ConfluenceSignStrategy labels its proposals
+            # "conf{N}:{signs}" (see confluence_sign.py); everything else is a
+            # RegimeSignStrategy proposal.
+            "strat":     "confluence" if p.sign_type.startswith("conf") else "regime",
             "corr":      p.corr_mode,
             "corr_n225": (None if p.corr_n225 is None or math.isnan(p.corr_n225)
                           else round(p.corr_n225, 3)),
@@ -720,6 +725,31 @@ def _rev_nday_reference(
     else:
         ref_date = min(window, key=lambda d: daily_lo[d])
         return daily_lo[ref_date], ref_date.isoformat()
+
+
+def _fmt_sign_label(sign: str, per_line: int = 2) -> str:
+    """Wrap a long confluence sign label across lines with ``<br>``.
+
+    Confluence proposals carry a ``conf{N}:s1,s2,s3,...`` label
+    (confluence_sign.py).  When 3-4 signs agree the label runs off the chart
+    title / "fired" annotation, so split the constituents into rows of
+    ``per_line``.  The count head stays with the first row::
+
+        conf4: brk_bol, brk_kumo_hi
+        brk_sma, brk_tenkan_hi
+
+    Non-confluence labels (a single sign) are returned unchanged.
+    """
+    if not sign.startswith("conf") or ":" not in sign:
+        return sign
+    head, _, rest = sign.partition(":")
+    parts = [p for p in rest.split(",") if p]
+    if len(parts) <= per_line:
+        return sign
+    lines = [f"{head}: {', '.join(parts[:per_line])}"]
+    for i in range(per_line, len(parts), per_line):
+        lines.append(", ".join(parts[i:i + per_line]))
+    return "<br>".join(lines)
 
 
 def _build_combined_chart(
@@ -1147,7 +1177,7 @@ def _build_combined_chart(
                                   annotation_position="right")
                 dir_label = stock_row.get("direction", "").upper()
                 title_text = (
-                    f"{stock_row['stock']}  —  {stock_row['sign']}  "
+                    f"{stock_row['stock']}  —  {_fmt_sign_label(stock_row['sign'])}  "
                     f"|  entry {stock_row.get('entry_date', '')}  [{dir_label}]"
                 )
             else:
@@ -1155,9 +1185,18 @@ def _build_combined_chart(
                     fig.add_shape(type="line", x0=fired_str, x1=fired_str, y0=0, y1=1,
                                   xref="x", yref="paper",
                                   line=dict(width=1.5, dash="dot", color="#00e676"))
+                    # Anchor the label on the side that keeps it inside the
+                    # plot: a fire near the right edge (the usual "today"
+                    # proposal) would run off the right margin if left-anchored,
+                    # so flip it to extend leftward into the empty top space.
+                    _near_right = dates.index(fired_str) > 0.7 * len(dates)
                     fig.add_annotation(x=fired_str, y=0.98, xref="x", yref="paper",
-                                       text=f" {stock_row['sign']} fired", showarrow=False,
-                                       xanchor="left", font=dict(size=10, color="#00e676"),
+                                       text=f"{_fmt_sign_label(stock_row['sign'])} fired",
+                                       showarrow=False,
+                                       align="right" if _near_right else "left",
+                                       xanchor="right" if _near_right else "left",
+                                       yanchor="top",
+                                       font=dict(size=10, color="#00e676"),
                                        bgcolor="rgba(0,0,0,0.6)")
                 # "Today" marker — only render when target_str is STRICTLY
                 # LATER than fired_str.  Two cases we suppress:
@@ -1236,15 +1275,17 @@ def _build_combined_chart(
                         row=1, col=1,
                     )
                 title_text = (
-                    f"{stock_row['stock']}  —  {stock_row['sign']}"
+                    f"{stock_row['stock']}  —  {_fmt_sign_label(stock_row['sign'])}"
                 )
 
+            # Wrapped (multi-line) titles need more headroom or the 2nd line clips.
+            _title_top = 52 if "<br>" in title_text else 36
             fig.update_layout(
                 template="plotly_dark", paper_bgcolor=BG, plot_bgcolor="#0d1117",
-                margin=dict(l=60, r=90, t=36, b=10),
+                margin=dict(l=60, r=90, t=_title_top, b=10),
                 title=dict(
                     text=title_text,
-                    font=dict(size=13, color=MUTED), x=0.01,
+                    font=dict(size=13, color=MUTED), x=0.01, y=0.99, yanchor="top",
                 ),
                 dragmode="pan", hovermode="x unified",
                 yaxis_title="Price",   yaxis2_title="ADX",
@@ -1791,6 +1832,35 @@ def layout() -> html.Div:
                         ],
                     ),
 
+                    # Strategy switch — both strategies always run on Refresh
+                    # (shadow mode); this filters which one's proposals show in
+                    # the table.  Filtering is client-derived from the raw store
+                    # so switching is instant (no strategy re-run).
+                    html.Div(
+                        style={"display": "flex", "alignItems": "center",
+                               "gap": "8px", "margin": "2px 0 8px"},
+                        children=[
+                            html.Span(
+                                "Strategy:",
+                                style={"color": MUTED, "fontSize": "11px",
+                                       "whiteSpace": "nowrap"},
+                            ),
+                            dcc.RadioItems(
+                                id="daily-strategy-switch",
+                                options=[
+                                    {"label": "Both",       "value": "both"},
+                                    {"label": "RegimeSign", "value": "regime"},
+                                    {"label": "Confluence", "value": "confluence"},
+                                ],
+                                value="both",
+                                inline=True,
+                                inputStyle={"marginRight": "4px"},
+                                labelStyle={"marginRight": "12px", "color": TEXT,
+                                            "fontSize": "12px", "cursor": "pointer"},
+                            ),
+                        ],
+                    ),
+
                     # Loading spinner wraps the table
                     dcc.Loading(
                         id="daily-loading",
@@ -1864,6 +1934,11 @@ def layout() -> html.Div:
                         ],
                     ),
 
+                    # Raw store = both strategies' proposals (written on
+                    # Refresh).  daily-proposals-store below is the strategy-
+                    # filtered view that the table + all selection handlers
+                    # read, so row indices stay aligned with what's displayed.
+                    dcc.Store(id="daily-proposals-store-raw"),
                     dcc.Store(id="daily-proposals-store"),
                     dcc.Store(id="daily-pos-selected-store"),
                     dcc.Store(id="daily-regime-snapshot"),
@@ -2246,7 +2321,7 @@ def register_callbacks() -> None:
 
 
     @callback(
-        Output("daily-proposals-store", "data"),
+        Output("daily-proposals-store-raw", "data"),
         Output("daily-regime-card", "children"),
         Output("daily-regime-snapshot", "data"),
         Input("daily-refresh-btn", "n_clicks"),
@@ -2344,6 +2419,30 @@ def register_callbacks() -> None:
             "corr_frac": _frac_of(corr_snap),
         }
         return _proposals_to_json(proposals, ranking_evs), card, regime_snapshot
+
+    @callback(
+        Output("daily-proposals-store", "data"),
+        Output("daily-table", "selected_rows"),
+        Input("daily-proposals-store-raw", "data"),
+        Input("daily-strategy-switch", "value"),
+    )
+    def filter_proposals_by_strategy(
+        raw_data: str | None, strat: str | None
+    ) -> tuple:
+        """Derive the displayed store from the raw store + strategy switch.
+
+        Both strategies always run on Refresh (shadow mode); this picks which
+        rows the table — and every selection handler that reads
+        daily-proposals-store — actually sees.  Resetting selected_rows avoids
+        a stale selection pointing past the end of a now-shorter list.
+        """
+        if not raw_data:
+            return raw_data, []
+        if strat in (None, "both"):
+            return raw_data, []
+        rows = json.loads(raw_data)
+        kept = [r for r in rows if r.get("strat") == strat]
+        return json.dumps(kept), []
 
     @callback(
         Output("daily-table", "data"),
