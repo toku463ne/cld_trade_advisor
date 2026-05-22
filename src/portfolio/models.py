@@ -58,7 +58,10 @@ class Position(Base):
     )
 
     stock_code: Mapped[str] = mapped_column(String(20), nullable=False)
-    sign_type:  Mapped[str] = mapped_column(String(30), nullable=False)
+    # 255 not 30: ConfluenceSignStrategy stores its full "conf{N}:{signs}" label
+    # here (e.g. conf6:brk_kumo_hi,brk_tenkan_hi,chiko_hi,rev_lo,str_hold,str_lag),
+    # which can reach ~100 chars; single-sign regime labels are short.
+    sign_type:  Mapped[str] = mapped_column(String(255), nullable=False)
     corr_mode:  Mapped[str] = mapped_column(String(10), nullable=False)
     kumo_state: Mapped[int] = mapped_column(Integer, nullable=False)
 
@@ -133,7 +136,7 @@ class ReviewedCandidate(Base):
     # decision is its own upsert row.
     trade_date: Mapped[datetime.date] = mapped_column(Date, nullable=False, index=True)
     stock_code: Mapped[str]           = mapped_column(String(20), nullable=False)
-    sign_type:  Mapped[str]           = mapped_column(String(30), nullable=False)
+    sign_type:  Mapped[str]           = mapped_column(String(255), nullable=False)  # holds confluence "conf{N}:{signs}" labels
 
     sign_score: Mapped[float | None]  = mapped_column(Float, nullable=True)
     corr_mode:  Mapped[str | None]    = mapped_column(String(10), nullable=True)
