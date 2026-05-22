@@ -49,10 +49,21 @@ def _sign_result(sign: str, code: str, score: float = 1.0) -> SignResult:
     )
 
 
-def _rank_entry(sign: str, kumo: int, bench_flw: float = 0.05) -> RankEntry:
+def _rank_entry(
+    sign: str,
+    kumo: int,
+    bench_flw: float = 0.05,
+    mag_rev: float = 0.0,
+) -> RankEntry:
+    """Build a RankEntry. EV (the strategy's primary ranking metric) is
+    ev = dr×mag_flw − (1−dr)×mag_rev. With the default mag_rev=0 this reduces
+    to ev == bench_flw (= dr×mag_flw), so the strategy's sort-by-ev matches the
+    bench_flw ordering these tests assert. Pass mag_rev>0 to make EV diverge."""
     dr = 0.6
+    mag_flw = bench_flw / dr
+    ev = dr * mag_flw - (1.0 - dr) * mag_rev
     return RankEntry(sign_type=sign, kumo_state=kumo, n=40, dr=dr,
-                     mag_flw=bench_flw / dr, bench_flw=bench_flw)
+                     mag_flw=mag_flw, mag_rev=mag_rev, bench_flw=bench_flw, ev=ev)
 
 
 def _empty_cache(code: str) -> DataCache:
@@ -85,6 +96,11 @@ def _make_strategy(
     strat._detectors    = detectors or {}
     strat._corr_map     = cm
     strat._stock_kumo   = stock_kumo or {}
+    # RS_PICK_MODE robustness-probe knobs: falsy → deterministic argmax pick
+    # (the behaviour these tests assert).  Wired here because they were added
+    # to the strategy after these tests, and propose() now reads them.
+    strat._pick_mode    = None
+    strat._pick_rng     = None
     return strat
 
 
@@ -154,6 +170,30 @@ class TestHighCorrProposal:
         high_props = [p for p in proposals if p.corr_mode == "high"]
         assert len(high_props) == 1
         assert high_props[0].sign_type == "str_hold"  # higher bench_flw wins
+
+    def test_ranking_is_by_ev_not_bench_flw(self) -> None:
+        """EV (dr×mag_flw − (1−dr)×mag_rev), not legacy bench_flw, ranks cells.
+
+        str_hold has the HIGHER bench_flw (0.10) but a large reverse magnitude
+        drags its EV to 0.02; div_gap has lower bench_flw (0.05) but no reverse
+        events so EV stays 0.05.  The EV winner (div_gap) must be picked even
+        though it loses on bench_flw.
+        """
+        ranking = {
+            ("str_hold", 1): _rank_entry("str_hold", 1, bench_flw=0.10, mag_rev=0.20),
+            ("div_gap",  1): _rank_entry("div_gap",  1, bench_flw=0.05, mag_rev=0.0),
+        }
+        assert ranking[("str_hold", 1)].ev < ranking[("div_gap", 1)].ev
+        assert ranking[("str_hold", 1)].bench_flw > ranking[("div_gap", 1)].bench_flw
+        corr_map = {"A.T": {_TODAY: 0.8}, "B.T": {_TODAY: 0.8}}
+        detectors = {
+            ("str_hold", "A.T"): _MockDetector(_sign_result("str_hold", "A.T")),
+            ("div_gap",  "B.T"): _MockDetector(_sign_result("div_gap",  "B.T")),
+        }
+        strat = _make_strategy(ranking=ranking, corr_map=corr_map, detectors=detectors)
+        high_props = [p for p in strat.propose(_DT) if p.corr_mode == "high"]
+        assert len(high_props) == 1
+        assert high_props[0].sign_type == "div_gap"   # EV winner, not bench_flw winner
 
     def test_high_corr_proposal_carries_regime_metrics(self) -> None:
         """Proposal's regime fields match the ranking entry values."""

@@ -194,10 +194,15 @@ class TestBuildRegimeRanking:
 
 
 class TestRankForRegime:
-    def _make_entry(self, sign: str, kumo: int, bench_flw: float) -> RankEntry:
+    def _make_entry(self, sign: str, kumo: int, bench_flw: float,
+                    mag_rev: float = 0.0) -> RankEntry:
+        # EV = dr×mag_flw − (1−dr)×mag_rev; with default mag_rev=0 it equals
+        # bench_flw, preserving these tests' bench_flw-ordering assertions.
         dr = 0.6
         mag = bench_flw / dr
-        return RankEntry(sign_type=sign, kumo_state=kumo, n=40, dr=dr, mag_flw=mag, bench_flw=bench_flw)
+        ev = dr * mag - (1.0 - dr) * mag_rev
+        return RankEntry(sign_type=sign, kumo_state=kumo, n=40, dr=dr, mag_flw=mag,
+                         mag_rev=mag_rev, bench_flw=bench_flw, ev=ev)
 
     def test_filters_by_kumo_state(self) -> None:
         """Only entries matching kumo_state are returned."""
