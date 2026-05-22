@@ -1540,8 +1540,64 @@ def _cluster_size_for_stock(
         return None
 
 
-def _factor_panel(row: dict[str, Any]) -> list:
+def _slot_corr(
+    candidate_code: str,
+    account_id:     int | None,
+    as_of_date:     datetime.date,
+    window:         int = 20,
+) -> list[tuple[str, str, float]] | None:
+    """ρ(window) of the candidate vs each currently-open position.
+
+    Supports the diversification rule: a proposal whose returns are highly
+    correlated with something already held is a redundant bet (false
+    diversification), not a new slot. Returns a list of
+    ``(holding_code, holding_name, corr)`` sorted by |corr| descending, or
+    ``[]`` when there are no other open positions, or ``None`` when no account
+    is selected. 20-bar window matches the ρ(20) convention used elsewhere.
+    """
+    if account_id is None:
+        return None
+    end_dt   = datetime.datetime.combine(as_of_date, datetime.time.max, tzinfo=_JST)
+    start_dt = end_dt - datetime.timedelta(days=window * 5 + 90)  # ample bars for the window
+    name_map = _load_name_map()
+    with get_session() as session:
+        positions = get_open_positions(session, account_id=account_id)
+        holdings = sorted({p.stock_code for p in positions
+                           if p.stock_code != candidate_code})
+        if not holdings:
+            return []
+        cand = DataCache(candidate_code, _GRAN)
+        cand.load(session, start_dt, end_dt)
+        if not cand.bars:
+            return []
+        ind: dict[str, pd.Series] = {}
+        for code in holdings:
+            c = DataCache(code, _GRAN)
+            c.load(session, start_dt, end_dt)
+            if c.bars:
+                ind[code] = pd.Series({b.dt.date(): b.close for b in c.bars})
+    if not ind:
+        return []
+    cand_ser = pd.Series({b.dt.date(): b.close for b in cand.bars})
+    result = compute_moving_corr(cand_ser, ind, window=window)
+    out: list[tuple[str, str, float]] = []
+    for code in holdings:
+        s = result.get(code)
+        if s is None or s.empty:
+            continue
+        s = s[s.index <= as_of_date].dropna()
+        if s.empty:
+            continue
+        out.append((code, name_map.get(code, ""), float(s.iloc[-1])))
+    out.sort(key=lambda t: -abs(t[2]))
+    return out
+
+
+def _factor_panel(row: dict[str, Any], slot_corr: list | None = None) -> list:
     """Per-stock decision-factor panel for a selected proposal row.
+
+    ``slot_corr`` (from ``_slot_corr``) optionally adds a diversification block
+    showing ρ vs the account's open positions.
 
     Implements docs/evaluation_criteria.md §5.11: every factor carries measured
     strength + sample size + provenance; cell-level aggregates live in a
@@ -1604,6 +1660,41 @@ def _factor_panel(row: dict[str, Any]) -> list:
         tier="production",
         caption=f"{cm_interp}  ·  src: regime_sign 20-bar rolling corr",
     ))
+
+    # ── Diversification vs open positions (ρ to current slots) ──
+    # The validated selection rule: a candidate highly correlated with a name
+    # already held is a redundant bet (false diversification), not a new slot.
+    # 0.6 / 0.3 thresholds match CLAUDE.md high/low-corr classification.
+    if slot_corr is not None:
+        children.append(_header("Diversification — ρ(20) vs your open positions"))
+        if not slot_corr:
+            children.append(html.Div(
+                "No other open positions to compare against.",
+                style={"color": MUTED, "fontSize": "11px", "fontStyle": "italic"},
+            ))
+        else:
+            for code, nm, c in slot_corr:
+                ac = abs(c)
+                color = RED if ac >= 0.6 else GREEN if ac <= 0.3 else "#ff9800"
+                label = f"{code} {nm}".strip()
+                children.append(html.Div([
+                    html.Span(f"{label}: ",
+                              style={"color": MUTED, "fontSize": "11px"}),
+                    html.Span(f"ρ={c:+.2f}",
+                              style={"color": color, "fontSize": "11px", "fontWeight": "600"}),
+                ]))
+            max_abs = max(abs(c) for *_, c in slot_corr)
+            if max_abs >= 0.6:
+                verdict, vcolor = "REDUNDANT with a holding — adds little diversification", RED
+            elif max_abs <= 0.3:
+                verdict, vcolor = "diversifies — low overlap with holdings", GREEN
+            else:
+                verdict, vcolor = "partial overlap with holdings", "#ff9800"
+            children.append(html.Div(
+                f"max |ρ| = {max_abs:.2f} → {verdict}",
+                style={"color": vcolor, "fontSize": "11px", "fontWeight": "600",
+                       "marginTop": "2px"},
+            ))
 
     # ── Cluster size (experimental, div_peer only) ──
     # Per project_div_peer_cluster_size_reject.md: size=2 carries weak edge
@@ -2484,9 +2575,14 @@ def register_callbacks() -> None:
         Output("daily-factor-panel", "style"),
         Input("daily-table", "selected_rows"),
         Input("daily-proposals-store", "data"),
+        Input("active-account-id", "data"),
+        State("daily-date", "date"),
     )
     def update_factor_panel(
-        selected_rows: list[int], store_data: str | None
+        selected_rows: list[int],
+        store_data:    str | None,
+        account_id:    int | None,
+        date_str:      str | None,
     ) -> tuple:
         hidden = {"display": "none"}
         visible = {
@@ -2499,7 +2595,16 @@ def register_callbacks() -> None:
         rows = json.loads(store_data)
         if selected_rows[0] >= len(rows):
             return [], hidden
-        return _factor_panel(rows[selected_rows[0]]), visible
+        row = rows[selected_rows[0]]
+        # ρ vs open positions (diversification) — non-fatal if it fails
+        slot_corr: list | None = None
+        if date_str:
+            try:
+                as_of = datetime.date.fromisoformat(date_str[:10])
+                slot_corr = _slot_corr(row["stock"], account_id, as_of)
+            except Exception as exc:
+                logger.warning("slot_corr failed for {}: {}", row.get("stock"), exc)
+        return _factor_panel(row, slot_corr=slot_corr), visible
 
     @callback(
         Output("daily-chart", "figure"),
