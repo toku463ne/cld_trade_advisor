@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import datetime
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 from src.exit.base import EntryCandidate, ExitContext, ExitResult, ExitRule
 from src.simulator.cache import DataCache
@@ -74,6 +74,7 @@ def run_simulation(
     rule:         ExitRule,
     stock_caches: dict[str, DataCache],
     end_date:     datetime.date,
+    day_selector: Callable[[datetime.date, list[EntryCandidate], list], list[EntryCandidate]] | None = None,
 ) -> list[ExitResult]:
     """Simulate all candidates under *rule* with portfolio constraints.
 
@@ -82,6 +83,14 @@ def run_simulation(
         rule:         ExitRule instance; reset() called per trade.
         stock_caches: Mapping stock_code → DataCache (must cover [start, end]).
         end_date:     Simulation ends at this date; open positions force-closed.
+        day_selector: Optional hook to reorder the candidates competing for
+            slots on a given day, given the CURRENT open positions — for
+            dynamic, holding-aware selection (e.g. fill the least-correlated
+            candidate first). Signature ``(today, todays_candidates,
+            open_positions) -> reordered_candidates``. Default ``None`` keeps
+            the existing chronological/insertion order (production behaviour
+            unchanged). Research use only — see
+            src/analysis/confluence_slot_order.py.
 
     Returns:
         List of ExitResult, one per completed trade.
@@ -176,13 +185,19 @@ def run_simulation(
         open_pos = remaining
 
         # ── 2. Accept new candidates whose entry_date == today ─────────
+        # Collect today's candidates first so an optional day_selector can
+        # reorder them against the CURRENT open positions before admission.
+        todays: list[EntryCandidate] = []
         while cand_idx < n_cands and sorted_cands[cand_idx].entry_date <= today:
             cand = sorted_cands[cand_idx]
             cand_idx += 1
-            if cand.entry_date != today:
-                continue   # past date — skip (already processed)
+            if cand.entry_date == today:
+                todays.append(cand)   # entry_date < today already handled on its day
+        if day_selector is not None and todays:
+            todays = day_selector(today, todays, open_pos)
 
-            # Count current open positions by corr_mode
+        for cand in todays:
+            # Count current open positions by corr_mode (updates as we admit)
             high_open = sum(1 for p in open_pos if p.candidate.corr_mode == "high")
             low_open  = sum(1 for p in open_pos if p.candidate.corr_mode != "high")
 
