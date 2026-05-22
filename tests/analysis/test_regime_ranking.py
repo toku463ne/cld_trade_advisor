@@ -165,7 +165,11 @@ class TestBuildRegimeRanking:
         for _ in range(10):
             _make_event(session, run.id, d, direction=-1, magnitude=0.99)  # should not affect mag_flw
 
-        result = build_regime_ranking(session, run_ids=[run.id], min_n=30, min_dr=0.0)
+        # The huge reverse magnitude drives EV negative (0.75*0.08 − 0.25*0.99 < 0),
+        # which the default EV filter would drop — but this test only checks the
+        # mag_flw computation, so disable the EV gate (min_ev well below 0).
+        result = build_regime_ranking(session, run_ids=[run.id], min_n=30,
+                                      min_dr=0.0, min_ev=-1.0)
         entry = result[("div_vol", 1)]
         assert entry.mag_flw == pytest.approx(0.08)
 
