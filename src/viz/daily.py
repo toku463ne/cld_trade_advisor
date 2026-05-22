@@ -1593,6 +1593,90 @@ def _slot_corr(
     return out
 
 
+def _exit_advice(
+    stock_code: str,
+    entry_date: datetime.date,
+    as_of:      datetime.date,
+    cur:        float | None,
+    tp:         float | None,
+    sl:         float | None,
+    direction:  str = "long",
+    adx_drop:   float = 8.0,
+    min_bars:   int = 5,
+    max_bars:   int = 40,
+) -> dict | None:
+    """Per-position exit advice as of *as_of*.
+
+    Surfaces: bars held, signed distance to TP/SL, the ADX-trail (d8.0) HOLD/
+    EXIT verdict (exit when ADX falls ``adx_drop`` from its peak since entry, or
+    at ``max_bars``), and whether a confirmed zigzag HIGH (LOW for shorts) has
+    formed since entry. The ADX-trail is the benchmark's best point-estimate
+    exit but is NOT significantly better than the static TP/SL — caption says so.
+    Returns a dict, or None on failure (best-effort; caller renders if present).
+    """
+    is_long = direction != "short"
+    dist_tp = (tp / cur - 1.0) * 100.0 if (cur and tp) else None
+    dist_sl = (sl / cur - 1.0) * 100.0 if (cur and sl) else None
+    try:
+        start = entry_date - datetime.timedelta(days=160)   # ADX + zigzag warmup
+        s_dt = datetime.datetime.combine(start, datetime.time.min, tzinfo=_JST)
+        e_dt = datetime.datetime.combine(as_of, datetime.time.max, tzinfo=_JST)
+        with get_session() as session:
+            cache = DataCache(stock_code, _GRAN)
+            cache.load(session, s_dt, e_dt)
+        # collapse to one bar per date
+        seen: set[datetime.date] = set()
+        bars = []
+        for b in cache.bars:
+            d = b.dt.date()
+            if d in seen or d > as_of:
+                continue
+            seen.add(d); bars.append((d, b.high, b.low, b.close))
+        bars.sort(key=lambda t: t[0])
+        dates = [t[0] for t in bars]
+        if entry_date not in [d for d in dates]:
+            # entry bar may be a non-trading day; snap to first bar >= entry
+            after = [i for i, d in enumerate(dates) if d >= entry_date]
+            entry_idx = after[0] if after else None
+        else:
+            entry_idx = dates.index(entry_date)
+        if entry_idx is None or entry_idx >= len(dates) - 1:
+            return {"bars_held": 0, "dist_tp": dist_tp, "dist_sl": dist_sl,
+                    "adx_verdict": "HOLD", "adx_reason": "too few bars",
+                    "adx_peak": None, "adx_now": None, "zz_exit": False}
+        asof_idx = len(dates) - 1
+        bars_held = asof_idx - entry_idx
+
+        highs = pd.Series([t[1] for t in bars], dtype=float)
+        lows  = pd.Series([t[2] for t in bars], dtype=float)
+        closes = pd.Series([t[3] for t in bars], dtype=float)
+        adx = ADXIndicator(high=highs, low=lows, close=closes, window=14).adx()
+        seg = [v for v in adx.iloc[entry_idx:asof_idx + 1] if not pd.isna(v)]
+        adx_peak = max(seg) if seg else None
+        adx_now = float(adx.iloc[asof_idx]) if not pd.isna(adx.iloc[asof_idx]) else None
+
+        verdict, reason = "HOLD", ""
+        if bars_held >= max_bars:
+            verdict, reason = "EXIT", "time stop (40b)"
+        elif (bars_held >= min_bars and adx_peak is not None and adx_now is not None
+              and adx_now <= adx_peak - adx_drop):
+            verdict, reason = "EXIT", "adx_trail"
+
+        # confirmed zigzag HIGH (long) / LOW (short) since entry, observable by as_of
+        target_dir = 2 if is_long else -2
+        peaks = detect_peaks([t[1] for t in bars], [t[2] for t in bars],
+                             size=5, middle_size=2)
+        zz_exit = any(p.direction == target_dir and p.bar_index > entry_idx
+                      and p.bar_index + 5 <= asof_idx for p in peaks)
+
+        return {"bars_held": bars_held, "dist_tp": dist_tp, "dist_sl": dist_sl,
+                "adx_verdict": verdict, "adx_reason": reason,
+                "adx_peak": adx_peak, "adx_now": adx_now, "zz_exit": zz_exit}
+    except Exception as exc:
+        logger.warning("_exit_advice failed for {}: {}", stock_code, exc)
+        return None
+
+
 def _factor_panel(row: dict[str, Any], slot_corr: list | None = None) -> list:
     """Per-stock decision-factor panel for a selected proposal row.
 
@@ -2994,6 +3078,10 @@ def register_callbacks() -> None:
                 sl_price   = r["sl"],
                 direction  = r["direction"],
             )
+            advice = _exit_advice(
+                r["stock"], r["entry_date"], as_of, cur,
+                r["tp"], r["sl"], r["direction"],
+            )
             if cur is not None and r["entry_price"]:
                 # P&L direction-aware: short positions profit when price drops.
                 if r["direction"] == "short":
@@ -3023,6 +3111,42 @@ def register_callbacks() -> None:
                 f"|{r['entry_price']}|{r.get('tp', '')}|{r.get('sl', '')}"
                 f"|{r.get('direction', 'long')}"
             )
+
+            # ── Exit-advice row (held / dist-to-levels / ADX-trail verdict / ZZ) ──
+            if advice is None:
+                advice_block = html.Div()
+            else:
+                ev = advice["adx_verdict"]
+                ev_color = RED if ev == "EXIT" else GREEN
+                ev_txt = (f"EXIT NOW · {advice['adx_reason']}"
+                          if ev == "EXIT" else "HOLD")
+                parts = [html.Span("Exit: ", style={"color": MUTED}),
+                         html.Span(ev_txt, style={"color": ev_color, "fontWeight": "600"}),
+                         html.Span(f"held {advice['bars_held']}b")]
+                if advice["dist_tp"] is not None and advice["dist_sl"] is not None:
+                    parts.append(html.Span(
+                        f"to TP {advice['dist_tp']:+.1f}% / SL {advice['dist_sl']:+.1f}%"))
+                if advice["adx_peak"] is not None and advice["adx_now"] is not None:
+                    drop = advice["adx_peak"] - advice["adx_now"]
+                    parts.append(html.Span(
+                        f"ADX {advice['adx_peak']:.0f}→{advice['adx_now']:.0f} (−{drop:.0f}/8)"))
+                if advice["zz_exit"]:
+                    parts.append(html.Span("⚠ ZZ-high", style={"color": "#ff9800",
+                                                               "fontWeight": "600"}))
+                advice_block = html.Div(
+                    style={"borderTop": f"1px dashed {BORDER}", "paddingTop": "4px",
+                           "marginTop": "4px"},
+                    children=[
+                        html.Div(style={"color": MUTED, "fontSize": "11px",
+                                        "display": "flex", "gap": "12px",
+                                        "flexWrap": "wrap"}, children=parts),
+                        html.Div("adx_trail d8 = best point-estimate exit, not "
+                                 "significantly > TP/SL; ZZ-high = philosophy exit heads-up",
+                                 style={"color": MUTED, "fontSize": "9px",
+                                        "fontStyle": "italic", "marginTop": "2px"}),
+                    ],
+                )
+
             items.append(
                 html.Div(
                     style={
@@ -3073,6 +3197,8 @@ def register_callbacks() -> None:
                                         html.Span(f"×{r['units']}"),
                                     ],
                                 ),
+                                # Exit-advice row
+                                advice_block,
                             ],
                         ),
                         # Close button + reason dropdown — separate div so clicks don't bubble to pos-card.
