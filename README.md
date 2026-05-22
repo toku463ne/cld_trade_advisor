@@ -9,10 +9,13 @@ sudo service postgresql start
 sudo -u postgres psql <<EOF
 CREATE USER stockdevuser WITH PASSWORD 'stockdevpass';
 CREATE USER stockbtuser WITH PASSWORD 'stockbtpass';
-CREATE DATABASE stock_trader_dev OWNER stockdevuser;
-CREATE DATABASE stock_trader_bt  OWNER stockbtuser;
+CREATE DATABASE stock_trader_dev  OWNER stockdevuser;
+CREATE DATABASE stock_trader_bt   OWNER stockbtuser;
+CREATE DATABASE stock_trader_test OWNER stockdevuser;
 EOF
 ```
+
+`stock_trader_test` is used only by the pytest suite (see [Testing](#testing)).
 
 Apply DB migrations:
 ```bash
@@ -221,6 +224,27 @@ thresholds the next time `/sign-debate` is invoked.
 - Anything that reaches outside the repo (network calls, credentials).
 
 These stop the cycle and are reported back as recommendations.
+
+## Testing
+
+```bash
+uv run pytest tests/ -q
+```
+
+Most tests are pure-unit (no DB). The DB-backed tests use a dedicated
+`stock_trader_test` database — create it once (it is included in the
+[Setup](#setup) heredoc above, or run it standalone):
+
+```bash
+sudo -u postgres psql -c "CREATE DATABASE stock_trader_test OWNER stockdevuser;"
+```
+
+No migration is needed: the `db_engine` fixture (`tests/conftest.py`) builds the
+schema from the ORM metadata (`Base.metadata.create_all`) on each session and the
+`session` fixture rolls back after every test. Override the connection with
+`DATABASE_URL` if your local Postgres differs from the
+`stockdevuser:stockdevpass@localhost:5432` default. Without the database, those
+tests error on connection while the pure-unit tests still pass.
 
 ## DB Schema Changes
 
