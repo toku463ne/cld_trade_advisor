@@ -22,6 +22,19 @@ def db_engine() -> Engine:
         "DATABASE_URL",
         "postgresql://stockdevuser:stockdevpass@localhost:5432/stock_trader_test",
     )
+    # SAFETY GUARD: this fixture DROPS ALL TABLES.  Running pytest with
+    # `--env-file devenv` (or btenv/prodenv) sets DATABASE_URL to a real DB and
+    # would wipe it — this happened twice on 2026-05-23.  Refuse to run unless the
+    # target DB name clearly marks it as a test DB.  Run pytest with NO env-file
+    # (defaults to stock_trader_test) or an explicit test DATABASE_URL.
+    db_name = url.rsplit("/", 1)[-1].split("?", 1)[0]
+    if "test" not in db_name.lower():
+        raise RuntimeError(
+            f"Refusing to drop_all on non-test database {db_name!r}. "
+            "Run pytest WITHOUT --env-file (defaults to stock_trader_test), "
+            "or set DATABASE_URL to a *test* database. "
+            "(tests/conftest.py drops every table — see the 2026-05-23 incident.)"
+        )
     engine = create_engine(url)
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)

@@ -231,6 +231,13 @@ These stop the cycle and are reported back as recommendations.
 uv run pytest tests/ -q
 ```
 
+> ⚠️ **Never run pytest with `--env-file devenv` (or `btenv`/`prodenv`).** The
+> `db_engine` fixture calls `Base.metadata.drop_all` on whatever `DATABASE_URL`
+> points at — with a real env-file that **drops every table in your dev/bt DB**
+> (this wiped `stock_trader_dev` twice on 2026-05-23). Run pytest with **no
+> env-file** so it defaults to `stock_trader_test`. A guard in `tests/conftest.py`
+> now hard-refuses any target DB whose name doesn't contain `test`.
+
 Most tests are pure-unit (no DB). The DB-backed tests use a dedicated
 `stock_trader_test` database — create it once (it is included in the
 [Setup](#setup) heredoc above, or run it standalone):
