@@ -87,20 +87,47 @@ cooldown between re-entries on same stock.
 
 ### Per-FY at N ≥ 3 (the recommended gate)
 
+**CANONICAL per-FY benchmark — regenerated 2026-05-23** on the rebuilt data (full
+Nikkei universe, OHLCV 2017–2026, 8 FY clusters, fresh sign_benchmark) at the
+shipped **6-slot** book. Reports BOTH the original per-trade Sharpe (large, NOT
+annualized) and the real **capital-aware book** metrics. Source:
+`src/analysis/confluence_benchmark.py`.
+
+| FY | trades | mean_r | win% | per-trade Sh | hold | ‖ | **book Sharpe** | total | maxDD |
+|---|---:|---:|---:|---:|---:|---|---:|---:|---:|
+| FY2018 | 47 | +0.22% | 45% | +0.36 | 28 | ‖ | +0.15 | +1% | −23% |
+| FY2019 | 57 | −0.42% | 47% | −0.67 | 23 | ‖ | −0.20 | −5% | −27% |
+| FY2020 | 47 | +3.53% | 66% | +5.05 | 29 | ‖ | +1.49 | +29% | −10% |
+| FY2021 | 52 | −1.29% | 42% | −2.07 | 27 | ‖ | −0.64 | −12% | −25% |
+| FY2022 | 41 | +2.85% | 73% | +5.62 | 33 | ‖ | +1.21 | +21% | −8% |
+| FY2023 | 59 | +3.06% | 71% | +5.63 | 23 | ‖ | +1.95 | +33% | −8% |
+| FY2024 | 51 | +1.18% | 59% | +1.76 | 26 | ‖ | +0.50 | +8% | −21% |
+| **FY2025 OOS** | 55 | +2.77% | 62% | +4.59 | 25 | ‖ | **+1.38** | +29% | −13% |
+
+- **Stitched all-FY capital-aware book: Sharpe +0.72, total +149%, maxDD −27%,
+  6/8 FYs book-positive.** This is the real number; +0.72 sits in the fill-order
+  null band (~+0.6..+1.2, mean +0.89; see §Capacity). The per-trade Sharpe column
+  is ~4× larger and is NOT an annualized book Sharpe — do not read +4.59 as annual.
+- **FY2019 is no longer the −5.26 outlier** — that was an n=12 small-sample
+  artifact of the old dev DB; on the full universe it's n=57, a mild −0.67
+  per-trade / −0.20 book loss. Losses concentrate in **FY2019 + FY2021** (choppy /
+  bearish years).
+- The deterministic (sorted entry_date) book Sharpe is ONE fill-order draw;
+  judge live results against the band, not a single FY (see §Start-phase).
+
+<details><summary>Superseded 2026-05-17 table (per-trade Sharpe, 4-slot, partial DB — kept for history)</summary>
+
 | FY | trades | Sharpe | mean_r | win% |
 |---|---:|---:|---:|---:|
-| FY2019 | 12 | **−5.26** | −2.75% | 42% |
-| FY2020 | 24 | **+7.95** | +4.47% | 67% |
+| FY2019 | 12 | −5.26 | −2.75% | 42% |
+| FY2020 | 24 | +7.95 | +4.47% | 67% |
 | FY2021 | 29 | +1.55 | +1.06% | 48% |
 | FY2022 | 22 | +3.35 | +1.66% | 64% |
-| FY2023 | 23 | **+9.10** | +3.80% | 70% |
+| FY2023 | 23 | +9.10 | +3.80% | 70% |
 | FY2024 | 30 | +1.55 | +0.94% | 57% |
-| **FY2025 OOS** | **25** | **+8.37** | **+4.61%** | **68%** |
+| FY2025 OOS | 25 | +8.37 | +4.61% | 68% |
 
-- 6 of 7 FYs positive Sharpe
-- FY2025 OOS is the cleanest win — +8.37 Sharpe on 25 trades with 68% win rate
-- Three FYs above +7 Sharpe: FY2020, FY2023, FY2025
-- Lone loss: FY2019 at −5.26 on n=12 (small-sample concern, deferred)
+</details>
 
 ### Why N=3 over N=2
 
@@ -457,6 +484,7 @@ only intervention that moved the whole band.** (Build note: `AdxTrail` needs
 | `src/analysis/bullish_confluence_probe.py` | v1 (same-day, REJECT) |
 | `src/analysis/bullish_confluence_v2_probe.py` | v2 (validity-windowed, PASS at per-fire level) |
 | `src/analysis/confluence_strategy_backtest.py` | v3 live ZsTpSl backtest |
+| `src/analysis/confluence_benchmark.py` | canonical per-FY benchmark (per-trade + capital-aware, 6-slot, FY2018-2025) |
 | `src/analysis/confluence_buyhold_costs.py` | net-of-costs vs ETF / equal-weight universe |
 | `src/analysis/confluence_market_neutral.py` | beta/alpha decomposition (62/38) |
 | `src/analysis/confluence_slot_order.py` | fill-order permutation null (capstone) |
