@@ -262,6 +262,29 @@ willingness to run a **6-concurrent-position book** (more capital + manual
 tracking) — that operational cost, not the statistics, is the binding question.
 Not auto-shipped (below 95%).
 
+**Costs + per-FY check (`confluence_capacity_costs.py`, 2026-05-23).** Two
+adoption objections resolved:
+
+| cost (bps) | 4-slot Sharpe | 6-slot Sharpe | 4-slot ret | 6-slot ret | paired ΔSharpe | P(Δ>0) |
+|---:|---:|---:|---:|---:|---:|---:|
+| 0 | 0.89 | 1.02 | 335% | 374% | +0.137 | 0.865 |
+| 20 | 0.81 | 0.93 | 277% | 310% | +0.128 | 0.855 |
+| 34 | 0.75 | 0.87 | 241% | 271% | +0.122 | 0.845 |
+
+- **Costs = clean PASS — the edge is cost-invariant.** Turnover-per-capital is
+  identical (4-slot 36 tr/yr ÷ 4 = 9; 6-slot 54 ÷ 6 = 9), so round-trip costs hit
+  both arms equally and the Δ barely moves (+0.137 → +0.122 from 0→34 bps). The
+  +48% more trades is exactly offset by +50% more slots (smaller positions). 6-slot
+  net return beats 4-slot at every cost level. **Turnover is not a reason to hesitate.**
+- **Per-FY = moderate but asymmetric.** 6-slot wins **5/9** FYs (below a 6/9 bar)
+  but with big wins (+0.41 to +0.82) vs small losses (≤−0.48); **FY2025 OOS +0.81**;
+  bull-mean Δ +0.78, **bear-mean Δ −0.00 (flat — no sign-flip**, unlike the exit
+  arms). Gains are bull-loaded (more slots → more capital → more beta) plus the
+  drawdown improvement (diversification).
+- **Verdict unchanged: lean-yes / operator-call.** The costs objection is removed
+  and the per-FY profile is favorable-asymmetric, but the paired CI still grazes 0
+  at every cost (not 95%-separated). The binding question stays operational.
+
 ### What shipped from the deep-dive (decision-support only, no gating)
 
 - **Daily strategy switch** — RadioItems toggle between regime and confluence
@@ -437,6 +460,7 @@ only intervention that moved the whole band.** (Build note: `AdxTrail` needs
 | `src/analysis/confluence_market_neutral.py` | beta/alpha decomposition (62/38) |
 | `src/analysis/confluence_slot_order.py` | fill-order permutation null (capstone) |
 | `src/analysis/confluence_capacity_null.py` | 6-slot vs 4-slot paired shuffle null |
+| `src/analysis/confluence_capacity_costs.py` | 6-slot costs (cost-invariant) + per-FY robustness |
 | `src/analysis/confluence_start_phase_null.py` | start-phase variance + combined phase+order null |
 | `src/analysis/confluence_regime_pooling.py` | regime-conditional pooling + per-regime β-stripped alpha + stock-chop cut |
 | `src/analysis/confluence_adx_priority.py` | ADX-priority single-arm vs null (looked best, was order luck) |
