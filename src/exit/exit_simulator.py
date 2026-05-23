@@ -24,7 +24,14 @@ from src.exit.base import EntryCandidate, ExitContext, ExitResult, ExitRule
 from src.simulator.cache import DataCache
 
 _MAX_HIGH_CORR = 1
-_MAX_LOW_CORR  = 3   # mid-corr is treated as low
+_MAX_LOW_CORR  = 5   # mid-corr is treated as low; 1 high + 5 low = 6-slot book.
+                     # 3→5 adopted 2026-05-23 (operator call): the 6-slot capacity
+                     # bump is the session's only intervention that moved the whole
+                     # Sharpe band (paired Δ +0.137, cost-invariant to 34bps, better
+                     # DD, bear-flat). Near-miss vs the fill-order null (CI grazes 0),
+                     # adopted on favorable risk-asymmetry. See
+                     # docs/analysis/confluence_strategy.md §Capacity +
+                     # project_confluence_fill_order_null.md.
 
 
 class _DayBar(NamedTuple):

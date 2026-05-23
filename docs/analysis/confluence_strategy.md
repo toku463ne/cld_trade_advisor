@@ -74,7 +74,8 @@ test is live ZsTpSl backtest.
 
 `src/analysis/confluence_strategy_backtest.py` runs the confluence
 gate as an actual entry rule with all of: ZsTpSl(2.0, 2.0, 0.3) exit,
-two-bar fill, portfolio cap (≤1 high-corr + ≤3 low/mid), 10-bar
+two-bar fill, portfolio cap (≤1 high-corr + ≤5 low/mid since 2026-05-23;
+was ≤3 — see §Capacity), 10-bar
 cooldown between re-entries on same stock.
 
 | Strategy | trades | avg Sharpe | avg mean_r | win% |

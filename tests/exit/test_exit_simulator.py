@@ -146,17 +146,20 @@ class TestPortfolioConstraints:
         )
         assert len(results) == 1
 
-    def test_low_corr_capacity_three(self) -> None:
-        # Four low-corr candidates on the same day — only first 3 accepted
-        caches = {f"{i}.T": _make_cache(f"{i}.T", [100.0] * 8) for i in range(4)}
+    def test_low_corr_capacity_cap(self) -> None:
+        # Six low-corr candidates on the same day — only first _MAX_LOW_CORR (5)
+        # accepted (1 high + 5 low = 6-slot book; cap raised 3→5 on 2026-05-23).
+        from src.exit.exit_simulator import _MAX_LOW_CORR
+        n = _MAX_LOW_CORR + 1
+        caches = {f"{i}.T": _make_cache(f"{i}.T", [100.0] * 8) for i in range(n)}
         start = datetime.date(2024, 1, 1)
-        cands = [_candidate(f"{i}.T", start, corr_mode="low") for i in range(4)]
+        cands = [_candidate(f"{i}.T", start, corr_mode="low") for i in range(n)]
         rule = TimeStop(max_bars=5)
         results = run_simulation(
             cands, rule, caches,
             end_date=start + datetime.timedelta(days=7),
         )
-        assert len(results) == 3
+        assert len(results) == _MAX_LOW_CORR
 
     def test_high_and_low_corr_coexist(self) -> None:
         # 1 high-corr + 1 low-corr simultaneously — both accepted
