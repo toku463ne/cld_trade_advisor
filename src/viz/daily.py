@@ -2728,9 +2728,11 @@ def register_callbacks() -> None:
                 tp = sl = None
                 if entry_price is not None:
                     try:
-                        fired = datetime.date.fromisoformat(row["fired_at"])
+                        # Anchor TP/SL zigzag legs to the AS-OF (selected) date,
+                        # not fired_at — TP/SL reflect entering at the current
+                        # price, matching the register-panel default entry.
                         tp, sl = compute_exit_levels(
-                            row["stock"], float(entry_price), fired,
+                            row["stock"], float(entry_price), target,
                             direction=direction or "long",
                         )
                     except Exception:
@@ -2749,9 +2751,10 @@ def register_callbacks() -> None:
         Output("daily-direction",            "value"),
         Input("daily-table",                 "selected_rows"),
         Input("daily-proposals-store",       "data"),
+        State("daily-date",                   "date"),
     )
     def show_register_panel(
-        selected_rows: list[int], store_data: str | None
+        selected_rows: list[int], store_data: str | None, date_str: str | None
     ) -> tuple:
         hidden = {"display": "none"}
         visible = {
@@ -2765,11 +2768,16 @@ def register_callbacks() -> None:
         if selected_rows[0] >= len(rows):
             return hidden, "", None, "long"
         row  = rows[selected_rows[0]]
-        # Default entry price = next bar's open after fired_at (two-bar fill rule).
-        # Falls back to close-on-fired then latest if no next bar exists.
+        # Default entry price = next bar's open after the AS-OF (selected) date —
+        # NOT fired_at.  Confluence stays valid for days after it first fires, so
+        # the realistic entry is the next bar from when you ACT (the selected
+        # date), at the current price; anchoring to fired_at gives a stale entry
+        # whose TP may already be reached.  Falls back to close-on-date then
+        # latest (the live "today, next bar hasn't traded yet" case).
         try:
-            fired = datetime.date.fromisoformat(row["fired_at"])
-            price = get_entry_price_for_fire(row["stock"], fired)
+            as_of = (datetime.date.fromisoformat(date_str[:10])
+                     if date_str else datetime.date.today())
+            price = get_entry_price_for_fire(row["stock"], as_of)
         except Exception:
             price = get_latest_price(row["stock"])
         # Sign-implied direction: rev_hi / rev_nhi are short signals
