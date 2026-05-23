@@ -83,6 +83,7 @@ def _sharpe(r) -> float:
 
 def run() -> None:
     cbt._VALID_BARS = dict(_BULLISH)
+    cbt._MULTIYEAR_MIN_RUN_ID = 0   # DB holds only fresh post-rebuild runs (2026-05-23)
 
     # load fires once for the bullish set
     from collections import defaultdict
