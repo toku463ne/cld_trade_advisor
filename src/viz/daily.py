@@ -3245,10 +3245,10 @@ def register_callbacks() -> None:
                                            "marginBottom": "4px"},
                                     children=[
                                         html.Span(
-                                            # stock code · name · sector · direction
-                                            # (the triggering sign list is intentionally
-                                            # not shown here — operator wants name+sector)
-                                            "  ·  ".join(
+                                            # stock code | name | sector | direction
+                                            # ("|" separator, not "·": sector names
+                                            # contain "・" e.g. 商社・卸売)
+                                            "  |  ".join(
                                                 [r["stock"]]
                                                 + ([name_map[r["stock"]]] if name_map.get(r["stock"]) else [])
                                                 + ([sector_map[r["stock"]]] if sector_map.get(r["stock"]) else [])
