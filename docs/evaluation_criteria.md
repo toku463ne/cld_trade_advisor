@@ -73,7 +73,9 @@ For a sign change being evaluated against rebench results:
 
 Failure modes 1–7 apply to all changes. Items 8–10 apply specifically to
 changes that touch entry/exit timing against band-based exits (ZsTpSl,
-ATR trail) — the cluster where 7-of-7 May 2026 A/Bs failed.
+ATR trail) — the cluster where 7-of-7 May 2026 A/Bs failed. Item 11 applies
+to per-stock decision-factor UI. Item 12 applies to slot-constrained,
+skip-not-queue portfolio backtests (the confluence 4-slot book).
 
 1. **Sample-size illusion**: n < 100 events in a cell is too noisy to read DR
    from. Aggregate before drawing a conclusion.
@@ -167,6 +169,49 @@ ATR trail) — the cluster where 7-of-7 May 2026 A/Bs failed.
     - **Production vs experimental tier** — factors validated OOS render in
       the production tier; in-sample-only or mixed-evidence factors render
       in a visually distinct experimental tier.
+12. **Slot-contention / fill-order luck (skip-not-queue books)**: when a
+    backtest fills a fixed number of capacity slots and **SKIPS** candidates
+    when full (rather than queueing them) — e.g. the 4-slot
+    `ConfluenceSignStrategy` book — the realized trade set is **one
+    fill-order path**, and that order is an unmeasured variance source. Two
+    binding consequences (2026-05-21→23, `confluence_slot_order.py` /
+    `confluence_capacity_null.py`):
+    - **Use a fill-order PERMUTATION null, not a day-resampling bootstrap**,
+      to judge any selection/ordering intervention. Shuffle the within-day
+      candidate order K times (≥200) and read the arm's percentile in the
+      resulting distribution. The permutation null captures the
+      path-dependence the bootstrap ignores, and is **wider** — at ~36
+      trades/yr the order-luck Sharpe band was +0.60 → +1.20 (mean +0.89),
+      WIDER than every selection effect tried (RS +0.09, corr-greedy +0.15,
+      prefer-fewest-bearish +0.29). **No selection rule cleared the null.**
+      An "ordering beats baseline" point estimate is meaningless until
+      positioned in this null.
+    - **Don't re-apply an internal cap externally.** If a simulator's trade
+      output is sparse vs the raw signal, **check for an internal cap that
+      SKIPS rather than queues** before concluding "thin choice set." Feeding
+      the already-capped output into a second selector double-counts the cap
+      and fabricates an "n-thin" / "no-pressure" artifact (the 2026-05-22
+      ranking bug). Order the *full* candidate pool and let the simulator
+      apply the cap exactly once; for holding-aware dynamic ordering use the
+      `day_selector` hook, not a post-hoc re-selection.
+    - **Capacity vs selection asymmetry**: a *structural* change (more slots)
+      can certify at current n via a **paired** shuffle null (same order to
+      both configs) because it moves the whole distribution; a *selection*
+      rule cannot, because it is a single favorable draw within the band. A
+      "just-noise" capacity bump still buys diversification; a "just-noise"
+      selection rule buys nothing.
+    - **Paired null beats single-arm-vs-null for ordering rules** (2026-05-23,
+      ADX-priority). Scoring one deterministic ordering against the shuffle
+      null **conflates the rule with its lucky draw**: ADX-priority scored
+      Sharpe 1.15 / pctile 92 / perm p=0.080 and looked like the best selection
+      lead of the session — but the *paired* null (same fill order, with vs
+      without the rule applied as a within-day tiebreak) gave Δ Sharpe +0.029,
+      P(Δ>0)=0.545 — a coin flip. The single-arm score was order luck
+      mis-attributed to ADX. **Any "ordering beats baseline" claim must be
+      confirmed by a paired shuffle null before it is believed**, even when the
+      single-arm clears per-FY and OOS gates. A real per-fire EV gradient does
+      not imply a portfolio picking edge when slots are sticky and the gap is
+      small versus order luck.
 
 ---
 
