@@ -2045,6 +2045,7 @@ def layout() -> html.Div:
                             dash_table.DataTable(
                                 id="daily-table",
                                 columns=[
+                                    {"name": "New?",      "id": "fresh"},
                                     {"name": "Stock",     "id": "stock"},
                                     {"name": "Sign",      "id": "sign"},
                                     {"name": "Corr",      "id": "corr"},
@@ -2101,10 +2102,29 @@ def layout() -> html.Div:
                                         },
                                         "color": GREEN,
                                     },
+                                    # Fresh fire (fired today = backtest entry day):
+                                    # green-bold the New? cell; dim carried-over rows.
+                                    {
+                                        "if": {"filter_query": '{fresh} contains "NEW"',
+                                               "column_id": "fresh"},
+                                        "color": GREEN, "fontWeight": "700",
+                                    },
+                                    {
+                                        "if": {"filter_query": '{fresh} = "·"'},
+                                        "color": MUTED,
+                                    },
                                 ],
                                 sort_action="native",
                                 sort_mode="single",
                                 page_size=5,
+                            ),
+                            html.Div(
+                                "● NEW = fired on the selected date — the backtest "
+                                "enters here (next open). Act only on NEW to match the "
+                                "backtest; greyed rows fired earlier (already actionable "
+                                "on their fire day — entering now = chasing).",
+                                style={"color": MUTED, "fontSize": "10px",
+                                       "fontStyle": "italic", "marginTop": "4px"},
                             ),
                         ],
                     ),
@@ -2623,13 +2643,20 @@ def register_callbacks() -> None:
         Output("daily-table", "data"),
         Output("daily-table", "tooltip_data"),
         Input("daily-proposals-store", "data"),
+        State("daily-date", "date"),
     )
-    def update_table(store_data: str | None) -> tuple:
+    def update_table(store_data: str | None, date_str: str | None) -> tuple:
         if not store_data:
             return [], []
         rows = json.loads(store_data)
+        # A proposal is "NEW" if it fired on the selected (as-of) date — that is
+        # the day the backtest enters (fill next open).  Acting only on NEW
+        # replicates the backtest; rows that fired earlier are carried over in
+        # the validity window and entering them now is chasing (worse entry).
+        as_of_str = (date_str or "")[:10]
         table_rows = [
             {
+                "fresh":     "● NEW" if r.get("fired_at") == as_of_str else "·",
                 "stock":     r["stock"],
                 "sign":      r["sign"],
                 "corr":      r["corr"],
