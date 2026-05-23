@@ -388,6 +388,29 @@ edge — ADX-priority joins RS / corr-greedy / prefer_b0 as a portfolio-level
 reject, and is **not** surfaced in the UI (§5.11: a picking hint implies an edge
 that isn't there).
 
+**Exit-rule A/B (/sign-debate 2026-05-23) → REJECT, keep ZsTpSl.** The exit rule
+had never been A/B'd on the confluence book — the least-explored, non-selection
+lever. `confluence_exit_ab.py` ran a paired fill-order null with **adx_d8 as the
+headline** (holds ~27 ≈ ZsTpSl, minimal occupancy confound), TimeStop(40) as a
+diagnostic, plus a **same-trade-set decomposition** (exit quality on *identical*
+entries, no slot cap).
+
+| arm | per-trade mean_r (identical entries) | DR | paired Δ Sharpe | P(Δ>0) | FY2025 OOS Δ |
+|---|---:|---:|---:|---:|---:|
+| ZsTpSl (control) | +1.25% | 56.0 | — | — | — |
+| adx_d8 (headline) | +1.56% | 54.0 | **+0.021** [−0.48,+0.46] | **0.535** | **−0.24** |
+| time40 (diagnostic) | +1.95% | 55.7 | −0.124 | 0.265 | +0.14 |
+
+adx_d8 captures **+0.31pp more per-trade EV on identical entries** ("win bigger,
+lose more often" — DR 54 vs 56), but at the portfolio it's a **coin flip**
+(P=0.535), fails the **FY2025 OOS hard gate** (−0.24), and **bull/bear sign-flips**
+(+0.65 / −0.25, FY2024 −1.66) — the same regime non-stationarity that sank
+TimeStop(40) in `project_timestop40_bootstrap_reject`. So the exit lever joins the
+selection family: real per-trade signal, washes out in fill-order luck at ~36
+trades/yr. **Exit *and* selection are now both exhausted; capacity (6-slot) is the
+only intervention that moved the whole band.** (Build note: `AdxTrail` needs
+`_add_adx` on the caches or it silently degenerates to `TimeStop(40)`.)
+
 ## What the data lesson is
 
 - Single-sign feature additions (str_hold candle / gap probe, brk_wall
@@ -418,6 +441,7 @@ that isn't there).
 | `src/analysis/confluence_regime_pooling.py` | regime-conditional pooling + per-regime β-stripped alpha + stock-chop cut |
 | `src/analysis/confluence_adx_priority.py` | ADX-priority single-arm vs null (looked best, was order luck) |
 | `src/analysis/confluence_adx_priority_null.py` | ADX-priority PAIRED null — decisive REJECT |
+| `src/analysis/confluence_exit_ab.py` | exit-rule A/B (adx_d8/time40 vs ZsTpSl) — REJECT |
 | `src/analysis/confluence_bearish_select.py` | prefer-fewest-bearish (REJECT, parked) |
 | `src/exit/exit_simulator.py` | `day_selector` hook (dynamic holding-aware ordering) |
 | `src/analysis/benchmark.md` § Confluence Strategy A/B | Canonical numbers |
