@@ -2033,6 +2033,19 @@ def layout() -> html.Div:
                                 labelStyle={"marginRight": "12px", "color": TEXT,
                                             "fontSize": "12px", "cursor": "pointer"},
                             ),
+                            # Default ON: show only proposals that fired on the
+                            # selected date (the backtest's entry day).  A no-fire
+                            # day then shows an empty table = "nothing to do today",
+                            # which is the faithful live workflow.
+                            dcc.Checklist(
+                                id="daily-fresh-only",
+                                options=[{"label": " Fresh fires only", "value": "fresh"}],
+                                value=["fresh"],
+                                inline=True,
+                                inputStyle={"marginRight": "4px"},
+                                labelStyle={"color": GREEN, "fontSize": "12px",
+                                            "cursor": "pointer"},
+                            ),
                         ],
                     ),
 
@@ -2620,24 +2633,32 @@ def register_callbacks() -> None:
         Output("daily-table", "selected_rows"),
         Input("daily-proposals-store-raw", "data"),
         Input("daily-strategy-switch", "value"),
+        Input("daily-fresh-only", "value"),
+        State("daily-date", "date"),
     )
     def filter_proposals_by_strategy(
-        raw_data: str | None, strat: str | None
+        raw_data: str | None, strat: str | None,
+        fresh_only: list | None, date_str: str | None,
     ) -> tuple:
-        """Derive the displayed store from the raw store + strategy switch.
+        """Derive the displayed store from the raw store + strategy + freshness.
 
         Both strategies always run on Refresh (shadow mode); this picks which
         rows the table — and every selection handler that reads
-        daily-proposals-store — actually sees.  Resetting selected_rows avoids
+        daily-proposals-store — actually sees.  When "Fresh fires only" is on
+        (default), keep only proposals that fired on the selected date (the
+        backtest's entry day), so carried-over rows in the validity window are
+        hidden and a no-fire day shows nothing.  Resetting selected_rows avoids
         a stale selection pointing past the end of a now-shorter list.
         """
         if not raw_data:
             return raw_data, []
-        if strat in (None, "both"):
-            return raw_data, []
         rows = json.loads(raw_data)
-        kept = [r for r in rows if r.get("strat") == strat]
-        return json.dumps(kept), []
+        if strat not in (None, "both"):
+            rows = [r for r in rows if r.get("strat") == strat]
+        if fresh_only and "fresh" in fresh_only:
+            as_of = (date_str or "")[:10]
+            rows = [r for r in rows if r.get("fired_at") == as_of]
+        return json.dumps(rows), []
 
     @callback(
         Output("daily-table", "data"),
