@@ -3123,6 +3123,9 @@ def register_callbacks() -> None:
         if not rows:
             return [html.Span("No open positions.", style={"color": MUTED})]
 
+        name_map   = _load_name_map()
+        sector_map = _load_sector_map()
+
         # Enrich with as-of price + status sweep over [entry_date, as_of] bars.
         items = []
         for r in rows:
@@ -3225,7 +3228,15 @@ def register_callbacks() -> None:
                                            "marginBottom": "4px"},
                                     children=[
                                         html.Span(
-                                            f"{r['stock']}  ·  {r['sign']}  ·  {r['direction'].upper()}",
+                                            # stock code · name · sector · direction
+                                            # (the triggering sign list is intentionally
+                                            # not shown here — operator wants name+sector)
+                                            "  ·  ".join(
+                                                [r["stock"]]
+                                                + ([name_map[r["stock"]]] if name_map.get(r["stock"]) else [])
+                                                + ([sector_map[r["stock"]]] if sector_map.get(r["stock"]) else [])
+                                                + [r["direction"].upper()]
+                                            ),
                                             style={"color": TEXT, "fontWeight": "600",
                                                    "fontSize": "12px"},
                                         ),
