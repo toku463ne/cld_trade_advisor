@@ -1480,6 +1480,7 @@ def _regime_card(
                 ),
                 html.Span(
                     f"{n_proposals} proposal{'s' if n_proposals != 1 else ''}",
+                    id="daily-proposal-count",
                     style={"color": ACCENT, "fontWeight": "600", "fontSize": "12px"},
                 ),
             ],
@@ -2659,6 +2660,22 @@ def register_callbacks() -> None:
             as_of = (date_str or "")[:10]
             rows = [r for r in rows if r.get("fired_at") == as_of]
         return json.dumps(rows), []
+
+    @callback(
+        Output("daily-proposal-count", "children"),
+        Input("daily-proposals-store", "data"),
+        State("daily-proposals-store-raw", "data"),
+    )
+    def update_proposal_count(shown_data: str | None, raw_data: str | None) -> str:
+        """Reconcile the card's count with the filtered table: the regime card is
+        built from the raw set at Refresh, but the table is filtered (strategy +
+        fresh-only).  Show "X shown · Y valid" when they differ so "23 proposals"
+        next to a 1-row table isn't confusing."""
+        shown = len(json.loads(shown_data)) if shown_data else 0
+        total = len(json.loads(raw_data)) if raw_data else shown
+        if shown == total:
+            return f"{total} proposal{'s' if total != 1 else ''}"
+        return f"{shown} shown · {total} valid"
 
     @callback(
         Output("daily-table", "data"),
