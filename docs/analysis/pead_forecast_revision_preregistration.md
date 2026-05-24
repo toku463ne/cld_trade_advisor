@@ -4,6 +4,8 @@
 exists. This fixes the surprise definition and the accept/reject gates up front so the
 study cannot devolve into "compute several surprise measures and keep the winner" — the
 exact trap the 2026-05-24 /sign-debate flagged (`project_pead_price_drift_reject.md`).
+Amended 2026-05-24 (still before any data is fit) to split discovery universe from the
+N225 deployment cohort — see **Cross-sectional scope** and gate 7.
 
 ## Why this definition
 J-Quants does **not** provide analyst consensus, so textbook SUE (actual − consensus) is
@@ -45,7 +47,35 @@ v2 `FEPS`) targeting fiscal-year-end `F`:
 - Report **raw and β-stripped** CAR. The β-strip is mandatory: a long-only ~3-month hold
   is partly market beta, and the confluence work already showed this book is ~89% beta.
 
+## Cross-sectional scope — discovery universe vs deployment cohort
+PEAD is strongly **size-dependent**: it concentrates in small, illiquid, lightly-covered
+names and decays toward ~zero in large, liquid, heavily-covered ones — i.e. the N225
+constituents we actually trade. A pooled ~4,000-stock result can therefore be a small-cap
+artifact that does **not** exist in our book. To avoid borrowing a small-cap effect down to
+large caps (the recurring "pooled significance ≠ tradable cohort" trap), scope is split:
+
+- **Discovery universe** = the full J-Quants universe (all `jq_statements` codes with a
+  price join). Used **only** for statistical power (gates 1–6 below) and to *measure the
+  size gradient* — never as the deployment decision on its own.
+- **Deployment cohort** = the **N225 names we hold**, defined as the codes present in
+  `ohlcv_1d` (the 225-name confluence universe), mapped via `to_yf_code`. The narrower,
+  most-honest variant — **N225 ∩ confluence-eligible at the event's entry day** — is
+  reported alongside it, since a PEAD sign only helps by improving selection among
+  confluence candidates.
+
+### Size-gradient diagnostic (pre-registered, reported always)
+Stratify events into size buckets — market cap (`book_value_per_share` × `shares_outstanding_fy`),
+or J-Quants `ScaleCat`, or 60-bar median turnover `Va` as the liquidity proxy — and report
+the (Q5 − Q1) β-stripped 60-bar CAR per bucket. The literature predicts monotone decay with
+size and ~0 in the top bucket; if observed, that is itself evidence the signal is **not**
+deployable on N225, regardless of the pooled result.
+
 ## Accept gates (ALL must hold; else REJECT)
+Gates 1–6 establish that the effect **exists** (run on the discovery universe for power).
+Gate 7 is the **binding deployment gate**: existence on the full universe is necessary but
+**not sufficient** — the decision to wire a PEAD sign into the confluence strategy hinges on
+the N225 deployment cohort.
+
 Bucket events into surprise **quintiles** (Q1 = most-negative revision … Q5 = most-positive).
 
 1. **Monotone:** Spearman(quintile, mean β-stripped 60-bar CAR) > 0 **and** Q5 mean > Q1 mean.
@@ -56,11 +86,19 @@ Bucket events into surprise **quintiles** (Q1 = most-negative revision … Q5 = 
 5. **β-strip survives:** the (Q5 − Q1) result must remain > 0 *after* β-stripping (not an
    artifact of beta).
 6. **Horizon robustness:** sign of (Q5 − Q1) agrees at H = 20 and H = 60.
+7. **Deployment (N225 cohort, BINDING):** restricted to the deployment cohort, the
+   β-stripped (Q5 − Q1) 60-bar CAR is > 0 with the **same sign** as the pooled result.
+   Sample floor relaxed to the cohort's reach: ≥ **200** paired events, ≥ 40 per extreme
+   group (a tercile Top−Bottom split is permitted instead of quintiles if quintiles fall
+   below 40/group). If the cohort cannot reach even this floor over 10 years, the result is
+   **n-thin / untestable for our book** — report as such; do **not** substitute the pooled
+   number. The only legitimate harvest of a small-cap-only effect is expanding the tradable
+   universe (a separate strategy-scope decision), never falling the pooled result down to N225.
 
 ## Falsifier (single line)
 If the β-stripped (Q5 − Q1) 60-bar CAR ≤ 0, **or** it flips sign OOS, **or** quintiles are
-non-monotone → the management-forecast-revision PEAD signal is rejected and not wired to
-any sign/strategy.
+non-monotone, **or** it is ≤ 0 / sign-flipped on the N225 deployment cohort → the
+management-forecast-revision PEAD signal is rejected and not wired to any sign/strategy.
 
 ## Data dependency
 Requires the J-Quants Standard 10-yr backfill (`jq_statements` with consecutive same-FY
@@ -71,4 +109,6 @@ Free-plan 12-week window is too short to form revision pairs with a 60-bar forwa
 `src/analysis/pead_forecast_revision.py` — surprise/pairing/event-timing/CAR logic is in
 pure, unit-tested functions (`tests/test_pead_forecast_revision.py`); a thin DB driver
 (`run()`) assembles the per-event table and prints the quintile drift once data exists.
+`run()` must report three views from the same event table: the pooled discovery quintiles
+(gates 1–6), the size-gradient buckets, and the N225 deployment-cohort split (gate 7).
 This document is the spec; the code must not deviate from it without a new pre-registration.
