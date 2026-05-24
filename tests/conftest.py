@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.data.models import Base
 import src.analysis.models   # noqa: F401 — register tables with Base.metadata
+import src.data.jquants_models  # noqa: F401
 import src.portfolio.models  # noqa: F401
 import src.simulator.models  # noqa: F401
 import src.backtest.train_models  # noqa: F401

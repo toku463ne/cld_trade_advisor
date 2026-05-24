@@ -11,6 +11,7 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.data.models import Base  # noqa: E402
+import src.data.jquants_models  # noqa: F401 — registers jq_* tables with Base.metadata
 import src.portfolio.models  # noqa: F401 — registers Position with Base.metadata
 import src.analysis.models   # noqa: F401 — registers analysis tables with Base.metadata
 import src.simulator.models  # noqa: F401 — registers simulator tables with Base.metadata

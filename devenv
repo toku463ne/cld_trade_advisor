@@ -1,2 +1,11 @@
 DATABASE_URL=postgresql://stockdevuser:stockdevpass@localhost:5432/stock_trader_dev
 DATA_SOURCE=yfinance
+
+# J-Quants API v2 (accounts registered on/after 2025-12-22 are v2-only).
+# Issue an API key from the J-Quants dashboard (https://jpx-jquants.com/) — it has
+# no expiry. Sent as the `x-api-key` header.
+# SECURITY: this file is git-tracked. Do NOT commit a real key here. Inject it
+# locally instead, e.g.  `export JQUANTS_API_KEY=...`  before running the collector
+# (JQuantsClient reads os.environ).
+JQUANTS_API_KEY=
+# JQUANTS_BASE_URL=https://api.jquants.com/v2
