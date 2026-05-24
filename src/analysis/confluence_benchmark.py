@@ -35,12 +35,18 @@ from src.analysis.models import SignBenchmarkEvent, SignBenchmarkRun
 from src.analysis.regime_sign_backtest import RS_FY_CONFIGS, _build_zs_map
 from src.data.db import get_session
 from src.exit.exit_simulator import run_simulation
+from src.portfolio.sizing import position_weight, recommended_lots
 from src.simulator.cache import DataCache
 
 _BULLISH = {"str_hold": 3, "str_lead": 5, "str_lag": 5, "brk_sma": 5, "brk_bol": 3,
             "rev_lo": 5, "rev_nlo": 5, "brk_kumo_hi": 5, "brk_tenkan_hi": 5, "chiko_hi": 5}
 _N_GATE = 3
 _SLOTS = 6   # production after the 6-slot ship (_MAX_LOW_CORR=5)
+# Real target account: ¥2,000,000 traded in 単元株 (100-share lots). A name whose one
+# lot won't fit a budget/_SLOTS slot (price > ~¥3,333) is unaffordable and never
+# consumes a slot; affordable names are weighted by *deployed* capital (integer lots →
+# cash drag), not an idealized 1/_SLOTS. See src.portfolio.sizing.
+_BUDGET = 2_000_000
 _FYS = [FyConfig("FY2018", datetime.date(2018, 4, 1), datetime.date(2019, 3, 31),
                  "classified2017")] + list(RS_FY_CONFIGS)
 
@@ -101,7 +107,8 @@ def run() -> None:
         fires[st].append((sg, fa.date() if hasattr(fa, "date") else fa))
 
     per_fy = {}
-    stitched = []
+    stitched_ew: list[float] = []
+    stitched_bw: list[float] = []
 
     for cfg in _FYS:
         codes = cbt._stocks_for_fy(cfg.stock_set)
@@ -134,47 +141,82 @@ def run() -> None:
                 code, fires.get(code, []), caches[code], corr_maps[code], zs_maps[code],
                 cfg.start, cfg.end, _N_GATE)
         cands.sort(key=lambda c: c.entry_date)   # deterministic canonical order
+
+        # Affordability pre-filter: a name whose ~entry-day price can't fit one 100-sh
+        # lot in a budget/_SLOTS slot can't be held at _BUDGET, so it must NOT consume a
+        # slot (a cheaper name takes it). Price ≈ close at entry_date — the small
+        # open/next-open difference never flips affordability near the ~¥3,333 line.
+        def _affordable(c) -> bool:
+            _, cmap = stock_dts.get(c.stock_code, ([], {}))
+            px = cmap.get(c.entry_date)
+            return px is not None and recommended_lots(_BUDGET, float(px), _SLOTS) > 0
+        cands_aff = [c for c in cands if _affordable(c)]
+
         results = run_simulation(cands, cbt._EXIT_RULE, caches, cfg.end)
+        results_bw = run_simulation(cands_aff, cbt._EXIT_RULE, caches, cfg.end)
 
         m = _metrics(results)   # per-trade metrics (matches the original v3 column)
         cal_set = set(cal)
-        day = defaultdict(float)
+
+        # equal-weight book (idealized r/_SLOTS — the historical reference column)
+        day_ew: defaultdict[datetime.date, float] = defaultdict(float)
         for p in results:
             sdts, scmap = stock_dts.get(p.stock_code, ([], {}))
             for d, r in _pos_daily(p, sdts, scmap).items():
                 if d in cal_set:
-                    day[d] += r / _SLOTS
-        rets = [day.get(d, 0.0) for d in cal]
-        bsh, btot, bdd = _book(rets)
-        per_fy[cfg.label] = (m, bsh, btot, bdd)
-        stitched += rets[1:]
-        logger.info("  {} done ({} trades)", cfg.label, m.n)
+                    day_ew[d] += r / _SLOTS
 
-    print("\n" + "=" * 96)
+        # budget-constrained book: deployed-capital weight (integer lots → cash drag)
+        day_bw: defaultdict[datetime.date, float] = defaultdict(float)
+        for p in results_bw:
+            sdts, scmap = stock_dts.get(p.stock_code, ([], {}))
+            lots = recommended_lots(_BUDGET, float(p.entry_price), _SLOTS)
+            w = position_weight(lots, float(p.entry_price), _BUDGET)
+            for d, r in _pos_daily(p, sdts, scmap).items():
+                if d in cal_set:
+                    day_bw[d] += r * w
+
+        rets_ew = [day_ew.get(d, 0.0) for d in cal]
+        rets_bw = [day_bw.get(d, 0.0) for d in cal]
+        per_fy[cfg.label] = (m, _book(rets_ew), _book(rets_bw), len(results_bw))
+        stitched_ew += rets_ew[1:]
+        stitched_bw += rets_bw[1:]
+        logger.info("  {} done ({} trades, {} affordable @ ¥{:,})",
+                    cfg.label, m.n, len(results_bw), _BUDGET)
+
+    print("\n" + "=" * 104)
     print("CONFLUENCE BENCHMARK — current rules, N>=3, 6-slot book, rebuilt data (2026-05-23)")
-    print("=" * 96)
-    print(f"\n{'FY':<9}{'trades':>7}{'mean_r':>9}{'win%':>7}{'perTrSh':>9}{'hold':>6}"
-          f"   ||  {'bookSharpe':>11}{'totRet':>9}{'maxDD':>8}")
-    print("  (per-trade ──────────────────────────)      (capital-aware 6-slot book ──────)")
+    print("=" * 104)
+    print(f"\n{'FY':<8}{'n':>5}{'mean_r':>8}{'win%':>6}{'perSh':>7}{'hold':>5}"
+          f"  || {'ewSh':>6}{'ewTot':>7}{'ewDD':>6}"
+          f"  || {'affN':>5}{'bwSh':>6}{'bwTot':>7}{'bwDD':>6}")
+    print(f"  per-trade (not annualized)        || equal-wt r/{_SLOTS} book"
+          f"   || budget ¥{_BUDGET:,} ({_SLOTS}-slot, 100-sh lots)")
     for cfg in _FYS:
         if cfg.label not in per_fy:
             continue
-        m, bsh, btot, bdd = per_fy[cfg.label]
-        oos = "  OOS" if cfg.label == "FY2025" else ""
+        m, (esh, etot, edd), (bsh, btot, bdd), naff = per_fy[cfg.label]
+        oos = " OOS" if cfg.label == "FY2025" else ""
         mr = f"{m.mean_r*100:+.2f}%" if m.mean_r is not None else "—"
         wr = f"{m.win_rate*100:.0f}%" if m.win_rate is not None else "—"
         hb = f"{m.hold_bars:.0f}" if m.hold_bars is not None else "—"
         psh = f"{m.sharpe:+.2f}" if (m.sharpe is not None and not math.isnan(m.sharpe)) else "—"
-        print(f"{cfg.label:<9}{m.n:>7}{mr:>9}{wr:>7}{psh:>9}{hb:>6}   ||  "
-              f"{bsh:>11.2f}{btot*100:>8.0f}%{bdd*100:>7.0f}%{oos}")
+        print(f"{cfg.label:<8}{m.n:>5}{mr:>8}{wr:>6}{psh:>7}{hb:>5}  || "
+              f"{esh:>6.2f}{etot*100:>6.0f}%{edd*100:>5.0f}%  || "
+              f"{naff:>5}{bsh:>6.2f}{btot*100:>6.0f}%{bdd*100:>5.0f}%{oos}")
 
-    psh, ptot, pdd = _book(stitched)
-    pos = sum(1 for cfg in _FYS if cfg.label in per_fy and per_fy[cfg.label][1] > 0)
+    esh, etot, edd = _book(stitched_ew)
+    bsh, btot, bdd = _book(stitched_bw)
+    pos = sum(1 for cfg in _FYS if cfg.label in per_fy and per_fy[cfg.label][2][0] > 0)
     nfy = len(per_fy)
-    print(f"\n  STITCHED all-FY capital-aware book: Sharpe {psh:+.2f} | total {ptot*100:+.0f}% | "
-          f"maxDD {pdd*100:.0f}% | book-Sharpe positive {pos}/{nfy} FYs")
-    print("  NOTE: book Sharpe is ONE deterministic (sorted entry_date) fill-order draw; the "
-          "fill-order null band is ~+0.6..+1.2 (mean +0.89). Per-trade Sharpe is NOT annualized.")
+    print(f"\n  STITCHED equal-wt  book: Sharpe {esh:+.2f} | total {etot*100:+.0f}% | maxDD {edd*100:.0f}%")
+    print(f"  STITCHED budget    book: Sharpe {bsh:+.2f} | total {btot*100:+.0f}% | maxDD {bdd*100:.0f}% "
+          f"| budget-Sharpe positive {pos}/{nfy} FYs")
+    print(f"  NOTE: budget book skips names unaffordable at ¥{_BUDGET:,}/{_SLOTS}-slot "
+          f"(price > ~¥{_BUDGET/_SLOTS/100:,.0f}) and weights by deployed capital (integer "
+          "100-sh lots → cash drag) — the realistic live book. Equal-wt is the idealized "
+          "reference. Both are ONE deterministic (sorted entry_date) fill-order draw "
+          "(null band ~+0.6..+1.2). Per-trade Sharpe is NOT annualized.")
 
 
 if __name__ == "__main__":

@@ -28,6 +28,12 @@ class Account(Base):
     initial_cash: Mapped[float | None] = mapped_column(
         Numeric(precision=14, scale=2), nullable=True,
     )
+    # Trading budget for lot-aware sizing: recommended lots = floor((budget/6) /
+    # (100*price)) (src.portfolio.sizing). Distinct from initial_cash (the sim's
+    # starting equity); budget is what the live book sizes each slot against.
+    budget:       Mapped[float | None] = mapped_column(
+        Numeric(precision=14, scale=2), nullable=True,
+    )
     archived:     Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at:   Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
@@ -42,9 +48,15 @@ class Account(Base):
 class Position(Base):
     """A manually entered trade position.
 
-    Registered by the user after executing an order.  TP/SL levels are
-    pre-computed from the ZsTpSl rule at registration time; the status field
-    reflects the last user-confirmed state.
+    Two-step live workflow: an **Order** creates the row as ``status="ordered"``
+    (order_date + order_price set, entry_* still null) so it occupies a slot; an
+    **Entry** records the real fill (entry_date/entry_price, status→"open"); a
+    **Cancel** drops an un-filled order (status never reaches "open"). The legacy
+    one-step ``register_position`` still creates an "open" row directly.
+
+    TP/SL are computed from the order price at order time (provisional, for the IFO
+    bracket) and recomputed from the real fill at entry. ``status`` is one of
+    ``ordered | open | closed | cancelled``.
     """
 
     __tablename__ = "positions"
@@ -68,9 +80,13 @@ class Position(Base):
     direction:   Mapped[str]           = mapped_column(String(5), nullable=False, default="long")
 
     fired_at:    Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    entry_date:  Mapped[datetime.date] = mapped_column(Date, nullable=False)
-    entry_price: Mapped[float]         = mapped_column(Numeric(precision=12, scale=2), nullable=False)
-    units:       Mapped[int]           = mapped_column(Integer, nullable=False, default=100)
+    # order_* set when an order is placed; entry_* are null until it fills, so both
+    # are nullable (an "ordered" row has no real entry yet).
+    order_date:  Mapped[datetime.date | None]  = mapped_column(Date, nullable=True)
+    order_price: Mapped[float | None]          = mapped_column(Numeric(precision=12, scale=2), nullable=True)
+    entry_date:  Mapped[datetime.date | None]  = mapped_column(Date, nullable=True)
+    entry_price: Mapped[float | None]          = mapped_column(Numeric(precision=12, scale=2), nullable=True)
+    units:       Mapped[int]                   = mapped_column(Integer, nullable=False, default=100)
 
     tp_price: Mapped[float | None] = mapped_column(Numeric(precision=12, scale=2), nullable=True)
     sl_price: Mapped[float | None] = mapped_column(Numeric(precision=12, scale=2), nullable=True)

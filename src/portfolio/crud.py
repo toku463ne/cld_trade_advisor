@@ -270,6 +270,150 @@ def register_position(
     return pos
 
 
+def order_position(
+    session: Session,
+    *,
+    stock_code:  str,
+    sign_type:   str,
+    corr_mode:   str,
+    kumo_state:  int,
+    fired_at:    datetime.date,
+    order_date:  datetime.date,
+    order_price: float,
+    direction:   str = "long",
+    units:       int = 100,
+    sign_score:  float | None = None,
+    corr_n225:   float | None = None,
+    revn_frac:   float | None = None,
+    sma_frac:    float | None = None,
+    corr_frac:   float | None = None,
+    reason:      str | None = None,
+    account_id:  int | None = None,
+    tags:        str | None = None,
+    trade_date:  datetime.date | None = None,
+) -> Position:
+    """Place an order: create a ``status="ordered"`` position (no real entry yet).
+
+    The row occupies a slot ([[get_active_positions]]) until it is entered or
+    cancelled. TP/SL are computed **provisionally** from ``order_price`` (the level
+    you'd set the IFO bracket at) and recomputed from the real fill in
+    ``enter_position``. Upserts the paired ``ReviewedCandidate(action="taken")`` — the
+    decision to take the trade is made now, at order time.
+    """
+    if trade_date is None:
+        trade_date = order_date
+
+    tp, sl = compute_exit_levels(stock_code, float(order_price), fired_at,
+                                 direction=direction)
+    pos = Position(
+        stock_code  = stock_code,
+        sign_type   = sign_type,
+        corr_mode   = corr_mode,
+        kumo_state  = kumo_state,
+        direction   = direction,
+        fired_at    = fired_at,
+        order_date  = order_date,
+        order_price = order_price,
+        entry_date  = None,
+        entry_price = None,
+        units       = units,
+        tp_price    = tp,
+        sl_price    = sl,
+        status      = "ordered",
+        sign_score  = sign_score,
+        revn_frac   = revn_frac,
+        sma_frac    = sma_frac,
+        corr_frac   = corr_frac,
+        account_id  = account_id,
+    )
+    session.add(pos)
+    session.flush()
+
+    review = _upsert_review(
+        session,
+        account_id  = account_id,
+        fired_at    = fired_at,
+        trade_date  = trade_date,
+        stock_code  = stock_code,
+        sign_type   = sign_type,
+        action      = "taken",
+        sign_score  = sign_score,
+        corr_mode   = corr_mode,
+        corr_n225   = corr_n225,
+        kumo_state  = kumo_state,
+        position_id = pos.id,
+        reason      = reason,
+        revn_frac   = revn_frac,
+        sma_frac    = sma_frac,
+        corr_frac   = corr_frac,
+        tags        = tags,
+    )
+    logger.info("Ordered position id={} {} @ {} (review id={})",
+                pos.id, stock_code, order_price, review.id)
+    return pos
+
+
+def enter_position(
+    session: Session,
+    position_id: int,
+    entry_date:  datetime.date,
+    entry_price: float,
+) -> Position:
+    """Record the real fill for a pending order: ``ordered`` → ``open``.
+
+    Sets entry_date/entry_price and **recomputes** TP/SL from the actual fill price.
+    """
+    pos = session.get(Position, position_id)
+    if pos is None:
+        raise ValueError(f"Position {position_id} not found")
+    if pos.status != "ordered":
+        raise ValueError(f"Position {position_id} is {pos.status}, not ordered")
+    pos.entry_date  = entry_date
+    pos.entry_price = entry_price
+    tp, sl = compute_exit_levels(pos.stock_code, float(entry_price), pos.fired_at,
+                                 direction=pos.direction)
+    pos.tp_price = tp
+    pos.sl_price = sl
+    pos.status   = "open"
+    session.flush()
+    logger.info("Entered position id={} {} @ {} (was ordered @ {})",
+                pos.id, pos.stock_code, entry_price, pos.order_price)
+    return pos
+
+
+def cancel_order(
+    session: Session,
+    position_id: int,
+    reason: str | None = None,
+) -> None:
+    """Cancel a pending order (opening auction no-match / changed mind).
+
+    Deletes the position so it is **not** recorded as a trade, and flips the paired
+    ReviewedCandidate to ``action="skipped"`` (reason prefixed "cancelled:") to keep an
+    audit trail. Only valid while the position is still ``ordered``.
+    """
+    pos = session.get(Position, position_id)
+    if pos is None:
+        raise ValueError(f"Position {position_id} not found")
+    if pos.status != "ordered":
+        raise ValueError(f"Position {position_id} is {pos.status}, not ordered "
+                         "(only un-filled orders can be cancelled)")
+    review = session.execute(
+        select(ReviewedCandidate).where(ReviewedCandidate.position_id == pos.id)
+    ).scalars().first()
+    if review is not None:
+        prefix = "cancelled"
+        extra = (reason or review.reason or "").strip()
+        review.action      = "skipped"
+        review.reason      = f"{prefix}: {extra}" if extra else prefix
+        review.position_id = None
+        review.reviewed_at = datetime.datetime.now(datetime.timezone.utc)
+    session.delete(pos)
+    session.flush()
+    logger.info("Cancelled order id={} {} (was ordered @ {})",
+                position_id, pos.stock_code, pos.order_price)
+
+
 def register_review(
     session: Session,
     fired_at:    datetime.date,
@@ -376,6 +520,23 @@ def get_open_positions(
     return list(session.execute(stmt).scalars().all())
 
 
+def get_active_positions(
+    session: Session,
+    account_id: int | None = None,
+) -> list[Position]:
+    """Return slot-occupying positions (status ``ordered`` OR ``open``).
+
+    Both pending orders and filled positions consume a slot, so the slot counter and
+    the ≤1-high / ≤5-low guidance count this set, not just open positions. Ordered by
+    created_at (entry_date is null for un-filled orders).
+    """
+    stmt = select(Position).where(Position.status.in_(("ordered", "open")))
+    if account_id is not None:
+        stmt = stmt.where(Position.account_id == account_id)
+    stmt = stmt.order_by(Position.created_at.desc())
+    return list(session.execute(stmt).scalars().all())
+
+
 # ── Account CRUD ──────────────────────────────────────────────────────────────
 
 def create_account(
@@ -383,6 +544,7 @@ def create_account(
     name: str,
     description: str | None = None,
     initial_cash: float | None = None,
+    budget: float | None = None,
 ) -> Account:
     """Create a new virtual account.  Name must be unique."""
     name = (name or "").strip()
@@ -392,10 +554,23 @@ def create_account(
         name=name,
         description=(description or None),
         initial_cash=initial_cash,
+        budget=budget,
     )
     session.add(acct)
     session.flush()
     logger.info("Created account id={} name={!r}", acct.id, name)
+    return acct
+
+
+def set_account_budget(session: Session, account_id: int,
+                       budget: float | None) -> Account:
+    """Set the trading budget used for lot-aware sizing on an account."""
+    acct = session.get(Account, account_id)
+    if acct is None:
+        raise ValueError(f"Account {account_id} not found")
+    acct.budget = budget
+    session.flush()
+    logger.info("Set account id={} budget={}", account_id, budget)
     return acct
 
 

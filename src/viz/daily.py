@@ -30,14 +30,20 @@ from src.indicators.ichimoku import calc_ichimoku
 from src.indicators.moving_corr import compute_moving_corr
 from src.indicators.zigzag import detect_peaks
 from src.portfolio.crud import (
+    cancel_order,
     close_position,
     create_memo,
     delete_memo,
+    enter_position,
+    get_account,
+    get_active_positions,
     get_distinct_tags,
     get_entry_price_for_fire,
     get_memos_for_date,
     list_accounts,
+    order_position,
     register_review,
+    set_account_budget,
     update_memo,
     compute_exit_levels,
     evaluate_position_as_of,
@@ -45,6 +51,7 @@ from src.portfolio.crud import (
     get_open_positions,
     register_position,
 )
+from src.portfolio.sizing import DEFAULT_SLOTS, LOT_SHARES, recommended_lots
 from src.indicators.corr_regime import CorrRegime
 from src.indicators.rev_n_regime import RevNRegime
 from src.indicators.sma_regime import SMARegime
@@ -1936,6 +1943,33 @@ def layout() -> html.Div:
                                 style={"flex": "1", "fontSize": "12px",
                                        "color": "#000"},
                             ),
+                            html.Span(
+                                "Budget ¥:",
+                                style={"color": MUTED, "fontSize": "11px",
+                                       "whiteSpace": "nowrap"},
+                            ),
+                            dcc.Input(
+                                id="daily-account-budget",
+                                type="number",
+                                placeholder="budget",
+                                debounce=True,
+                                min=0,
+                                style={"width": "100px", "background": BG,
+                                       "color": TEXT, "border": f"1px solid {BORDER}",
+                                       "borderRadius": "4px", "padding": "4px 8px",
+                                       "fontSize": "12px"},
+                            ),
+                            html.Button(
+                                "Save",
+                                id="daily-budget-save-btn",
+                                n_clicks=0,
+                                style={"background": "transparent", "color": MUTED,
+                                       "border": f"1px solid {BORDER}",
+                                       "borderRadius": "4px", "padding": "4px 10px",
+                                       "cursor": "pointer", "fontSize": "11px"},
+                            ),
+                            html.Span(id="daily-budget-msg",
+                                      style={"fontSize": "11px", "color": MUTED}),
                         ],
                     ),
 
@@ -2243,9 +2277,22 @@ def layout() -> html.Div:
                                        "alignItems": "center", "flexWrap": "wrap"},
                                 children=[
                                     html.Button(
-                                        "Register",
-                                        id="daily-register-btn",
+                                        "Order",
+                                        id="daily-order-btn",
                                         n_clicks=0,
+                                        title="Place order — adds a pending position (slot reserved); fill price recorded later via Entry.",
+                                        style={
+                                            "background": ACCENT, "color": BG,
+                                            "border": "none", "borderRadius": "4px",
+                                            "padding": "5px 14px", "cursor": "pointer",
+                                            "fontWeight": "600", "fontSize": "12px",
+                                        },
+                                    ),
+                                    html.Button(
+                                        "Entry",
+                                        id="daily-entry-btn",
+                                        n_clicks=0,
+                                        title="Record the real fill price for this row's pending order (ordered → open).",
                                         style={
                                             "background": GREEN, "color": BG,
                                             "border": "none", "borderRadius": "4px",
@@ -2527,6 +2574,42 @@ def register_callbacks() -> None:
         else:
             chosen = accts[0].id if accts else None
         return options, chosen, chosen
+
+    @callback(
+        Output("daily-account-budget", "value"),
+        Input("active-account-id", "data"),
+    )
+    def load_account_budget(account_id: int | None) -> float | object:
+        """Show the active account's budget (drives the recommended-lots default)."""
+        if account_id is None:
+            return no_update
+        try:
+            with get_session() as session:
+                acct = get_account(session, account_id)
+                return float(acct.budget) if acct and acct.budget else None
+        except Exception:
+            logger.exception("load_account_budget failed")
+            return no_update
+
+    @callback(
+        Output("daily-budget-msg", "children"),
+        Input("daily-budget-save-btn", "n_clicks"),
+        State("daily-account-budget",  "value"),
+        State("active-account-id",     "data"),
+        prevent_initial_call=True,
+    )
+    def save_account_budget(_n: int, budget: float | None,
+                            account_id: int | None) -> str:
+        if account_id is None:
+            return "no account"
+        try:
+            with get_session() as session:
+                set_account_budget(session, account_id,
+                                   float(budget) if budget else None)
+            return f"✓ ¥{float(budget):,.0f}" if budget else "✓ cleared"
+        except Exception as exc:
+            logger.exception("save_account_budget failed")
+            return f"err: {exc}"
 
 
     @callback(
@@ -2814,12 +2897,15 @@ def register_callbacks() -> None:
         Output("daily-register-stock-label", "children"),
         Output("daily-entry-price",          "value"),
         Output("daily-direction",            "value"),
+        Output("daily-units",                "value"),
         Input("daily-table",                 "selected_rows"),
         Input("daily-proposals-store",       "data"),
         State("daily-date",                   "date"),
+        State("active-account-id",            "data"),
     )
     def show_register_panel(
-        selected_rows: list[int], store_data: str | None, date_str: str | None
+        selected_rows: list[int], store_data: str | None, date_str: str | None,
+        account_id: int | None,
     ) -> tuple:
         hidden = {"display": "none"}
         visible = {
@@ -2828,10 +2914,10 @@ def register_callbacks() -> None:
             "borderRadius": "6px", "padding": "12px",
         }
         if not selected_rows or not store_data:
-            return hidden, "", None, "long"
+            return hidden, "", None, "long", no_update
         rows = json.loads(store_data)
         if selected_rows[0] >= len(rows):
-            return hidden, "", None, "long"
+            return hidden, "", None, "long", no_update
         row  = rows[selected_rows[0]]
         # Default entry price = next bar's open after the AS-OF (selected) date —
         # NOT fired_at.  Confluence stays valid for days after it first fires, so
@@ -2850,12 +2936,34 @@ def register_callbacks() -> None:
         # defaults to long.  Operator can still override via the dropdown.
         short_signs = {"rev_hi", "rev_nhi"}
         default_dir = "short" if row.get("sign") in short_signs else "long"
+        # Recommended units = lots × 100, lot-aware against the active account's budget
+        # (equal-yen 6-slot, single 100-sh lot must fit budget/6). 0 lots → unaffordable.
+        rec_units: int | object = no_update
+        budget = None
+        if account_id is not None:
+            try:
+                with get_session() as session:
+                    acct = get_account(session, account_id)
+                    budget = float(acct.budget) if acct and acct.budget else None
+            except Exception:
+                budget = None
+        lot_hint = ""
+        if budget and price:
+            lots = recommended_lots(budget, float(price), DEFAULT_SLOTS)
+            rec_units = lots * LOT_SHARES
+            if lots == 0:
+                lot_hint = (f"  ·  ⚠ unaffordable @ ¥{budget:,.0f}/{DEFAULT_SLOTS} "
+                            f"(1 lot > slot) — slot would stay empty")
+            else:
+                lot_hint = (f"  ·  rec {lots} lot{'s' if lots != 1 else ''} "
+                            f"({rec_units} sh, ¥{lots*LOT_SHARES*float(price):,.0f} "
+                            f"of ¥{budget/DEFAULT_SLOTS:,.0f} slot)")
         label = (
             f"{row['stock']}  ·  {row['sign']}  ·  "
             f"corr={row['corr']}  kumo={row['kumo']}  "
-            f"fired={row['fired_at']}"
+            f"fired={row['fired_at']}{lot_hint}"
         )
-        return visible, label, price, default_dir
+        return visible, label, price, default_dir, rec_units
 
     @callback(
         Output("daily-existing-review-label", "children"),
@@ -2962,7 +3070,8 @@ def register_callbacks() -> None:
     @callback(
         Output("daily-register-msg", "children"),
         Output("daily-register-msg", "style"),
-        Input("daily-register-btn", "n_clicks"),
+        Input("daily-order-btn",    "n_clicks"),
+        Input("daily-entry-btn",    "n_clicks"),
         Input("daily-skip-btn",     "n_clicks"),
         State("daily-direction",         "value"),
         State("daily-entry-price",       "value"),
@@ -2977,7 +3086,8 @@ def register_callbacks() -> None:
         prevent_initial_call=True,
     )
     def decision_btn_click(
-        n_register:    int,
+        n_order:       int,
+        n_entry:       int,
         n_skip:        int,
         direction:     str | None,
         entry_price:   float | None,
@@ -2995,7 +3105,7 @@ def register_callbacks() -> None:
         skip_style  = {"marginLeft": "10px", "fontSize": "12px", "color": MUTED}
 
         trig = callback_context.triggered_id
-        if trig not in ("daily-register-btn", "daily-skip-btn"):
+        if trig not in ("daily-order-btn", "daily-entry-btn", "daily-skip-btn"):
             return no_update, no_update
         if not selected_rows or not store_data:
             return "Select a proposal row first.", err_style
@@ -3064,24 +3174,46 @@ def register_callbacks() -> None:
 
         if entry_price is None or units is None:
             return "Enter price and units first.", err_style
+
+        if trig == "daily-entry-btn":
+            # Record the real fill for THIS row's pending order (ordered → open).
+            try:
+                with get_session() as session:
+                    pending = session.execute(
+                        select(Position).where(
+                            Position.status     == "ordered",
+                            Position.stock_code == row["stock"],
+                            Position.fired_at   == fired,
+                            (Position.account_id == account_id) if account_id is not None
+                            else Position.account_id.is_(None),
+                        ).order_by(Position.created_at.desc())
+                    ).scalars().first()
+                    if pending is None:
+                        return ("No pending order for this row — click Order first.",
+                                err_style)
+                    pos = enter_position(session, pending.id, today, float(entry_price))
+                    tp_s = f"{pos.tp_price:,.0f}" if pos.tp_price is not None else "—"
+                    sl_s = f"{pos.sl_price:,.0f}" if pos.sl_price is not None else "—"
+                return f"Entered (id={pos.id}) @ {float(entry_price):,.0f}  TP={tp_s}  SL={sl_s}", ok_style
+            except Exception as exc:
+                logger.exception("entry_btn error")
+                return f"Entry error: {exc}", err_style
+
+        # trig == "daily-order-btn": place a pending order (slot reserved).
         try:
-            tp, sl    = compute_exit_levels(row["stock"], float(entry_price), fired,
-                                             direction=direction or "long")
             with get_session() as session:
-                pos = register_position(
+                pos = order_position(
                     session     = session,
                     stock_code  = row["stock"],
                     sign_type   = row["sign"],
                     corr_mode   = row["corr"],
                     kumo_state  = row["kumo_int"],
                     fired_at    = fired,
-                    entry_date  = today,
+                    order_date  = today,
                     trade_date  = today,
-                    entry_price = float(entry_price),
+                    order_price = float(entry_price),
                     direction   = direction or "long",
                     units       = int(units),
-                    tp_price    = tp,
-                    sl_price    = sl,
                     sign_score  = sign_score,
                     corr_n225   = corr_n225_v,
                     revn_frac   = revn_f,
@@ -3091,24 +3223,25 @@ def register_callbacks() -> None:
                     account_id  = account_id,
                     tags        = clean_tags,
                 )
-            tp_s = f"{tp:,.0f}" if tp is not None else "—"
-            sl_s = f"{sl:,.0f}" if sl is not None else "—"
-            return f"Saved (id={pos.id})  TP={tp_s}  SL={sl_s}", ok_style
+                tp_s = f"{pos.tp_price:,.0f}" if pos.tp_price is not None else "—"
+                sl_s = f"{pos.sl_price:,.0f}" if pos.sl_price is not None else "—"
+            return (f"Ordered (id={pos.id}) @ {float(entry_price):,.0f} ×{int(units)}  "
+                    f"prov TP={tp_s} SL={sl_s} — record fill via Entry", ok_style)
         except Exception as exc:
-            logger.exception("register_btn error")
-            return f"Error: {exc}", err_style
+            logger.exception("order_btn error")
+            return f"Order error: {exc}", err_style
 
     # ── Portfolio: open positions panel ──────────────────────────────────────
 
     @callback(
         Output("daily-positions-panel", "children"),
         Input("daily-positions-refresh-btn", "n_clicks"),
-        Input("daily-register-btn", "n_clicks"),
+        Input("daily-register-msg", "children"),  # re-render after order/entry/skip
         Input("active-account-id", "data"),
         Input("daily-date",         "date"),
     )
     def refresh_positions(
-        _r: int, _reg: int, account_id: int | None, date_str: str | None,
+        _r: int, _msg: object, account_id: int | None, date_str: str | None,
     ) -> list:
         # as-of date = Daily date picker (the session day the operator is
         # reviewing).  Position status / Cur price are evaluated against
@@ -3117,16 +3250,21 @@ def register_callbacks() -> None:
                  if date_str else datetime.date.today())
         try:
             with get_session() as session:
-                positions = get_open_positions(session, account_id=account_id)
+                # active = ordered (pending fill) + open (filled). Ordered rows occupy
+                # a slot but have no real entry yet.
+                positions = get_active_positions(session, account_id=account_id)
                 # detach — read all needed attrs inside session
                 rows = [
                     {
                         "id":           p.id,
                         "stock":        p.stock_code,
                         "sign":         p.sign_type,
+                        "status":       p.status,
                         "direction":    getattr(p, "direction", "long"),
+                        "order_date":   p.order_date,
+                        "order_price":  float(p.order_price) if p.order_price else None,
                         "entry_date":   p.entry_date,
-                        "entry_price":  float(p.entry_price),
+                        "entry_price":  float(p.entry_price) if p.entry_price else None,
                         "units":        p.units,
                         "tp":           float(p.tp_price) if p.tp_price else None,
                         "sl":           float(p.sl_price) if p.sl_price else None,
@@ -3143,9 +3281,70 @@ def register_callbacks() -> None:
         name_map   = _load_name_map()
         sector_map = _load_sector_map()
 
+        ordered = [r for r in rows if r["status"] == "ordered"]
+        opens   = [r for r in rows if r["status"] == "open"]
+
+        items: list = []
+        # ── Pending orders (slot reserved, fill not yet recorded) ─────────────
+        for r in ordered:
+            label = "  |  ".join(
+                [r["stock"]]
+                + ([name_map[r["stock"]]] if name_map.get(r["stock"]) else [])
+                + [r["direction"].upper()]
+            )
+            op_str = f"{r['order_price']:,.0f}" if r["order_price"] else "—"
+            tp_str = f"{r['tp']:,.0f}" if r["tp"] else "—"
+            sl_str = f"{r['sl']:,.0f}" if r["sl"] else "—"
+            items.append(
+                html.Div(
+                    style={"background": BG, "border": f"1px dashed {ACCENT}",
+                           "borderRadius": "4px", "padding": "8px", "marginBottom": "6px"},
+                    children=[
+                        html.Div(
+                            style={"display": "flex", "justifyContent": "space-between",
+                                   "marginBottom": "4px"},
+                            children=[
+                                html.Span(label, style={"color": TEXT, "fontWeight": "600",
+                                                        "fontSize": "12px"}),
+                                html.Span("● ORDERED", style={"color": ACCENT,
+                                                              "fontWeight": "600",
+                                                              "fontSize": "12px"}),
+                            ],
+                        ),
+                        html.Div(
+                            style={"color": MUTED, "fontSize": "11px", "display": "flex",
+                                   "gap": "12px", "flexWrap": "wrap"},
+                            children=[
+                                html.Span(f"Order {op_str} ({r['order_date']})"),
+                                html.Span(f"prov. TP {tp_str}", style={"color": GREEN}),
+                                html.Span(f"prov. SL {sl_str}", style={"color": RED}),
+                                html.Span(f"×{r['units']}"),
+                                html.Span("→ record fill via Entry on the proposal row",
+                                          style={"fontStyle": "italic"}),
+                            ],
+                        ),
+                        html.Div(
+                            style={"marginTop": "6px", "display": "flex",
+                                   "justifyContent": "flex-end"},
+                            children=[
+                                html.Button(
+                                    "Cancel order",
+                                    id={"type": "cancel-ord-btn", "index": r["id"]},
+                                    n_clicks=0,
+                                    title="Order didn't fill / changed mind — remove it (not recorded as a trade).",
+                                    style={"background": "transparent", "color": RED,
+                                           "border": f"1px solid {RED}", "borderRadius": "3px",
+                                           "padding": "2px 10px", "cursor": "pointer",
+                                           "fontSize": "11px"},
+                                ),
+                            ],
+                        ),
+                    ],
+                )
+            )
+
         # Enrich with as-of price + status sweep over [entry_date, as_of] bars.
-        items = []
-        for r in rows:
+        for r in opens:
             cur, status, hit_date = evaluate_position_as_of(
                 stock_code = r["stock"],
                 entry_date = r["entry_date"],
@@ -3435,6 +3634,27 @@ def register_callbacks() -> None:
                 )
         except Exception as exc:
             logger.exception("close_position error for id={}", pos_id)
+        return refresh_positions(0, 0, account_id, date_str)
+
+    @callback(
+        Output("daily-positions-panel", "children", allow_duplicate=True),
+        Input({"type": "cancel-ord-btn", "index": ALL}, "n_clicks"),
+        State("active-account-id", "data"),
+        State("daily-date",         "date"),
+        prevent_initial_call=True,
+    )
+    def cancel_order_btn(n_clicks_list: list[int],
+                         account_id: int | None,
+                         date_str:   str | None) -> list:
+        if not callback_context.triggered or not any(
+                n for n in (n_clicks_list or []) if n):
+            return no_update  # type: ignore[return-value]
+        pos_id = callback_context.triggered_id["index"]
+        try:
+            with get_session() as session:
+                cancel_order(session, pos_id, reason="ui cancel")
+        except Exception:
+            logger.exception("cancel_order error for id={}", pos_id)
         return refresh_positions(0, 0, account_id, date_str)
 
     # ── Memos panel ──────────────────────────────────────────────────────────
