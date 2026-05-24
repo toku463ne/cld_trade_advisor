@@ -3295,38 +3295,80 @@ def register_callbacks() -> None:
             op_str = f"{r['order_price']:,.0f}" if r["order_price"] else "—"
             tp_str = f"{r['tp']:,.0f}" if r["tp"] else "—"
             sl_str = f"{r['sl']:,.0f}" if r["sl"] else "—"
+            # Clickable index (same 8-field layout as open cards) — anchors the chart
+            # at the ORDER date/price since there's no real entry yet.
+            def _s(v: object) -> object:
+                return "" if v is None else v
+            _ord_idx = (
+                f"{r['id']}|{r['stock']}|{r['sign']}|{r['order_date']}"
+                f"|{_s(r['order_price'])}|{_s(r['tp'])}|{_s(r['sl'])}|{r['direction']}"
+            )
             items.append(
                 html.Div(
                     style={"background": BG, "border": f"1px dashed {ACCENT}",
                            "borderRadius": "4px", "padding": "8px", "marginBottom": "6px"},
                     children=[
+                        # Clickable area (header + detail) — opens the chart like
+                        # hold cards; the action row below is kept outside so the
+                        # buttons don't bubble a chart click.
                         html.Div(
-                            style={"display": "flex", "justifyContent": "space-between",
-                                   "marginBottom": "4px"},
+                            id={"type": "pos-card", "index": _ord_idx},
+                            n_clicks=0,
+                            style={"cursor": "pointer"},
                             children=[
-                                html.Span(label, style={"color": TEXT, "fontWeight": "600",
-                                                        "fontSize": "12px"}),
-                                html.Span("● ORDERED", style={"color": ACCENT,
-                                                              "fontWeight": "600",
-                                                              "fontSize": "12px"}),
+                                html.Div(
+                                    style={"display": "flex",
+                                           "justifyContent": "space-between",
+                                           "marginBottom": "4px"},
+                                    children=[
+                                        html.Span(label, style={"color": TEXT,
+                                                                "fontWeight": "600",
+                                                                "fontSize": "12px"}),
+                                        html.Span("● ORDERED", style={"color": ACCENT,
+                                                                      "fontWeight": "600",
+                                                                      "fontSize": "12px"}),
+                                    ],
+                                ),
+                                html.Div(
+                                    style={"color": MUTED, "fontSize": "11px",
+                                           "display": "flex", "gap": "12px",
+                                           "flexWrap": "wrap"},
+                                    children=[
+                                        html.Span(f"Order {op_str} ({r['order_date']})"),
+                                        html.Span(f"prov. TP {tp_str}", style={"color": GREEN}),
+                                        html.Span(f"prov. SL {sl_str}", style={"color": RED}),
+                                        html.Span(f"×{r['units']}"),
+                                        html.Span("→ enter the real fill price, then Entry",
+                                                  style={"fontStyle": "italic"}),
+                                    ],
+                                ),
                             ],
                         ),
                         html.Div(
-                            style={"color": MUTED, "fontSize": "11px", "display": "flex",
-                                   "gap": "12px", "flexWrap": "wrap"},
+                            style={"marginTop": "6px", "display": "flex", "gap": "6px",
+                                   "alignItems": "center", "justifyContent": "flex-end"},
                             children=[
-                                html.Span(f"Order {op_str} ({r['order_date']})"),
-                                html.Span(f"prov. TP {tp_str}", style={"color": GREEN}),
-                                html.Span(f"prov. SL {sl_str}", style={"color": RED}),
-                                html.Span(f"×{r['units']}"),
-                                html.Span("→ record fill via Entry on the proposal row",
-                                          style={"fontStyle": "italic"}),
-                            ],
-                        ),
-                        html.Div(
-                            style={"marginTop": "6px", "display": "flex",
-                                   "justifyContent": "flex-end"},
-                            children=[
+                                dcc.Input(
+                                    id={"type": "order-fill-price", "index": r["id"]},
+                                    type="number",
+                                    value=r["order_price"],
+                                    placeholder="fill price",
+                                    debounce=True,
+                                    style={"width": "100px", "fontSize": "11px",
+                                           "padding": "3px 6px", "background": BG,
+                                           "color": TEXT, "border": f"1px solid {BORDER}",
+                                           "borderRadius": "3px"},
+                                ),
+                                html.Button(
+                                    "Entry",
+                                    id={"type": "enter-ord-btn", "index": r["id"]},
+                                    n_clicks=0,
+                                    title="Record this fill price (ordered → open); TP/SL recomputed from it.",
+                                    style={"background": GREEN, "color": BG,
+                                           "border": "none", "borderRadius": "3px",
+                                           "padding": "2px 12px", "cursor": "pointer",
+                                           "fontWeight": "600", "fontSize": "11px"},
+                                ),
                                 html.Button(
                                     "Cancel order",
                                     id={"type": "cancel-ord-btn", "index": r["id"]},
@@ -3634,6 +3676,40 @@ def register_callbacks() -> None:
                 )
         except Exception as exc:
             logger.exception("close_position error for id={}", pos_id)
+        return refresh_positions(0, 0, account_id, date_str)
+
+    @callback(
+        Output("daily-positions-panel", "children", allow_duplicate=True),
+        Input({"type": "enter-ord-btn", "index": ALL}, "n_clicks"),
+        State({"type": "order-fill-price", "index": ALL}, "value"),
+        State({"type": "order-fill-price", "index": ALL}, "id"),
+        State("active-account-id", "data"),
+        State("daily-date",         "date"),
+        prevent_initial_call=True,
+    )
+    def enter_order_btn(n_clicks_list: list[int],
+                        prices: list[float | None],
+                        price_ids: list[dict],
+                        account_id: int | None,
+                        date_str:   str | None) -> list:
+        if not callback_context.triggered or not any(
+                n for n in (n_clicks_list or []) if n):
+            return no_update  # type: ignore[return-value]
+        pos_id = callback_context.triggered_id["index"]
+        fill: float | None = None
+        for pid, pv in zip(price_ids, prices):
+            if pid.get("index") == pos_id:
+                fill = pv
+                break
+        if fill is None:
+            return no_update  # type: ignore[return-value]
+        today = (datetime.date.fromisoformat(date_str[:10])
+                 if date_str else datetime.date.today())
+        try:
+            with get_session() as session:
+                enter_position(session, pos_id, today, float(fill))
+        except Exception:
+            logger.exception("enter_order_btn error for id={}", pos_id)
         return refresh_positions(0, 0, account_id, date_str)
 
     @callback(
