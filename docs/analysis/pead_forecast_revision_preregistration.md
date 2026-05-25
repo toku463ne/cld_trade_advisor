@@ -70,6 +70,22 @@ the (Q5 − Q1) β-stripped 60-bar CAR per bucket. The literature predicts monot
 size and ~0 in the top bucket; if observed, that is itself evidence the signal is **not**
 deployable on N225, regardless of the pooled result.
 
+## Amendment 2026-05-25 — binning: signed terciles, not value quintiles
+On the first full run (80,267 usable events) the surprise distribution proved to have a
+**~58% mass point at exactly zero**: most same-FY consecutive forecasts are *reaffirmations*
+(ΔFEPS = 0, the standing guidance restated at the next quarterly), with 20,782 up- and 15,958
+down-revisions around them. Value-percentile quintile edges therefore collapse onto 0 (Q2/Q3
+empty, one bin absorbs every zero) — quintiles are **undefined** on this distribution, which is
+a structural data property, not a tuning choice. Binning is amended to **signed terciles** by
+the sign of ΔFEPS — **`down` (ΔFEPS < 0) / `reaffirm` (= 0) / `up` (> 0)** — with the long-short
+defined as **(up − down)**. This was chosen for robustness to the zero mass *before* comparing
+it against the quintile result on any metric (the quintile run only established that quintiles
+are degenerate, not that terciles score better); it does not relax any gate. Gate 3's
+per-group floor reads as ≥ 100 events in each of the three groups; gate 7 already provided for
+a tercile split. All other definitions (surprise, timing, β-strip, horizons, scope) are
+unchanged. The surprise *magnitude* is still computed and winsorized; only the bucketing is
+coarsened to its sign, the one cut robust to the mass point.
+
 ## Accept gates (ALL must hold; else REJECT)
 Gates 1–6 establish that the effect **exists** (run on the discovery universe for power).
 Gate 7 is the **binding deployment gate**: existence on the full universe is necessary but
@@ -82,7 +98,11 @@ Bucket events into surprise **quintiles** (Q1 = most-negative revision … Q5 = 
 2. **Long-short:** (Q5 − Q1) β-stripped 60-bar CAR mean > 0 with t-stat > **2.0**
    (report Newey-West; naive per-event t flagged as upper bound).
 3. **Sample:** ≥ **1000** paired events pooled; each quintile ≥ 100.
-4. **OOS:** most-recent full fiscal year held out — (Q5 − Q1) keeps the **same sign** and > 0.
+4. **OOS:** most-recent **full** fiscal year held out — (up − down) keeps the **same sign** and
+   > 0. "Full" is operationalised as `fy_end + ~135 days ≤ data end` (annual results land ~50d
+   after fy_end and then need a 60-bar / ~85-cal-day forward window); the truncated trailing FY,
+   whose late-FY disclosures are dropped for lack of a forward window, is **excluded** from the
+   OOS test and reported separately as a watch-item.
 5. **β-strip survives:** the (Q5 − Q1) result must remain > 0 *after* β-stripping (not an
    artifact of beta).
 6. **Horizon robustness:** sign of (Q5 − Q1) agrees at H = 20 and H = 60.
