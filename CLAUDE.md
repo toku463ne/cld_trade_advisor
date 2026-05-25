@@ -194,6 +194,39 @@ which mode to use **at entry time**:
     gate proposal must check this memory first to avoid re-running the same
     n-thin trap.
 
+## Methodology — Selection Rules vs the Fill-Order Null
+
+**Root lesson (do not re-litigate without new data): at ~36 trades/yr, slot contention
+is too rare for ANY selection/ordering rule to beat the fill-order null — even one whose
+priority key is real, exogenous, and cross-sectionally validated.**
+
+The binding test for any rule that decides *which* candidates fill the 6 slots (rank,
+veto, tiebreak, priority, boost) is the **paired fill-order null**: K=200 shuffles, the
+same fill-order randomness fed to both arms per seed, on the capital-aware 6-slot book.
+Binding gate = **P(Δ Sharpe > 0) ≥ 0.95 AND 95% CI lower bound > 0**. A favourable point
+estimate with a CI that grazes 0 is a REJECT. Per-trade Sharpe is **not** the portfolio
+metric and routinely inverts the verdict (a selection rule that looks great per-trade dies
+once slot contention is modeled).
+
+Every selection/ordering rule tried this cycle died against this null: RS-rank, corr-greedy,
+prefer_b0/bearish-count, ADX-priority, the pead_up confluence-VOTE, and the **PEAD
+score-booster** (2026-05-26). The score-booster is the decisive case: its diagnostic gates
+*passed* — zero candidate leak (414 vs 421 filled) and boosted trades genuinely better
+(+2.40% vs +1.45% mean_r, 61% vs 58% win, the +2.51% cohort edge surviving into the filled
+book) — yet the binding null was a coin flip (Δ +0.016, P=0.495). **The key was correct and
+the rule still didn't matter**, because most boosted candidates fill anyway and reordering
+rarely changes which 6 names get in. See `docs/analysis/pead_score_boost_preregistration.md`
+and memory `project_jquants_pead_universe.md`.
+
+**Implications:**
+- Before proposing a new selection/ordering rule, check this section and the fill-order-null
+  memory. The exogeneity of the key does **not** lower the bar; only real slot contention does.
+- The harvest of a genuine candidate-level edge (like PEAD) must come from **more contention
+  (universe expansion)**, a **standalone sleeve**, or **sizing** — not from reordering a
+  6-slot book.
+- Pick fills by **diversification** (correlation), not by predicted return, in the live UI —
+  selection-for-return is unsupported at this sample size.
+
 ## Rebenchmarking a Sign
 
 When a sign's detection logic changes (new gate, parameter change, etc.), run the
