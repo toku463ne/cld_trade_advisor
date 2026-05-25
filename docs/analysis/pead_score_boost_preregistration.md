@@ -1,5 +1,23 @@
 # PEAD as a Score Booster on Price-Sign Candidates (Pre-Registration)
 
+> **VERDICT (2026-05-26): REJECT — fails the binding fill-order null (gate 1).**
+> `confluence_pead_boost_null.py`, 200 paired shuffles, capital-aware 6-slot book, 8 FYs
+> (FY2018–FY2025). Hard boosted-first vs random, same fill order per seed: paired **Δ Sharpe
+> +0.016, P(Δ>0)=0.495 (99/200 — a coin flip), 95% CI [−0.286, +0.361]** → gate 1 FAIL. Per-FY
+> 4/8 positive, OOS FY2025 **−0.157** → gate 3 FAIL. **But the diagnostic gates PASS and that is
+> the point:** gate 5 (structural) A=414 vs B=421 filled trades — **zero candidate leak**, the
+> reframe held; gate 4 (mechanism) boosted filled trades are **genuinely better** — mean_r
+> **+2.40% vs +1.45%**, win **61% vs 58%** — the +2.51% cohort edge *does* survive into the filled
+> book. **So the priority key was demonstrably correct and the rule still could not beat fill-order
+> luck.** This is a sharper REJECT than ADX-priority (whose key might have been noise): at ~36
+> trades/yr slot contention is too rare for *any* selection rule to exploit, even one with a real,
+> exogenous, cross-sectionally-validated key. The exogenous key did not change the bar — exactly the
+> honest prior below. Per the no-second-formulation clause, this is final; the harvest of the PEAD
+> signal must come from real slot contention (universe expansion), a standalone sleeve, or sizing —
+> not from reordering a 6-slot book. Full output: `confluence_pead_boost_null.py`.
+
+---
+
 **Status:** pre-registered 2026-05-25, *before* any computation. Third harvest of the PEAD
 forecast-revision signal, after: signal 1 (absolute revision) = cross-sectional ACCEPT (+2.51%
 N225 cohort, `pead_forecast_revision_results.md`); pead_up **confluence-VOTE = REJECT** on the
