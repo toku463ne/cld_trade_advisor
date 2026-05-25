@@ -1,6 +1,21 @@
 # PEAD up-revision → confluence sign — inclusion A/B
 
-**Verdict (2026-05-25): PROMISING at N=3, escalate to the binding fill-order null — DO NOT ship yet.**
+**Verdict (2026-05-25): REJECT — fails the binding fill-order null on the capital-aware 6-slot book.**
+
+The per-trade inclusion A/B below was promising at N=3, but the binding gate
+(`confluence_pead_null.py`, 200 paired shuffles on the capital-aware 6-slot book) REJECTS it:
+baseline Sharpe mean 0.81 vs +pead_up 0.71; paired Δ Sharpe **−0.106**, 95% CI [−0.515, +0.302],
+P(Δ>0)=0.31; return +200%→+157%; per-FY negative in FY2018/FY2022/FY2024. The per-trade Sharpe
+gain ignored slot contention — pead_up's 60-bar validity floods ~20% more candidates that
+displace baseline trades for the same 6 slots without net benefit. **The PEAD signal is real
+(cross-sectional ACCEPT, +2.51% cohort) but wiring it as a confluence VOTE is the wrong harvest;
+the slot contention eats it.** Same fate as every selection lever vs the fill-order null. A
+different harvest (tiebreak among qualified candidates / standalone sleeve / sizing tilt) is a
+separate question, not tested here.
+
+---
+
+_Original per-trade A/B verdict (superseded by the null above):_
 
 `pead_up` = management-forecast up-revision (ΔFEPS > 0), valid 60 trading bars, added as an
 11th confluence vote (in-memory from `jq_statements`; nothing written to `sign_benchmark`).
