@@ -1,5 +1,20 @@
 # PEAD — Peer-Relative Forecast-Revision Surprise (Pre-Registration)
 
+> **VERDICT (2026-05-26): REJECT — both peer variants fail gate 7 (incremental/independence).**
+> Full results: `pead_peer_relative_revision_results.md`. The peer-relative surprise is a real
+> *standalone* sorter — both variants clear gates 1–6 AND the binding N225-cohort gate 8 (sector A
+> +1.40% t+2.93 / corr B +1.49% t+3.00; sector-neutral, survives the double β-strip). **But gate 7a
+> shows it is not incremental to signal 1:** conditioning on the firm's own revision group
+> (down/reaffirm/up), peer-relative stops sorting drift — A fails the *down* cell (−1.90%), B fails
+> *down* and *reaffirm*. `rel = own − R` is dominated by `own`, so the +1.36% headline is mostly a
+> repackaging of signal 1's up−down spread. Per the pre-reg ("if 7a fails … rejected as redundant,
+> regardless of gates 1–6"), decisive. Gate 7b (the named reaffirmation hypothesis) passes direction
+> for A but on n=182 (thin) and FAILS for B. Neither carries independent drift → REJECT, no third
+> peer definition without a new pre-reg. *Binning ran on the pre-registered signed-tercile fallback;
+> the rel=0 mass point made value quintiles/terciles degenerate.*
+
+---
+
 **Status:** pre-registered 2026-05-25, *before* any peer-relative measure is fit. This is an
 **independent signal** from the absolute management-forecast-revision surprise
 (`pead_forecast_revision_preregistration.md`, ACCEPT). It is pre-registered separately, with
