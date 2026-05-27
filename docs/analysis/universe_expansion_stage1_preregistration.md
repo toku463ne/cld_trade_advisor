@@ -160,3 +160,31 @@ sleeve pre-reg.
 - **FAIL** → restore the dump (§8.1) to return dev to the 225 book; record that the equal-weight tie
   is structural and selection is unsupported at current economics. Remaining lever = sizing, or accept
   the book as a beta-vehicle-with-discipline (the `project_live_trading_plan` framing).
+
+---
+
+## 10. RESULT — REJECT, both gates (run 2026-05-28, `src/analysis/universe_expansion_null.py`)
+
+Rebuild: 225 → **2,785**-code liquid∩affordable tier (clustering bypassed — operator decision,
+justified by the smoke test showing clustering ~identity at this scale; the per-FY universe is the
+tier with ≥150 bars). Contention rose to **426:1** (12.3× the candidates; ~same filled-trade count —
+the 6-slot book is capacity-bounded, so expansion adds *choice*, not trades). K=200 (the pre-reg's
+≥1000 is compute-infeasible at ~2 s/sim on ~20k candidates; 200 is the established protocol).
+
+β-stripped Sharpe @30bps: **225** active +0.507 / passive +0.556 → **−0.05 (tie, replicated)**;
+**expanded** active **−0.724** / passive **+0.030** → **−0.754**.
+
+- **Gate A FAIL (hard):** expanded active loses to its own equal-weight passive in **97%** of fill
+  orders (P(rand>pass)=0.030; CI fully negative @60bps).
+- **Gate B FAIL:** corr-greedy *worse* than random fill (Δ **−0.271**, P(Δ>0)=0.155).
+
+**VERDICT: REJECT — universe expansion does not convert to edge.** Two findings: (1) contention was
+never the wall — at 13× contention selection still loses to fill-order luck; (2) the confluence
+signs are **large-cap-specific** — on mid/small-caps they anti-select (β-stripped active −0.72 vs
+universe passive +0.03). The equal-weight tie is **structural**. The parked-rejects revival queue
+(gated on A∧B) is shelved. Caveat: tests the *existing* signs as-is — re-fitting signs on the
+expansion is the overfit path this pre-reg forbade (a separate research program, not a re-run).
+
+**Cleanup:** the `classifiedexp*` cluster + benchmark runs were DELETED (they would contaminate the
+225 book's fires via the 209 overlap codes under `MIN_RUN_ID=0`); the 2,576 bridged OHLCV rows are
+left in place (inert — never loaded by the 225 book; `market_data_20260527_2047.dump` fully reverts).

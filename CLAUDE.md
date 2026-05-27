@@ -220,12 +220,35 @@ and memory `project_jquants_pead_universe.md`.
 
 **Implications:**
 - Before proposing a new selection/ordering rule, check this section and the fill-order-null
-  memory. The exogeneity of the key does **not** lower the bar; only real slot contention does.
-- The harvest of a genuine candidate-level edge (like PEAD) must come from **more contention
-  (universe expansion)**, a **standalone sleeve**, or **sizing** — not from reordering a
-  6-slot book.
+  memory. The exogeneity of the key does **not** lower the bar. (NB: nor does *more contention* —
+  see the 2026-05-28 update below.)
 - Pick fills by **diversification** (correlation), not by predicted return, in the live UI —
   selection-for-return is unsupported at this sample size.
+
+### UPDATE 2026-05-28 — "contention is the wall / universe expansion is the unblocker" is REFUTED
+
+The standing hypothesis above was that *more slot contention* (universe expansion) would let a
+selection rule finally beat the fill-order null. **Tested directly — it FAILED.** The 225-name
+universe was expanded to a 2,785-name liquid∩affordable tier (**12.3×** the candidates, **426:1**
+fill contention vs the 225's 31:1) and re-benchmarked; the Stage-1 null
+(`docs/analysis/universe_expansion_stage1_preregistration.md`, `src/analysis/universe_expansion_null.py`)
+**rejected BOTH binding gates @30bps:**
+- **Gate A (value):** the expanded *active* book LOSES to its own equal-weight passive in 97% of
+  fill orders (β-stripped Sharpe active **−0.72** vs passive **+0.03**). The 225 active−passive
+  tie (−0.05) replicated.
+- **Gate B (mechanism):** corr-greedy was *worse* than random fill (Δ **−0.27**, P(Δ>0)=0.16).
+
+**Corrected lessons:**
+- **Contention was never the wall.** At 13× contention, selection still did not beat fill-order
+  luck. Do NOT invoke "too few trades / need more contention" to motivate selection work or
+  another expansion — that explanation is refuted.
+- **The confluence signs are large-cap-specific.** On mid/small-caps they *anti-select* (fire 12×
+  more, pick underperformers). The equal-weight-universe tie is **structural**, not sample-size.
+- Contention-based harvests for a candidate-level edge (PEAD) are now **exhausted**: 6-slot
+  reordering (rejected), standalone sleeve (rejected at deployable capital), universe expansion
+  (rejected). The only untried sanctioned path is **sizing**.
+- The parked-rejects revival queue (prefer_b0, div_peer cluster-size, PEAD sleeve) that was gated
+  on expansion passing is **shelved** — see memory `project_parked_rejects_revival_triage.md`.
 
 ## Rebenchmarking a Sign
 
