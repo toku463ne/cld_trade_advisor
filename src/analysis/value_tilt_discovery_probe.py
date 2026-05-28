@@ -58,6 +58,20 @@ def _load_cohort225() -> set[str]:
                              .where(StockClusterMember.run_id.in_(ids))).scalars().all())
 
 
+def _load_tier_local() -> set[str]:
+    """The frozen affordable∩liquid mid-cap tier (jq local codes, column 1 of the tier file).
+    This is the deployable universe where the value premium actually lives (mid-caps), vs the
+    225 large-cap cohort. ~2,785 codes. See docs/analysis/universe_expansion_tier.txt."""
+    import pathlib
+    p = pathlib.Path("docs/analysis/universe_expansion_tier.txt")
+    out: set[str] = set()
+    for ln in p.read_text().splitlines():
+        if ln.startswith("#") or not ln.strip():
+            continue
+        out.add(ln.split("\t", 1)[0].strip())
+    return out
+
+
 def _load():
     """Returns cal, col_of, codes, row_of, adj, rawc, topix_adj, fundamentals, cohort_rows."""
     from src.data.jquants_collector import to_yf_code
@@ -218,6 +232,8 @@ def _alpha_beta(book: np.ndarray, mkt: np.ndarray):
 
 def run() -> None:
     cal, col_of, codes, row_of, adj, rawc, topix_adj, funds, cohort_rows = _load()
+    tier_rows = {row_of[c] for c in _load_tier_local() if c in row_of}
+    logger.info("mid-cap tier rows: {}", len(tier_rows))
     global _CAL_REF
     _CAL_REF = cal
     rebs = _rebalance_indices(cal)
@@ -229,7 +245,7 @@ def run() -> None:
     months: list[tuple] = []      # (ti, ti_next, fy_label, rows[], bm[], ey[], mom[], fwd[], coh_mask[])
     for k in range(len(rebs) - 1):
         ti, tn = rebs[k], rebs[k + 1]
-        rrows, bms, eys, moms, fwds, cohm = [], [], [], [], [], []
+        rrows, bms, eys, moms, fwds, cohm, tierm = [], [], [], [], [], [], []
         for code, ri in row_of.items():
             mt = _metrics_at(ri, ti, adj, rawc, funds, code, row_of)
             if mt is None:
@@ -240,13 +256,13 @@ def run() -> None:
                 continue
             rrows.append(ri); bms.append(bm); eys.append(ey if ey is not None else np.nan)
             moms.append(mom if mom is not None else np.nan); fwds.append(a_n / a_t - 1.0)
-            cohm.append(ri in cohort_rows)
+            cohm.append(ri in cohort_rows); tierm.append(ri in tier_rows)
         if len(rrows) < 50:
             continue
         d = cal[ti]
         fy_label = d.year + 1 if d.month >= 4 else d.year
         months.append((ti, tn, fy_label, np.array(rrows), np.array(bms), np.array(eys),
-                       np.array(moms), np.array(fwds), np.array(cohm)))
+                       np.array(moms), np.array(fwds), np.array(cohm), np.array(tierm)))
     logger.info("usable rebalances: {} ({}–{})", len(months), cal[months[0][0]], cal[months[-1][0]])
 
     # TOPIX monthly return aligned to the rebalances
@@ -262,7 +278,7 @@ def run() -> None:
     # ── Q1: universe decile long-short (cheapest − priciest), per signal ──────────────
     def _universe_ls(which: str) -> np.ndarray:
         out = []
-        for (ti, tn, fy, rrows, bm, ey, mom, fwd, coh) in months:
+        for (ti, tn, fy, rrows, bm, ey, mom, fwd, coh, tier) in months:
             val, rmom, vm = _scores(bm, ey, mom)
             score = {"value": val, "mom": rmom, "v+m": vm}[which]
             m = np.isfinite(score) & np.isfinite(fwd)
@@ -301,13 +317,15 @@ def run() -> None:
     print(f"\nQ3 — value vs momentum L/S monthly-return correlation = {vmcorr:+.2f}  "
           f"(Asness ≈ −0.55 → the diversification that earns the ~0.65 combined Sharpe)")
 
-    # ── Q2: deployable CONCENTRATED LONG TILT on the cohort, net of cost, β-stripped ──
-    def _cohort_tilt(which: str, K: int):
-        """Returns (monthly_net, ew_monthly, turnover_mean). Holds cheapest/best K cohort names."""
+    # ── Q2: deployable CONCENTRATED LONG TILT, net of cost, β-stripped — cohort AND mid-cap tier ──
+    def _cohort_tilt(which: str, K: int, mask_idx: int = 8):
+        """Returns (monthly_net, ew_monthly, turnover_mean). Holds cheapest/best K names of the
+        masked universe (mask_idx 8=225 cohort, 9=mid-cap tier) vs equal-weight of that universe."""
         rets, ew, prev = [], [], set()
         turn = []
-        for (ti, tn, fy, rrows, bm, ey, mom, fwd, coh) in months:
-            cm = coh
+        for month in months:
+            ti, tn, fy, rrows, bm, ey, mom, fwd = month[:8]
+            cm = month[mask_idx]
             if cm.sum() < K + 2:
                 rets.append(np.nan); ew.append(np.nan); continue
             val, rmom, vm = _scores(bm[cm], ey[cm], mom[cm])
@@ -329,38 +347,39 @@ def run() -> None:
             prev = held
         return np.array(rets), np.array(ew), float(np.mean(turn)) if turn else 0.0
 
-    print(f"\nQ2 — DEPLOYABLE COHORT LONG TILT (cheapest/best K of ~{int(np.median([m[8].sum() for m in months]))}, "
-          f"net@{_COST_BPS:.0f}bps, vs equal-weight cohort):")
-    print(f"  {'signal':<8}{'K':>4}{'tilt Shrp':>11}{'tilt CAGR':>11}{'EW CAGR':>10}"
-          f"{'excess/yr':>11}{'α vs TOPIX':>12}{'β':>6}{'turn':>7}")
-    ew_ref = None
-    for which in ("value", "mom", "v+m"):
-        for K in _KS:
-            r, ew, turn = _cohort_tilt(which, K)
-            m = np.isfinite(r) & np.isfinite(ew)
-            r, ew2, txm = r[m], ew[m], tx_m[m]
-            if ew_ref is None:
-                ew_ref = (ew2, txm)
-            alpha, beta = _alpha_beta(r, txm)
-            print(f"  {which:<8}{K:>4}{_ann_sharpe(r):>11.2f}{_cagr(r)*100:>10.1f}%"
-                  f"{_cagr(ew2)*100:>9.1f}%{(_cagr(r)-_cagr(ew2))*100:>10.1f}%"
-                  f"{alpha*100:>11.1f}%{beta:>6.2f}{turn*100:>6.0f}%")
+    for uni_name, midx in [("225 LARGE-CAP COHORT", 8), ("MID-CAP TIER (~2,785, where value lives)", 9)]:
+        med = int(np.median([m[midx].sum() for m in months]))
+        print(f"\nQ2 — DEPLOYABLE LONG TILT, {uni_name} (cheapest/best K of ~{med}, "
+              f"net@{_COST_BPS:.0f}bps, vs equal-weight of that universe):")
+        print(f"  {'signal':<8}{'K':>4}{'tilt Shrp':>11}{'tilt CAGR':>11}{'EW CAGR':>10}"
+              f"{'excess/yr':>11}{'α vs TOPIX':>12}{'β':>6}{'turn':>7}")
+        for which in ("value", "mom", "v+m"):
+            for K in _KS:
+                r, ew, turn = _cohort_tilt(which, K, midx)
+                m = np.isfinite(r) & np.isfinite(ew)
+                r, ew2, txm = r[m], ew[m], tx_m[m]
+                alpha, beta = _alpha_beta(r, txm)
+                print(f"  {which:<8}{K:>4}{_ann_sharpe(r):>11.2f}{_cagr(r)*100:>10.1f}%"
+                      f"{_cagr(ew2)*100:>9.1f}%{(_cagr(r)-_cagr(ew2))*100:>10.1f}%"
+                      f"{alpha*100:>11.1f}%{beta:>6.2f}{turn*100:>6.0f}%")
 
-    # per-FY for the headline lead (value, K=12) — sign stability + OOS FY2025
-    print(f"\nPER-FY — value tilt K=12 net@{_COST_BPS:.0f}bps vs equal-weight cohort:")
-    r12, ew12, _ = _cohort_tilt("value", 12)
-    by_fy = defaultdict(lambda: [[], []])
-    for (mi, (ti, tn, fy, *_)) in enumerate(months):
-        if np.isfinite(r12[mi]) and np.isfinite(ew12[mi]):
-            by_fy[fy][0].append(r12[mi]); by_fy[fy][1].append(ew12[mi])
-    npos = 0
-    for fy in sorted(by_fy):
-        rr, ee = np.array(by_fy[fy][0]), np.array(by_fy[fy][1])
-        tot = float(np.prod(1 + rr) - 1); ewt = float(np.prod(1 + ee) - 1)
-        npos += (tot - ewt) > 0
-        tag = "  ← OOS FY2025" if fy == 2025 else ""
-        print(f"  FY{fy}: tilt {tot*100:+.1f}%  EW {ewt*100:+.1f}%  excess {(tot-ewt)*100:+.1f}pp{tag}")
-    print(f"  tilt-beats-EW FYs: {npos}/{len(by_fy)}")
+    # per-FY for the value K=12 lead — sign stability + OOS FY2025, both universes
+    for uni_name, midx in [("225 cohort", 8), ("mid-cap tier", 9)]:
+        print(f"\nPER-FY — value tilt K=12 net@{_COST_BPS:.0f}bps vs equal-weight ({uni_name}):")
+        r12, ew12, _ = _cohort_tilt("value", 12, midx)
+        by_fy = defaultdict(lambda: [[], []])
+        for (mi, month) in enumerate(months):
+            fy = month[2]
+            if np.isfinite(r12[mi]) and np.isfinite(ew12[mi]):
+                by_fy[fy][0].append(r12[mi]); by_fy[fy][1].append(ew12[mi])
+        npos = 0
+        for fy in sorted(by_fy):
+            rr, ee = np.array(by_fy[fy][0]), np.array(by_fy[fy][1])
+            tot = float(np.prod(1 + rr) - 1); ewt = float(np.prod(1 + ee) - 1)
+            npos += (tot - ewt) > 0
+            tag = "  ← OOS FY2025" if fy == 2025 else ""
+            print(f"  FY{fy}: tilt {tot*100:+.1f}%  EW {ewt*100:+.1f}%  excess {(tot-ewt)*100:+.1f}pp{tag}")
+        print(f"  tilt-beats-EW FYs: {npos}/{len(by_fy)}")
 
     print("\nHOW TO READ:")
     print("• Q1 universe L/S Sharpe>0 + t>2 on VALUE = the Japan value premium exists in our data\n"
