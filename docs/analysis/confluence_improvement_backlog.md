@@ -7,6 +7,26 @@ opposed to universe-expansion / selection-rule work, which is exhausted). Each i
 mechanism, the prior evidence, and the **binding test** it must clear. Do **one at a time**, each with
 a frozen pre-registration (no batch-running = multiple-comparisons p-hacking).
 
+## Progress (as of 2026-05-28)
+
+| # | Lever | Axis | Status |
+|---|---|---|---|
+| 1 | Oracle-ceiling probe | diagnostic | ✅ **done** — exit is the headroom axis; drawdown is exit-driven |
+| 2 | Regime-conditional **sizing tilt** (neutral-momentum trim) | weights | **OPEN — most untapped, cleanest next** |
+| 3 | Regime-conditional **exit** | exit (market regime) | ⛔ **REJECT** — regime-inverse trap; no clean drawdown win |
+| 4 | Vol-target / risk-parity slot sizing | weights | open |
+| 5 | 6→8 slots | capacity | open (cheap, low prior) |
+| 6 | Confluence + uncorrelated overlay | portfolio | open (structural, biggest risk-adjusted) |
+
+**META-PATTERN (durable, earned across items 3 + the TSMOM entry gate):** anything that de-risks the
+book off the **MARKET regime** fails — both the TSMOM *entry* gate (`confluence_tsmom_gate_probe`) and
+the regime-conditional *exit* (item 3) died the same way, cutting into the **bear-regime recovery where
+confluence's alpha lives** (regime-INVERSE alpha; FY2024 is the canary). The drawdown is exit-driven
+(oracle) but only capturable by **per-stock** peak timing, which ZsTpSl already approximates. → The live
+levers are now the **weights axes** (sizing, items 2/4) and **diversification** (item 6), NOT
+market-regime conditioning. Item 2 is the cleanest remaining shot because it keys off the **NEUTRAL**
+momentum regime (the EV weak spot), *not* bear — so it does not fight the regime-inverse alpha.
+
 ## Baseline (the thing we're trying to improve)
 
 Capital-aware 6-slot ¥2M book, FY2018–2025 (most recent stitched run):
@@ -16,8 +36,9 @@ Capital-aware 6-slot ¥2M book, FY2018–2025 (most recent stitched run):
   t=1.39) **and regime-inverse** (`project_confluence_market_neutral`). So most of the 13% is "long
   Japan equities at β≈0.7"; harvestable alpha is thin.
 
-**Theme:** entry/selection/exit are exhausted. The remaining headroom is **risk-shaping** (Sharpe /
-maxDD via sizing & regime conditioning) and **portfolio diversification** — not raw alpha.
+**Theme:** entry/selection/exit are exhausted, and **market-regime risk-shaping is now closed too**
+(item 3 + TSMOM entry gate, see meta-pattern). The remaining headroom is **weights-axis risk-shaping**
+(sizing — items 2/4) and **portfolio diversification** (item 6) — not raw alpha, not market-regime gates.
 
 **Realizable ceiling:** every ex-ante rule tried lands inside the fill-order null band (Sharpe median
 0.89, p5 0.60, **p95 1.20**); the shipped book (+0.88) is a *median* draw. p95 is luck, not edge. So
@@ -113,8 +134,11 @@ risk-adjusted improvement, sized as an overlay.*
   (universe expansion refuted). See CLAUDE.md "Selection Rules vs the Fill-Order Null".
 - **Individual sign tweaks:** sign-set LOO, drop-tenkan, label-swap, agnostic-count, strength=disp/ATR
   — rejected; brk_sma (low,K=3) + 3 ichimoku _hi already optimized.
-- **Fixed-exit swap:** ZsTpSl ≈ best; adx_d8/time40 are portfolio coin-flips. (Regime-conditional exit,
-  item 3, is the only re-open path.)
+- **Fixed-exit swap:** ZsTpSl ≈ best; adx_d8/time40 are portfolio coin-flips.
+- **Market-REGIME conditioning (entry OR exit):** the regime-conditional exit (item 3,
+  `confluence_regime_exit_probe`) and the TSMOM entry gate (`confluence_tsmom_gate_probe`) both REJECT —
+  de-risking off the market regime cuts into the regime-inverse bear-recovery (FY2024). Do not re-propose
+  market-trend entry/exit gates. (Per-stock idiosyncratic exit ≠ this; that's ZsTpSl, already optimized.)
 - **2-bar fill:** a manual-execution realism constraint (opening auction), not an optimization knob.
 - **Market-neutral confluence:** 62% beta, α t=1.39, short leg doomed by JP momentum failure.
 
