@@ -106,28 +106,59 @@ _Original (pre-probe) rationale:_
   few names suffice): index reconstitution (Nikkei 225 / TOPIX add/delete), buyback announcements, PEAD.
   Where ¥2M manual is *least* disadvantaged. Probe-worthy.
 
+### Value investigation — RESULT (2026-05-28): premium real long-short, long-only tilt does NOT deploy
+
+The value direction was probed end-to-end (`src/analysis/value_tilt_discovery_probe.py`,
+`value_turnover_tier_probe.py`, read-only). It is **NOT a clean pre-reg candidate as a long tilt.**
+
+- **Universe value premium is REAL (long-short).** Decile L/S (cheapest−priciest by B/M+E/P, total
+  return incl. dividends) = **Sharpe 0.84, CAGR +12.2%, t=2.46**; momentum L/S ≈ 0 (−0.04) — the Asness
+  Japan prior (value works, momentum fails) replicates. The value/momentum return correlation here is
+  **+0.17, NOT the −0.55** Asness reports → no value+momentum combination premium in our data.
+- **Where it lives (turnover axis):** the L/S premium is flat-and-significant across **¥100M–¥3B**
+  (Sharpe 0.73–0.80, t>2.1) and decays only at **≥¥3B** (institutional: 0.51, t=1.49). Turnover is the
+  right coverage axis; the natural upper cap is ~¥3B. **Price ceilings are a poor coverage proxy**
+  (splits, institutional names slipping under) → use a turnover band + a *separate* affordability filter.
+- **Gate A (dividends) — done.** The premium `/fins/dividend` endpoint is plan-gated, but annual DPS
+  rides the on-plan `/fins/summary` payload (`DivAnn`, migration `a1c4e7f93b2d`). Total-return lifts the
+  value tilt ~+0.9–1.4pp/yr and pushes the universe L/S to significance (t=2.46).
+- **Gate B (mid-cap long tilt) — HEADLINE RETRACTED (look-ahead).** A first pass on the frozen
+  `universe_expansion_tier` ("ever-qualifies ≥1 day" membership) showed +4.2%/yr excess, α +5.7%. A
+  within-probe A/B with identical machinery shows this was a **look-ahead artifact**: the *same* criteria
+  (price≤¥3,333 ∩ turnover≥¥100M) applied **point-in-time** give **989 names/mo, +0.3%/yr, α −0.3%**
+  (vs 2,361/mo, +4.2% for ever-qualifies). The ever-qualifies set lets the tilt pick currently-illiquid /
+  expensive deep-value names that *later* qualified and, being survivors, rebounded.
+- **Point-in-time, the deployable value LONG tilt is ~FLAT** (≤+1.5%/yr, mostly negative α) across
+  *every* universe definition — turnover bands, price ceiling, no cap. **Value joins MN-PEAD at the same
+  wall:** the cross-sectional premium is real (long-short), but the long-only slice that ¥2M-manual can
+  run cheaply captures ~none of it; harvesting it needs the short leg = market-neutral = the breadth+cost
+  wall that already killed MN-PEAD. Only untried angle = an MN-value feasibility probe (value is
+  lower-turnover than PEAD, so milder cost — but the ~6/side breadth wall likely repeats the MN-PEAD reject).
+
 ---
 
 ## The map (ranked for ¥2M + manual + short-selling)
 
 | Direction | Fits small breadth? | Realistic Sharpe | Pre-reg? |
 |---|---|---|---|
-| **Value / value+momentum** (JP) | better (long-tilt) | ~0.5–0.65 documented | **Yes — front-runner** |
-| **Event-driven catalysts** (index rebal, buybacks) | **best** | large per-event, lumpy | Probe-worthy |
-| **Low-vol / quality long** | good | ~0.3–0.5 | Probe-worthy |
+| **Event-driven catalysts** (index rebal, buybacks) | **best** | large per-event, lumpy | Probe-worthy (untested) |
+| **Low-vol / quality long** | good | ~0.3–0.5 | Probe-worthy (untested) |
 | **Index TSMOM overlay** | trivial (1 pos) | 0.3–0.5 | Cheap test, diversifier |
+| **Value / value+momentum** (JP, long-only tilt) | premium real L/S, tilt flat | ~0 PIT long-only | **⛔ No — long tilt look-ahead, REVOKED 2026-05-28** |
+| **MN-value** (long cheap / short dear) | marginal | untested | Possible probe (likely repeats MN-PEAD) |
 | **MN-PEAD** (long up / short down) | marginal | net ≤0 at 6/side | **⛔ No — REFUTED 2026-05-28** |
 | **MN-Confluence** | — | ~0 | **No (already shown)** |
 | **Per-stock TSMOM / pure momentum** | — | ~0 in JP | **No** |
 
-**Recommendation (updated 2026-05-28 after the MN-PEAD probe):** the planned two-axis combo loses its
-overlay leg — MN-PEAD's short-leg cost/borrow + low-Sharpe spread don't survive ¥2M breadth. The
-highest-EV next move is now the **concentrated value/quality LONG tilt alone** (documented Japan edge,
-breadth-*tolerant*, no short-leg drag). First pre-reg if picking one: **value or value+momentum** (NOT
-MN-PEAD). The MN-PEAD result also sharpens the program prior: **the breadth wall is structural** — a
-validated cross-sectional edge realized as a continuous tradeable book at ~6 names is low-Sharpe and
-cost-dominated regardless of how good the per-name signal is. Favor edges that are *concentration-
-friendly* (large per-name effect, few names suffice) over diversification plays that need breadth.
+**Recommendation (updated 2026-05-28 after the value probes):** the value long-tilt — the would-be
+front-runner — is **revoked**: its apparent +4.2%/yr was an ever-qualifies look-ahead, and point-in-time
+the long-only tilt is flat. **Both validated cross-sectional premia (PEAD, value) now fail the same way:
+real long-short, but the deployable long-only slice at ¥2M captures ~none of it, and the long-short
+harvest dies on the breadth+cost wall.** This is the hardened program prior. The highest-EV untried moves
+left are the **concentration-friendly, NON-cross-sectional** directions — **event-driven catalysts**
+(index reconstitution, buybacks: large per-name edge, few names suffice) and the **single-index TSMOM
+overlay** (1 position, trivial manual). An **MN-value feasibility probe** is the only remaining
+cross-sectional angle, but expect it to repeat the MN-PEAD reject (lower turnover is the one mitigant).
 
 ## Cross-cutting cautions (carry into any pre-reg)
 - **Breadth is the falsifier**, not the factor. Any cross-sectional L/S pre-reg must test whether ~6–12
