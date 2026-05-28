@@ -31,7 +31,34 @@ that a few names suffice? Documented factor Sharpes (~0.4–0.8) are at *full in
 
 ## 1. Market-neutral PEAD — long up-revision / short down-revision
 
-**Worth a pre-reg — top pick of directions 1–3.**
+**⛔ REFUTED by feasibility probe (2026-05-28) — NOT worth a pre-reg.** Was the top pick; the
+breadth/cost probe killed it before any pre-reg. (Original rationale retained below for the record.)
+
+> **PROBE RESULT** (`src/analysis/mn_pead_feasibility_probe.py`, read-only): a dollar/β-neutral
+> long-up / short-down book, 60-bar hold, ≤K slots/side, 200-draw selection bootstrap + L=60 time
+> block-bootstrap, on BOTH the validated 225 cohort and the wide ~2,785 tier.
+> - **Machinery check PASSES:** 225-cohort (up−down) β-stripped 60-bar CAR = **+2.47%** (up +1.46% /
+>   down −1.01%) — matches the validated +2.51%. The signal is real.
+> - **But the deployable book FAILS on two walls, and COST is the bigger one:**
+>   - **225, K=6/side:** net@30bps Sharpe **−0.12** (sel-band [−0.37,+0.15]), net −2.2%/yr, time-CI
+>     P(Sharpe>0)=0.25, per-FY 3/7 positive (FY2019 −31.7%, OOS FY2025 −11.6%). K=∞ (hold all
+>     1,224/829, no breadth limit) is only gross +0.44 / net −0.06 — the spread realized as a
+>     continuous overlap-hold book is **intrinsically low-Sharpe** (high cross-sectional dispersion).
+>     **Even at 0 transaction cost (borrow only), K=6 net = +0.15** → below the ~0.3 deploy bar.
+>   - **Wide tier:** spread smaller (+1.99%); K=∞ gross +1.30 (diversification works) but net only
+>     +0.32; **K=6 net −0.30** (worse than 225). Needs **K≥20/side (40 names, beyond ¥2M manual)** to
+>     reach net ≈0 — and the wide short leg is largely **unborrowable** (mid/small-caps not 制度信用
+>     貸借銘柄). **→ the "size-agnostic PEAD beats the breadth wall via a wider menu" hope is REFUTED.**
+>   - **Cost is decisive & robust:** MN doubles turnover (both legs, quarterly full rebalance ≈4.2×/yr
+>     → ~5%/yr @30bps + 1.1% borrow ≈ **6%/yr**), which alone flips the sign. **Market-neutral makes
+>     PEAD WORSE than the long-only sleeve at ¥2M, not better.**
+> - **VERDICT:** idiosyncratic variance AND turnover cost both swamp the +2.47% spread at deployable
+>   breadth. This closes the **last** cross-sectional PEAD harvest path (6-slot reorder / standalone
+>   sleeve / universe expansion / MN — all rejected). Signal 1 stays validated cross-sectionally but
+>   **unharvestable at ¥2M manual**; the breadth wall is structural, not a selection-key or
+>   universe-size problem.
+
+_Original (pre-probe) rationale:_
 
 - Better than the rejected long-only sleeve: the sleeve added beta to a 62%-beta book and caught only
   the up-leg. MN-PEAD adds **zero beta** and harvests the **full +2.51% up−down spread**. Borrow 1.1%/yr
@@ -43,7 +70,7 @@ that a few names suffice? Documented factor Sharpes (~0.4–0.8) are at *full in
   validated spread but untested directionally.
 - Min viable scale: market-neutral wants ~20+/side; ¥2M gives ~4–6 → *below* comfortable breadth. The
   pre-reg's binding test: does ~6/side net of cost realize the spread, or does idiosyncratic variance
-  swamp it?
+  swamp it?  **→ ANSWERED: it does not (see PROBE RESULT above).**
 
 ## 2. Market-neutral Confluence — long bullish / short bearish signs
 
@@ -85,20 +112,22 @@ that a few names suffice? Documented factor Sharpes (~0.4–0.8) are at *full in
 
 | Direction | Fits small breadth? | Realistic Sharpe | Pre-reg? |
 |---|---|---|---|
-| **MN-PEAD** (long up / short down) | marginal | 0.4–0.8, noisy | **Yes — top pick** |
-| **Value / value+momentum** (JP) | better (long-tilt) | ~0.5–0.65 documented | **Yes — co-pick** |
+| **Value / value+momentum** (JP) | better (long-tilt) | ~0.5–0.65 documented | **Yes — front-runner** |
 | **Event-driven catalysts** (index rebal, buybacks) | **best** | large per-event, lumpy | Probe-worthy |
 | **Low-vol / quality long** | good | ~0.3–0.5 | Probe-worthy |
 | **Index TSMOM overlay** | trivial (1 pos) | 0.3–0.5 | Cheap test, diversifier |
+| **MN-PEAD** (long up / short down) | marginal | net ≤0 at 6/side | **⛔ No — REFUTED 2026-05-28** |
 | **MN-Confluence** | — | ~0 | **No (already shown)** |
 | **Per-stock TSMOM / pure momentum** | — | ~0 in JP | **No** |
 
-**Recommendation:** the highest-EV next move is a **two-axis combination that respects breadth** — a
-concentrated **value/quality long tilt** (documented Japan edge, breadth-tolerant) paired with
-**MN-PEAD** as an uncorrelated event-driven overlay (validated edge, now short-unlocked). The two are
-un-/negatively-correlated, both implementable with current data, and together sidestep the momentum
-trap and the pure-market-neutral breadth penalty. First pre-reg if picking one: **MN-PEAD** (validated,
-cleanest test); bigger long-run prize: **value+momentum combined**.
+**Recommendation (updated 2026-05-28 after the MN-PEAD probe):** the planned two-axis combo loses its
+overlay leg — MN-PEAD's short-leg cost/borrow + low-Sharpe spread don't survive ¥2M breadth. The
+highest-EV next move is now the **concentrated value/quality LONG tilt alone** (documented Japan edge,
+breadth-*tolerant*, no short-leg drag). First pre-reg if picking one: **value or value+momentum** (NOT
+MN-PEAD). The MN-PEAD result also sharpens the program prior: **the breadth wall is structural** — a
+validated cross-sectional edge realized as a continuous tradeable book at ~6 names is low-Sharpe and
+cost-dominated regardless of how good the per-name signal is. Favor edges that are *concentration-
+friendly* (large per-name effect, few names suffice) over diversification plays that need breadth.
 
 ## Cross-cutting cautions (carry into any pre-reg)
 - **Breadth is the falsifier**, not the factor. Any cross-sectional L/S pre-reg must test whether ~6–12
