@@ -72,8 +72,9 @@ def _load_tier_local() -> set[str]:
     return out
 
 
-def _load():
-    """Returns cal, col_of, codes, row_of, adj, rawc, topix_adj, fundamentals, cohort_rows."""
+def _load(with_turnover: bool = False):
+    """Returns cal, col_of, codes, row_of, adj, rawc, topix_adj, fundamentals, cohort_rows, turn.
+    `turn` (¥ turnover_value matrix) is built only when with_turnover=True, else None."""
     from src.data.jquants_collector import to_yf_code
     from src.data.jquants_models import JqDailyQuote, JqStatement, JqTopix
 
@@ -95,16 +96,20 @@ def _load():
         topix_adj = np.array([float(c) for _, c in topix], dtype=np.float64)
         adj = np.full((len(codes), len(cal)), np.nan, dtype=np.float32)
         rawc = np.full((len(codes), len(cal)), np.nan, dtype=np.float32)
+        turn = np.full((len(codes), len(cal)), np.nan, dtype=np.float32) if with_turnover else None
         stream = s.connection().execution_options(stream_results=True, yield_per=200_000)
-        for code, d, ac, cl in stream.execute(
+        for code, d, ac, cl, tv in stream.execute(
                 select(JqDailyQuote.code, JqDailyQuote.date,
-                       JqDailyQuote.adj_close, JqDailyQuote.close)):
+                       JqDailyQuote.adj_close, JqDailyQuote.close,
+                       JqDailyQuote.turnover_value)):
             ci, ri = col_of.get(d), row_of.get(code)
             if ci is not None and ri is not None:
                 if ac is not None:
                     adj[ri, ci] = float(ac)
                 if cl is not None:
                     rawc[ri, ci] = float(cl)
+                if turn is not None and tv is not None:
+                    turn[ri, ci] = float(tv)
 
     # per code: (disclosed_idx, fy_end, equity, profit, net_shares, div_yield) anchored to a cal idx.
     # div_yield = annual DPS / raw close AT DISCLOSURE (same date → split-consistent trailing yield).
@@ -132,7 +137,7 @@ def _load():
         funds[lc].sort(key=lambda r: r[0])
     logger.info("loaded {} codes, {} cal days, {} codes w/ FY funds ({} cohort rows)",
                 len(codes), len(cal), len(funds), len(cohort_rows))
-    return cal, col_of, codes, row_of, adj, rawc, topix_adj, funds, cohort_rows
+    return cal, col_of, codes, row_of, adj, rawc, topix_adj, funds, cohort_rows, turn
 
 
 def _rebalance_indices(cal):
@@ -237,7 +242,7 @@ def _alpha_beta(book: np.ndarray, mkt: np.ndarray):
 
 
 def run() -> None:
-    cal, col_of, codes, row_of, adj, rawc, topix_adj, funds, cohort_rows = _load()
+    cal, col_of, codes, row_of, adj, rawc, topix_adj, funds, cohort_rows, _turn = _load()
     tier_rows = {row_of[c] for c in _load_tier_local() if c in row_of}
     logger.info("mid-cap tier rows: {}", len(tier_rows))
     global _CAL_REF
