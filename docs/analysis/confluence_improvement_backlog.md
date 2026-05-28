@@ -17,6 +17,7 @@ a frozen pre-registration (no batch-running = multiple-comparisons p-hacking).
 | 4 | Vol-target / risk-parity slot sizing | weights | open |
 | 5 | 6→8 slots | capacity | open (cheap, low prior) |
 | 6 | Confluence + uncorrelated overlay | portfolio | open (structural, biggest risk-adjusted) |
+| 7 | Per-stock **β-stripped alpha stop** | exit (idiosyncratic) | open — the untested exit quadrant (return lever, not drawdown) |
 
 **META-PATTERN (durable, earned across items 3 + the TSMOM entry gate):** anything that de-risks the
 book off the **MARKET regime** fails — both the TSMOM *entry* gate (`confluence_tsmom_gate_probe`) and
@@ -123,6 +124,27 @@ overlay** (`docs/analysis/20260528_tsmom_overlay.md` — halves index maxDD over
 ~uncorrelated to single-name picking). Test blended (confluence + sized overlay) Sharpe/maxDD vs
 confluence-only. *NOTE: TSMOM is tail-insurance, not alpha (drags in bull/chop) — judge net portfolio
 risk-adjusted improvement, sized as an overlay.*
+
+### 7. Per-stock β-stripped ALPHA stop — idiosyncratic exit  *(the untested exit quadrant; 2026-05-28)*
+The tested exit space is two cells of a 2×2; one is open:
+
+| | raw-price | β-stripped (alpha) |
+|---|---|---|
+| **per-stock** | exhausted (ZsTpSl ≈ best; ~14 raw-price variants benchmarked, CI [−2.89,+4.74]) | **OPEN — untested on confluence** |
+| **market-regime** | — | ⛔ REJECT (item 3, regime-inverse trap) |
+
+Idea: exit a held name on its own **β-stripped cumulative-alpha** erosion (level stop < −X%, or alpha-
+trailing stop X% below the alpha peak), β from a pre-entry window. **STRUCTURAL FACT:** `ExitContext`
+(what an `ExitRule` sees) carries only the stock's own `close/high/low/adx/±DI/peak_adx/zs_history` —
+**no market/index series** — so no current exit rule can be alpha/beta-based; this needs a **post-hoc
+probe** (like `confluence_regime_exit_probe`) or an extended context. **Why it's distinct & appealing:**
+stripping the market means it does NOT fight the regime-inverse alpha (unlike the rejected market-regime
+exit — it fires only on names breaking down *idiosyncratically*). **CAVEAT (reframes its axis):** the
+−22% drawdown is **beta-driven** (β≈0.7 long book); an alpha stop strips the market so it will **not** cut
+that drawdown — it's a **RETURN/alpha** lever (cut idiosyncratic losers), closer in spirit to item 2 than
+to drawdown. **PRIOR:** the only alpha-stop tested anywhere (`pead_sleeve_alpha_stop_probe`, PEAD sleeve
+β≈1) **whipsawed** (~50%, Δmean-alpha<0 at every θ) — but a different cohort, so untested on confluence
+breakouts. **Binding:** paired fill-order null on the 6-slot book + explicit whipsaw-rate check.
 
 ---
 
