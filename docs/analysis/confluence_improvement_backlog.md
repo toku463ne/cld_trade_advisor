@@ -28,11 +28,28 @@ perfect-foresight ceiling.
 
 ## Backlog (priority order)
 
-### 1. Oracle-ceiling probe — quantify per-axis headroom  *(do first; informs the rest)*
-Read-only. Perfect-foresight ceiling on the 6-slot book: (a) oracle **selection** (fill slots each day
-with the candidates that realize best), (b) oracle **exit** (exit each trade at its max-favorable-
-excursion bar). Report Sharpe/CAGR/maxDD headroom over +0.88 for each. Tells us which axis has room
-*in principle* before spending effort. **No binding gate (diagnostic).**
+### 1. Oracle-ceiling probe — quantify per-axis headroom  *(DONE 2026-05-28 — `confluence_oracle_ceiling_probe.py`)*
+Perfect-foresight upper bounds, capital-aware 6-slot, FY2018–2025:
+
+| book | Sharpe | CAGR | maxDD | Δ Sharpe |
+|---|---|---|---|---|
+| baseline (ZsTpSl, prod) | 0.88 | 12.9% | −21.8% | — |
+| oracle SELECTION | 2.85 | 56.8% | −17.8% | +1.97 |
+| **oracle EXIT (within hold)** | **4.34** | 59.1% | **−6.4%** | **+3.46** |
+| oracle EXIT (+60-bar) | 4.23 | 107.8% | −11.7% | +3.35 |
+| oracle BOTH | 5.08 | 96.1% | −6.6% | +4.20 |
+
+**Findings:** (a) **EXIT timing is the largest-headroom axis (+3.46 Sharpe), bigger than SELECTION
+(+1.97).** (b) **The strategy's drawdown is almost entirely exit-driven** — perfect exit timing within
+the *same* hold windows collapses maxDD −21.8% → **−6.4%**. (c) Both gaps are *perfect-foresight*, and
+the realizable nulls say neither is capturable by the rules tried: SELECTION is dead (fill-order null),
+and the fixed-exit swap was a portfolio coin-flip (exit A/B). So **return** improvement is unlikely. (d)
+But (b) reframes the value of exit work: a causal regime-conditional exit that de-risks faster in bear
+regimes is the lever most likely to **cut the −22% drawdown** — a *risk* win, not a return win.
+
+**Reprioritization:** item 3 (regime-conditional exit) is now elevated — but its value proposition is
+**drawdown reduction**, so its binding test should weight maxDD, not just Sharpe. Items 2 (sizing tilt)
+and 4 (vol-target) remain the return/risk axes the oracle did *not* measure (weights, not selection/exit).
 
 ### 2. Regime-conditional sizing tilt — trim neutral-momentum entries  *(most untapped)*
 `project_confluence_phase_regime`: EV is non-monotone in N225 60-bar momentum — **NEUTRAL is the weak
@@ -47,8 +64,10 @@ OOS-stable, no effect-size floor.
 but explicitly said *re-open only via a regime-conditional exit with a held-out bull FY* — because
 adx_d8 vs ZsTpSl **sign-flips bull vs bear**. Condition the exit (rule or ZsTpSl params) on N225 trend
 regime at entry. **Binding:** paired fill-order null on the 6-slot book **+ a held-out bull FY** (the
-prior reject was single-order luck / lacked a bull holdout). *Build note: AdxTrail needs `_add_adx()`
-or it degenerates to TimeStop(40).*
+prior reject was single-order luck / lacked a bull holdout). **Value proposition is DRAWDOWN
+reduction, not return** (oracle item 1: drawdown is exit-driven, maxDD −22%→−6% under perfect exit;
+but causal exit swaps don't beat ZsTpSl on Sharpe) → the binding test should weight **maxDD / CDaR**,
+not just Sharpe. *Build note: AdxTrail needs `_add_adx()` or it degenerates to TimeStop(40).*
 
 ### 4. Volatility-target / risk-parity slot sizing vs equal-weight
 Book is equal-weight (deployed-capital) across slots; corr-diversification is enforced in the live UI
