@@ -121,9 +121,17 @@ _Original (pre-probe) rationale:_
   → suffers the breadth wall *less* than market-neutral. **Worth a pre-reg, co-equal with MN-PEAD.**
 - **Low-volatility / BAB / Quality — works in Japan** (Blitz & van Vliet 2007); **naturally long-only,
   concentration-friendly**. Lowest-effort factor surviving small breadth. Probe-worthy.
-- **Event-driven catalysts — the category that genuinely fits small capital** (large per-name edge → a
-  few names suffice): index reconstitution (Nikkei 225 / TOPIX add/delete), buyback announcements, PEAD.
-  Where ¥2M manual is *least* disadvantaged. Probe-worthy.
+- **Event-driven catalysts — REJECT as testable (2026-05-28, `src/analysis/event_driven_probe.py`).**
+  Was the best small-capital fit (large per-name edge → few names suffice). **Data wall:** no
+  index-membership history, no corporate-action/TDnet table, `/fins/dividend` premium-gated → the
+  genuinely large-edge catalysts (index reconstitution, tender offers, announcement buybacks) are
+  **untestable here.** The catalysts we *can* see — dividend signaling (`DivAnn` YoY) + buyback proxy
+  (net-share reduction) — show **no large edge and mostly the WRONG direction**: initiation −1.89% /
+  omission +1.85% wide (backwards vs signaling theory), spread +0.66% (t=1.27, insig.), cohort big
+  catalysts n-thin (init n=5, omission n=2); buyback *under*performs no-change (cohort −0.65% vs +0.33%);
+  per-FY spread sign-flips. Cause: realized YoY change is anticipation/mean-reversion-contaminated, not a
+  forward catalyst. The "few names suffice" premise fails. Untried: ingest `FDivAnn` for a clean
+  forecast-dividend-revision (likely PEAD-family = breadth-bound), or source external index-rebal data.
 
 ### Value investigation — RESULT (2026-05-28): premium real long-short, long-only tilt does NOT deploy
 
@@ -160,8 +168,8 @@ The value direction was probed end-to-end (`src/analysis/value_tilt_discovery_pr
 
 | Direction | Fits small breadth? | Realistic Sharpe | Pre-reg? |
 |---|---|---|---|
-| **Event-driven catalysts** (index rebal, buybacks) | **best** | large per-event, lumpy | Probe-worthy (untested) |
 | **Low-vol / quality long** | good | ~0.3–0.5 | Probe-worthy (untested) |
+| **Event-driven catalysts** (dividend/buyback testable) | n/a | no large edge | **⛔ Probed — REJECT (large-edge catalysts need missing data)** |
 | **Index TSMOM overlay** (long/flat, L=12) | trivial (1 pos) | 0.45 over 41yr, defensive | **Probed — viable DEFENSIVE overlay (halves maxDD); drags in bull/chop** |
 | **Value / value+momentum** (JP, long-only tilt) | premium real L/S, tilt flat | ~0 PIT long-only | **⛔ No — long tilt look-ahead, REVOKED 2026-05-28** |
 | **MN-value** (long cheap / short dear) | marginal | untested | Possible probe (likely repeats MN-PEAD) |
