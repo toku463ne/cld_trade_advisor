@@ -94,6 +94,25 @@ _Original (pre-probe) rationale:_
   ideal for manual.** Sharpe modest (~**0.3–0.5**), regime-dependent (rode Abenomics; whipsaws in chop).
   Uncorrelated to stock-picking → worth a quick test as a risk overlay, not a primary edge.
 
+### TSMOM — RESULT (2026-05-28): works as a DEFENSIVE overlay (the first deployable result in the arc)
+
+`src/analysis/tsmom_index_probe.py` (read-only). Long/flat, L=12, monthly.
+
+- **Long-history ^N225 (yfinance, 1985–2026, 41yr — binding evidence):** TSMOM long/flat L=12 vs
+  buy-hold = **Sharpe 0.45 vs 0.30, maxDD −46% vs −81% (halved)**, CAGR 5.5 vs 4.1%, ~1.2 switches/yr.
+  **Lookback-robust** (L=3/6/9/12 all beat buy-hold on maxDD + Sharpe → not a cherry-pick).
+- **Short leg is DEAD:** long/short = buy-hold Sharpe (0.30), maxDD −61% (worse) — shorting Japan
+  equity gets run over in rallies. **Use long/FLAT only.**
+- **Crisis-alpha is the whole story:** GFC 2008 **+43pp** protection (fully out), COVID +9pp, 2015–16
+  +7pp, 2018 Q4 +8pp — but it **whipsaws** in chop / V-recoveries (2022 −10pp, 2025 −11pp).
+- **CRITICAL CAVEAT — the recent decade (the regime we'd deploy into):** in-DB TOPIX 2016–2026, TSMOM
+  **underperformed buy-hold on every metric** (Sharpe 0.50 vs 0.79, maxDD −27% vs −24%, CAGR 5.2 vs
+  10.6%). No sustained bear to dodge → timing only cost. Much of the 41yr edge is "would have saved you
+  from the 1990s lost decades" (buy-hold maxDD −81%), which only repeats if a prolonged Japan bear does.
+- **NET: genuine tail-insurance / drawdown-halving DEFENSIVE overlay — NOT a return enhancer.** Pays in
+  sustained crashes, drags in bull/chop. Breadth-immune, trivial manual. The deploy question is *do you
+  want tail protection on the ¥2M* (it competes for capital and drags in bull markets), not "is it alpha."
+
 ## 4. Quantpedia-informed — what actually fits Japan + ¥2M
 
 - **Value (and value+momentum combined) — the documented Japan winner.** Momentum fails in Japan but
@@ -143,7 +162,7 @@ The value direction was probed end-to-end (`src/analysis/value_tilt_discovery_pr
 |---|---|---|---|
 | **Event-driven catalysts** (index rebal, buybacks) | **best** | large per-event, lumpy | Probe-worthy (untested) |
 | **Low-vol / quality long** | good | ~0.3–0.5 | Probe-worthy (untested) |
-| **Index TSMOM overlay** | trivial (1 pos) | 0.3–0.5 | Cheap test, diversifier |
+| **Index TSMOM overlay** (long/flat, L=12) | trivial (1 pos) | 0.45 over 41yr, defensive | **Probed — viable DEFENSIVE overlay (halves maxDD); drags in bull/chop** |
 | **Value / value+momentum** (JP, long-only tilt) | premium real L/S, tilt flat | ~0 PIT long-only | **⛔ No — long tilt look-ahead, REVOKED 2026-05-28** |
 | **MN-value** (long cheap / short dear) | marginal | untested | Possible probe (likely repeats MN-PEAD) |
 | **MN-PEAD** (long up / short down) | marginal | net ≤0 at 6/side | **⛔ No — REFUTED 2026-05-28** |
