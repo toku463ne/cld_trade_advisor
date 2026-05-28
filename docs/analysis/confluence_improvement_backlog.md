@@ -59,7 +59,19 @@ selection rules (changes weights, not which names fill slots) → not pre-killed
 **Binding:** paired fill-order null on the capital-aware 6-slot book (P(ΔSharpe>0)≥0.95 AND CI-lo>0),
 OOS-stable, no effect-size floor.
 
-### 3. Regime-conditional exit — bull vs bear, held-out bull FY  *(the open exit door)*
+### 3. Regime-conditional exit — bull vs bear  *(⛔ DONE 2026-05-28 — REJECT, `confluence_regime_exit_probe.py`)*
+**RESULT:** exit each trade at the earlier of ZsTpSl or the first N225-bear bar (sweep: sma50/sma100/
+mom60neg/dd5/dd10), post-hoc on the same entries. **No clean drawdown win** — every trigger costs Sharpe
+(−0.14 to −0.72) for a modest maxDD cut (best +4.5pp, −21.8%→−17.2% via mom60neg, but −0.29 Sharpe;
+cheapest dd10 −0.14 Sharpe for only +1.6pp). **The regime-inverse trap bites** (FY2024 Sharpe 0.64→−1.79
+sma50 / −0.75 mom60neg) — exiting on bear cuts the bear-regime recovery where confluence's alpha lives,
+same mechanism as the rejected TSMOM ENTRY gate. **MECHANISM (durable):** the oracle's drawdown headroom
+is PER-STOCK peak timing (idiosyncratic), not a market signal; the per-stock causal exit (ZsTpSl) is
+already ~optimized (exit A/B), and a MARKET-regime overlay collides with the regime-inverse alpha → exit-
+side risk-shaping via market regime is CLOSED. Discovery gate (material maxDD cut AND Sharpe≈baseline AND
+FY2024 intact) met by none → no escalation. _Original framing below._
+
+_(original) Regime-conditional exit — bull vs bear, held-out bull FY (the open exit door):_
 `project_confluence_exit_ab_reject` rejected ZsTpSl→adx_d8/time40 (portfolio coin-flip Δ+0.021 P=0.535)
 but explicitly said *re-open only via a regime-conditional exit with a held-out bull FY* — because
 adx_d8 vs ZsTpSl **sign-flips bull vs bear**. Condition the exit (rule or ZsTpSl params) on N225 trend
