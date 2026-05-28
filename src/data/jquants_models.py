@@ -113,6 +113,9 @@ class JqStatement(Base):
     shares_outstanding_fy: Mapped[int | None] = mapped_column(BigInteger)  # incl. treasury
     treasury_shares_fy: Mapped[int | None] = mapped_column(BigInteger)
     average_shares: Mapped[Decimal | None] = mapped_column(Numeric(20, 2))
+    # Annual dividend per share (result, full fiscal year) — for total-return / dividend yield.
+    # From /fins/summary (on-plan); the dedicated /fins/dividend endpoint is premium-only.
+    dividend_per_share_annual: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
     retrieved_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.datetime.now(datetime.timezone.utc),

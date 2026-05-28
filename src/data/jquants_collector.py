@@ -178,6 +178,8 @@ def parse_statement(r: dict) -> dict:
         "treasury_shares_fy": _int(_pick(
             r, "TrShFY", "NumberOfTreasuryStockAtTheEndOfFiscalYear")),
         "average_shares": _dec(_pick(r, "AvgSh", "AverageNumberOfShares")),
+        "dividend_per_share_annual": _dec(_pick(
+            r, "DivAnn", "ResultDividendPerShareAnnual")),
     }
 
 

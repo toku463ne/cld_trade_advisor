@@ -87,7 +87,7 @@ def _load():
             select(JqStatement.local_code, JqStatement.disclosed_date,
                    JqStatement.current_fiscal_year_end_date, JqStatement.equity,
                    JqStatement.profit, JqStatement.shares_outstanding_fy,
-                   JqStatement.treasury_shares_fy)
+                   JqStatement.treasury_shares_fy, JqStatement.dividend_per_share_annual)
             .where(JqStatement.type_of_current_period == "FY")).all()
         cal = [d for d, _ in topix]
         col_of = {d: i for i, d in enumerate(cal)}
@@ -106,10 +106,11 @@ def _load():
                 if cl is not None:
                     rawc[ri, ci] = float(cl)
 
-    # per code: list of (disclosed_idx, fy_end, equity, profit, net_shares) anchored to a cal idx
+    # per code: (disclosed_idx, fy_end, equity, profit, net_shares, div_yield) anchored to a cal idx.
+    # div_yield = annual DPS / raw close AT DISCLOSURE (same date → split-consistent trailing yield).
     funds: dict[str, list[tuple]] = defaultdict(list)
     cohort_rows: set[int] = set()
-    for lc, dd, fend, eq, profit, sh, tr in fy:
+    for lc, dd, fend, eq, profit, sh, tr, dps in fy:
         ri = row_of.get(lc)
         if ri is None or dd is None or fend is None or eq is None or not sh:
             continue
@@ -119,7 +120,12 @@ def _load():
         net_sh = float(sh) - float(tr or 0)
         if net_sh <= 0:
             continue
-        funds[lc].append((di, fend, float(eq), float(profit) if profit is not None else None, net_sh))
+        rc_disc = rawc[ri, di]
+        dy = float(dps) / float(rc_disc) if (dps is not None and rc_disc > 0) else 0.0
+        if not (0.0 <= dy < 0.5):                        # guard bad data (split-mismatch outliers)
+            dy = 0.0
+        funds[lc].append((di, fend, float(eq),
+                          float(profit) if profit is not None else None, net_sh, dy))
         if to_yf_code(lc) in cohort225:
             cohort_rows.add(ri)
     for lc in funds:
@@ -143,7 +149,7 @@ def _rebalance_indices(cal):
 
 
 def _metrics_at(ri, ti, adj, rawc, funds, code, row_of):
-    """(bm, ey, mom) at cal index ti for code, or None for any unavailable. Split-robust."""
+    """(bm, ey, mom, div_yield) at cal index ti for code, or None if unavailable. Split-robust."""
     recs = funds.get(code)
     if not recs:
         return None
@@ -152,17 +158,17 @@ def _metrics_at(ri, ti, adj, rawc, funds, code, row_of):
         return None
     # latest FY disclosure ≤ ti, fy_end within staleness window
     pick = None
-    for di, fend, eq, profit, net_sh in reversed(recs):
+    for rec in reversed(recs):
+        di = rec[0]
         if di > ti:
             continue
-        d_t = _cal_date_gap(ti, di)
-        if d_t > _MAX_STALE_D:
+        if _cal_date_gap(ti, di) > _MAX_STALE_D:
             break
-        pick = (di, fend, eq, profit, net_sh)
+        pick = rec
         break
     if pick is None:
         return None
-    di, fend, eq, profit, net_sh = pick
+    di, fend, eq, profit, net_sh, dy = pick
     rc, ad = rawc[ri, di], adj[ri, di]
     if not (rc > 0) or not (ad > 0):
         return None
@@ -179,7 +185,7 @@ def _metrics_at(ri, ti, adj, rawc, funds, code, row_of):
         a0, a1 = adj[ri, j0], adj[ri, j1]
         if a0 > 0 and a1 > 0:
             mom = a1 / a0 - 1.0
-    return bm, ey, mom
+    return bm, ey, mom, dy
 
 
 _CAL_REF: list = []
@@ -245,24 +251,25 @@ def run() -> None:
     months: list[tuple] = []      # (ti, ti_next, fy_label, rows[], bm[], ey[], mom[], fwd[], coh_mask[])
     for k in range(len(rebs) - 1):
         ti, tn = rebs[k], rebs[k + 1]
-        rrows, bms, eys, moms, fwds, cohm, tierm = [], [], [], [], [], [], []
+        rrows, bms, eys, moms, fwds, cohm, tierm, dys = [], [], [], [], [], [], [], []
         for code, ri in row_of.items():
             mt = _metrics_at(ri, ti, adj, rawc, funds, code, row_of)
             if mt is None:
                 continue
-            bm, ey, mom = mt
+            bm, ey, mom, dy = mt
             a_t, a_n = adj[ri, ti], adj[ri, tn]
             if not (a_t > 0) or not (a_n > 0):
                 continue
             rrows.append(ri); bms.append(bm); eys.append(ey if ey is not None else np.nan)
             moms.append(mom if mom is not None else np.nan); fwds.append(a_n / a_t - 1.0)
-            cohm.append(ri in cohort_rows); tierm.append(ri in tier_rows)
+            cohm.append(ri in cohort_rows); tierm.append(ri in tier_rows); dys.append(dy)
         if len(rrows) < 50:
             continue
         d = cal[ti]
         fy_label = d.year + 1 if d.month >= 4 else d.year
         months.append((ti, tn, fy_label, np.array(rrows), np.array(bms), np.array(eys),
-                       np.array(moms), np.array(fwds), np.array(cohm), np.array(tierm)))
+                       np.array(moms), np.array(fwds), np.array(cohm), np.array(tierm),
+                       np.array(dys)))
     logger.info("usable rebalances: {} ({}–{})", len(months), cal[months[0][0]], cal[months[-1][0]])
 
     # TOPIX monthly return aligned to the rebalances
@@ -276,13 +283,15 @@ def run() -> None:
         return val, rm, vm
 
     # ── Q1: universe decile long-short (cheapest − priciest), per signal ──────────────
-    def _universe_ls(which: str) -> np.ndarray:
+    def _universe_ls(which: str, total: bool = True) -> np.ndarray:
         out = []
-        for (ti, tn, fy, rrows, bm, ey, mom, fwd, coh, tier) in months:
+        for (ti, tn, fy, rrows, bm, ey, mom, fwd, coh, tier, dy) in months:
+            frac = (cal[tn] - cal[ti]).days / 365.0
+            fwd_eff = fwd + (dy * frac if total else 0.0)
             val, rmom, vm = _scores(bm, ey, mom)
             score = {"value": val, "mom": rmom, "v+m": vm}[which]
-            m = np.isfinite(score) & np.isfinite(fwd)
-            sc, fw = score[m], fwd[m]
+            m = np.isfinite(score) & np.isfinite(fwd_eff)
+            sc, fw = score[m], fwd_eff[m]
             n = len(sc)
             if n < 50:
                 out.append(np.nan); continue
@@ -300,7 +309,9 @@ def run() -> None:
           f"univ ~{int(np.median([len(m[3]) for m in months]))} names/mo  |  "
           f"cohort ~{int(np.median([m[8].sum() for m in months]))} names/mo")
 
-    print("\nQ1 — UNIVERSE DECILE LONG-SHORT (cheapest−priciest decile, gross, monthly):")
+    print("\n  [all return figures below are TOTAL RETURN incl. dividends "
+          "(annual DPS from /fins/summary, accrued by holding period)]")
+    print("\nQ1 — UNIVERSE DECILE LONG-SHORT (cheapest−priciest decile, total return, monthly):")
     print(f"  {'signal':<8}{'ann.Sharpe':>12}{'CAGR':>10}{'mean/mo':>10}{'t-stat':>9}")
     ls_series = {}
     for which in ("value", "mom", "v+m"):
@@ -318,14 +329,18 @@ def run() -> None:
           f"(Asness ≈ −0.55 → the diversification that earns the ~0.65 combined Sharpe)")
 
     # ── Q2: deployable CONCENTRATED LONG TILT, net of cost, β-stripped — cohort AND mid-cap tier ──
-    def _cohort_tilt(which: str, K: int, mask_idx: int = 8):
+    def _cohort_tilt(which: str, K: int, mask_idx: int = 8, total: bool = True):
         """Returns (monthly_net, ew_monthly, turnover_mean). Holds cheapest/best K names of the
-        masked universe (mask_idx 8=225 cohort, 9=mid-cap tier) vs equal-weight of that universe."""
+        masked universe (mask_idx 8=225 cohort, 9=mid-cap tier) vs equal-weight of that universe.
+        total=True adds the dividend accrual (annual yield × period fraction) to each name."""
         rets, ew, prev = [], [], set()
         turn = []
         for month in months:
             ti, tn, fy, rrows, bm, ey, mom, fwd = month[:8]
             cm = month[mask_idx]
+            dy = month[10]
+            frac = (cal[tn] - cal[ti]).days / 365.0
+            fwd = fwd + (dy * frac if total else 0.0)
             if cm.sum() < K + 2:
                 rets.append(np.nan); ew.append(np.nan); continue
             val, rmom, vm = _scores(bm[cm], ey[cm], mom[cm])
@@ -363,6 +378,19 @@ def run() -> None:
                       f"{_cagr(ew2)*100:>9.1f}%{(_cagr(r)-_cagr(ew2))*100:>10.1f}%"
                       f"{alpha*100:>11.1f}%{beta:>6.2f}{turn*100:>6.0f}%")
 
+    # ── dividend impact: value K=12 excess, price-only vs total-return (Gate A correction) ──
+    print(f"\nDIVIDEND IMPACT — value tilt K=12 excess/yr vs equal-weight (price-only → total return):")
+    avg_dy_tier = float(np.mean([m[10][m[9]].mean() for m in months if m[9].sum() > 0]))
+    print(f"  (mid-cap tier mean annual div yield = {avg_dy_tier*100:.2f}%)")
+    for uni_name, midx in [("225 cohort", 8), ("mid-cap tier", 9)]:
+        rows = {}
+        for tot in (False, True):
+            r, ew, _ = _cohort_tilt("value", 12, midx, total=tot)
+            m = np.isfinite(r) & np.isfinite(ew)
+            rows[tot] = (_cagr(r[m]) - _cagr(ew[m])) * 100
+        print(f"  {uni_name:<14}: price-only {rows[False]:+.1f}%/yr  →  total {rows[True]:+.1f}%/yr "
+              f"(dividend uplift {rows[True]-rows[False]:+.1f}pp)")
+
     # per-FY for the value K=12 lead — sign stability + OOS FY2025, both universes
     for uni_name, midx in [("225 cohort", 8), ("mid-cap tier", 9)]:
         print(f"\nPER-FY — value tilt K=12 net@{_COST_BPS:.0f}bps vs equal-weight ({uni_name}):")
@@ -393,8 +421,9 @@ def run() -> None:
           "  → the documented premium doesn't survive at ¥2M concentration. DISCOVERY ONLY.")
     print("  CAVEATS: (1) survivorship — cohort = CURRENT cluster members + universe = codes with\n"
           "  data now (delisted value-traps under-represented → value premium likely OVERstated).\n"
-          "  (2) adj_close excludes dividends (value names are high-yield → their total return is\n"
-          "  UNDERstated here; bias against the tilt). (3) split-robust B/M carry, but fundamentals\n"
+          "  (2) dividends NOW included (annual DPS from /fins/summary, accrued by holding period —\n"
+          "  not ex-date-timed; an approximation but removes the prior downward bias on value). (3)\n"
+          "  split-robust B/M carry, but fundamentals\n"
           "  ≤18mo stale. (4) affordability at ¥2M not modeled (cheapest-value names skew low-price\n"
           "  → likely AFFORDABLE, unlike MN-PEAD, but verify at pre-reg).")
 
