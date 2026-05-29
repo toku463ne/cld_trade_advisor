@@ -134,7 +134,7 @@ shallower (−17.3%→−12.8%), P(shallower)=0.995** (gate ≥+2pp & ≥90% →
 PASS) but CI [−0.107,+0.401] wide / not significant (3 FYs, 35 neutral fills); Δ return −5.3pp (insurance
 premium). **The drawdown edge is FORWARD-STABLE, not cutoff overfit.**
 
-**`/sign-debate` VERDICT: ACCEPT (confidence M)** — adopt as a live manual sizing GUIDELINE, scoped strictly
+**`/sign-debate` VERDICT: ACCEPT (confidence M)** (full record: `confluence_evtilt_sign_debate_verdict.md`) — adopt as a live manual sizing GUIDELINE, scoped strictly
 as a **DRAWDOWN lever**: drawdown claim accepted (significant, OOS-stable); **no Sharpe-improvement claim**
 (held-out CI wide); **no return claim** (held-out −5.3pp). **Binding surfacing condition:** integer rounding
 makes the real instruction **BIMODAL** — "in a NEUTRAL N225-60bar regime, **SKIP cheap neutral-regime names
