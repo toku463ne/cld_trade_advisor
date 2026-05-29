@@ -1,229 +1,109 @@
-
 # Japan Stock Trade Advisor
 
-## Setup
-Setup postgreSQL databases:
+Proposes Japanese-stock **trade candidates**, backtests sign/strategy ideas, and tracks a
+manually-traded portfolio. **Trading is always manual** — this app only proposes, analyses, and
+records; it never places orders.
+
+The day-to-day surface is a **Dash web UI** (`Daily` proposals · `Backtest` viewer · `Maintenance`).
+Architecture, the signs catalogue, and the trading philosophy live in **[CLAUDE.md](CLAUDE.md)**.
+
+---
+
+## Quick start
+
 ```bash
-sudo apt update && sudo apt install -y postgresql postgresql-contrib
-sudo service postgresql start
-sudo -u postgres psql <<EOF
-CREATE USER stockdevuser WITH PASSWORD 'stockdevpass';
-CREATE USER stockbtuser WITH PASSWORD 'stockbtpass';
-CREATE DATABASE stock_trader_dev  OWNER stockdevuser;
-CREATE DATABASE stock_trader_bt   OWNER stockbtuser;
-CREATE DATABASE stock_trader_test OWNER stockdevuser;
-EOF
+scripts/install.sh        # uv + PostgreSQL + databases + deps + migrations (idempotent)
+scripts/run_ui.sh         # start the UI, then open http://localhost:8050
 ```
 
-`stock_trader_test` is used only by the pytest suite (see [Testing](#testing)).
+`install.sh` is safe to re-run and installs PostgreSQL for you if it isn't present (Debian/Ubuntu/WSL,
+uses `sudo apt`). On a machine where Postgres is already set up, use `scripts/install.sh --no-db` to do
+deps + migrations only.
 
-Apply DB migrations:
+A fresh database is **empty** — see [Recovery](#recovery) to seed it, or [Daily operation](#daily-operation)
+to collect data.
+
+> Requires a Debian/Ubuntu-family Linux (or WSL) with `sudo` for the database step. Python is managed
+> by [uv](https://docs.astral.sh/uv/); never call `pip` directly.
+
+---
+
+## The UI
+
 ```bash
-uv run --env-file devenv alembic upgrade head
+scripts/run_ui.sh         # http://localhost:8050
+scripts/run_ui.sh 8080    # custom port
 ```
+
+| Tab | What it does |
+|-----|--------------|
+| **Daily** | Today's confluence / RegimeSign proposals. Click a row → stock chart with N225 + ρ(20) panels. Register / close positions; the Register panel recommends lot-aware Units against the active account's budget. |
+| **Backtest** | OHLCV + strategy chart viewer for saved runs; supports multi-stock re-backtest. |
+| **Maintenance** | **Accounts** (create / list, set budget), OHLCV download, cluster analysis, and the sign-benchmark coverage grid — all run as background workers. |
+
+---
 
 ## Environment files
 
-| File        | Purpose                          | DB                |
-|-------------|----------------------------------|-------------------|
-| `devenv`    | Data collection & development    | stock_trader_dev  |
-| `btenv`     | Backtest analysis (read-heavy)   | stock_trader_bt   |
-| `prodenv`   | Real trading environment         | stock_trader      |
+The repo ships two env files; load the right one explicitly with `uv run --env-file <file>`.
 
-## Stock code sets (`configs/stock_codes.ini`)
+| File     | Purpose                              | Database          |
+|----------|--------------------------------------|-------------------|
+| `devenv` | Daily collection, the UI, dev work   | `stock_trader_dev`|
+| `btenv`  | Backtest analysis (read-heavy)       | `stock_trader_bt` |
 
-| Section  | Description                                                    |
-|----------|----------------------------------------------------------------|
-| `test`   | 2 JP stocks + 7 global indices — quick smoke tests            |
-| `medium` | ~64 JP stocks + Nikkei 225 + 7 global indices — standard set |
+`stock_trader_test` is used only by the pytest suite.
 
-Global indices included in both sets: `^DJI` (Dow Jones), `^GSPC` (S&P 500), `^IXIC` (NASDAQ), `^HSI` (Hang Seng), `^GDAXI` (DAX), `^FTSE` (FTSE 100), `^VIX` (VIX).
-
-## Config files (`configs/dev_*.yaml`)
-
-Each task has its own config file. The file name is stored in the DB (`train_runs.config`) so every result is traceable back to the config used.
-
-| File                        | Stock set | Strategy          |
-|-----------------------------|-----------|-------------------|
-| `dev_test_sma_bo.yaml`      | test      | sma_breakout      |
-| `dev_medium_sma_bo.yaml`    | medium    | sma_breakout      |
-
-## Training
-
-The trainer automatically downloads any missing OHLCV data before running, so there is no separate collect step.
-
-### SMA Breakout — test set (quick smoke test)
+The J-Quants API key is **not** committed. Inject it into your shell before running collectors that need it:
 
 ```bash
-uv run --env-file devenv python -m src.backtest.trainer \
-    --config configs/dev_test_sma_bo.yaml
+export JQUANTS_API_KEY=<your-key>   # JQuantsClient reads it from the environment
 ```
 
-### SMA Breakout — medium set
+---
+
+## Daily operation
+
+1. **Refresh data** — in the UI, *Maintenance* → **Download OHLCV** (fetches ^N225, ^GSPC and all
+   Nikkei 225 constituents, then rebuilds the regime snapshots) — this is the canonical full refresh.
+   The CLI is for ad-hoc subsets and takes a subcommand, e.g.
+   `uv run --env-file devenv python -m src.data.collect ohlcv --stock-set medium`.
+2. **Read proposals** — open the UI (`scripts/run_ui.sh`) and review the *Daily* tab.
+3. **Trade manually**, then register fills via *Daily* → **Register Position**.
+
+Backtests and analysis run from `btenv`, e.g. `uv run --env-file btenv python -m src.backtest.cycle`,
+or the one-off scripts in `src/analysis/`.
+
+---
+
+## Recovery
+
+Everything is recoverable from a backup + the install script. Two backup scripts exist (both write to
+`~/db_backups/`, outside git):
 
 ```bash
-uv run --env-file devenv python -m src.backtest.trainer \
-    --config configs/dev_medium_sma_bo.yaml
+scripts/backup_dev_db.sh                 # full gzip dump of stock_trader_dev (keeps newest 14)
+scripts/market_data_dump.sh dump         # just the expensive market data (stocks / ohlcv_* / jq_*)
 ```
 
-
-
-### Override individual parameters from CLI
-
-CLI flags always override YAML values:
+Schedule the daily backup once (runs while the machine is up):
 
 ```bash
-# More generations
-uv run --env-file devenv python -m src.backtest.trainer \
-    --config configs/dev_test_sma_bo.yaml --ga-gen 80
-
-# Grid search instead of GA
-uv run --env-file devenv python -m src.backtest.trainer \
-    --config configs/dev_test_sma_bo.yaml --trainer grid
+( crontab -l 2>/dev/null; echo "30 18 * * * $PWD/scripts/backup_dev_db.sh >> $HOME/db_backups/backup.log 2>&1" ) | crontab -
 ```
 
-Reports are written to `reports/` and the top results are saved to the DB.
-
-## Manual data collection (optional)
-
-Download OHLCV data without training:
+**Rebuild a machine from scratch:**
 
 ```bash
-uv run --env-file devenv python -m src.data.collect ohlcv \
-    --stock-set medium --start 2020-01-01 --granularity 1d
+scripts/install.sh                                           # toolchain + empty databases + schema
+# then either restore a full dump …
+gunzip -c ~/db_backups/stock_trader_dev_YYYYMMDD_HHMM.sql.gz | \
+    psql "$(grep '^DATABASE_URL=' devenv | cut -d= -f2-)"
+# … or just re-seed the market-data tables (schema already migrated):
+scripts/market_data_dump.sh restore ~/db_backups/market_data_YYYYMMDD_HHMM.dump devenv
 ```
 
-Update the stock master list from JPX:
-
-```bash
-uv run --env-file devenv python -m src.data.collect stocks --update
-```
-
-## Visualization UI
-
-An interactive chart viewer built with Dash + Plotly. Requires training results in the DB (run at least one training first).
-
-```bash
-uv run --env-file devenv python -m src.viz.app
-```
-
-Then open **http://localhost:8050** in a browser.
-
-To use a different port:
-
-```bash
-uv run --env-file devenv python -m src.viz.app 8080
-```
-
-
-
-## Stock Correlation Analysis
-
-Computes sliding-window return correlation between all stock pairs over a given period. Results are stored in `corr_runs` / `stock_corr_pairs` tables and browsable in a Dash UI.
-
-### Run correlation analysis
-
-```bash
-uv run --env-file devenv python -m src.analysis.stock_corrs \
-    --stock-set medium --start 2022-01-01 --end 2025-12-31
-```
-
-Options:
-
-| Flag              | Default | Description                          |
-|-------------------|---------|--------------------------------------|
-| `--stock-set`     | medium  | Section name from `stock_codes.ini`  |
-| `--start`         | —       | Period start date (YYYY-MM-DD)       |
-| `--end`           | —       | Period end date (YYYY-MM-DD)         |
-| `--window-days`   | 60      | Rolling window size in days          |
-| `--step-days`     | 20      | Step between windows in days         |
-| `--granularity`   | 1d      | OHLCV granularity                    |
-| `--min-windows`   | 3       | Minimum windows required per pair    |
-
-### Correlation UI
-
-```bash
-uv run --env-file devenv python -m src.analysis.corr_ui
-```
-
-Then open **http://localhost:8051** in a browser. Use a different port:
-
-```bash
-uv run --env-file devenv python -m src.analysis.corr_ui 8052
-```
-
-**What you can do:**
-
-- **Run** dropdown — select a stored correlation run
-- **Stock filter** — filter pairs by stock code substring
-- **Pair table** — sortable; columns: stock_a, stock_b, mean_corr, std_corr, n_windows
-- **Heatmap** — mean correlation matrix for the top-40 most-involved stocks
-
-See [docs/analysis/stock_corrs.md](docs/analysis/stock_corrs.md) for methodology and interpretation.
-
-## Sign / Strategy Debate Cycle
-
-Multi-step decisions about sign detectors and strategy parameters (revert a
-gate? loosen a threshold? redesign a score?) run through a debate cycle
-defined in `.claude/agents/` and `.claude/commands/sign-debate.md`.
-
-### Starting a debate
-
-From Claude Code in this repo:
-
-```
-/sign-debate <topic>                       # default: up to 3 iterations
-/sign-debate <topic> --max-iter 5          # cap iterations explicitly
-```
-
-Examples:
-
-```
-/sign-debate revert corr_shift state machine
-/sign-debate loosen str_lag bull-regime gate
-/sign-debate improve str_hold sign_score informativity
-```
-
-### What happens
-
-Each iteration runs five agents in order:
-
-| Agent | Role |
-|---|---|
-| `analyst`   | Reads benchmark.md / calibration / regime tables. No opinion — just numbers. |
-| `historian` | Searches memory + git log + sign module headers for prior attempts. |
-| `proposer`  | Frames one concrete change (Goal / Change / Expected impact / Evidence / Risks / Rebench scope). |
-| `critic`    | Stress-tests the proposal against `docs/evaluation_criteria.md` § 5 failure modes. |
-| `judge`     | Verdict: Accept / Reject / Insufficient evidence — with confidence (H/M/L) and a falsifier. |
-
-If the judge returns **Insufficient evidence**, the harness autonomously
-executes the judge's "Next action" — running an existing analysis script,
-querying the DB, or writing a small one-off script under
-`src/analysis/` — and loops with the new evidence. The cycle stops on
-Accept, Reject, max iterations, or when the next action falls outside the
-autonomous scope (e.g. modifying detector code, running a full rebench).
-
-### Rules and rubric
-
-All five agents share one rubric: **`docs/evaluation_criteria.md`**.
-Defines:
-- Evidence sources, weighted (§ 1)
-- Materiality thresholds (§ 3) — when a ΔDR or Δρ is worth acting on
-- Decision matrix for DR × n_events outcomes (§ 4)
-- Seven common failure modes the critic checks (§ 5)
-- Iteration protocol (§ 8)
-
-Edit the rubric when the team's bar changes; the agents pick up the new
-thresholds the next time `/sign-debate` is invoked.
-
-### What the harness will NOT do autonomously
-
-- Modify detector / strategy / portfolio code.
-- Mutate the DB (rebench writes, migrations).
-- Run a full `scripts/rebenchmark_sign.sh` — always confirmed by the user first.
-- Anything that reaches outside the repo (network calls, credentials).
-
-These stop the cycle and are reported back as recommendations.
+---
 
 ## Testing
 
@@ -231,33 +111,33 @@ These stop the cycle and are reported back as recommendations.
 uv run pytest tests/ -q
 ```
 
-> ⚠️ **Never run pytest with `--env-file devenv` (or `btenv`/`prodenv`).** The
-> `db_engine` fixture calls `Base.metadata.drop_all` on whatever `DATABASE_URL`
-> points at — with a real env-file that **drops every table in your dev/bt DB**
-> (this wiped `stock_trader_dev` twice on 2026-05-23). Run pytest with **no
-> env-file** so it defaults to `stock_trader_test`. A guard in `tests/conftest.py`
-> now hard-refuses any target DB whose name doesn't contain `test`.
+> ⚠️ **Never run pytest with `--env-file devenv`/`btenv`.** The `db_engine` fixture calls
+> `Base.metadata.drop_all` on whatever `DATABASE_URL` points at — with a real env-file that **drops every
+> table in your dev/bt DB** (this wiped `stock_trader_dev` twice on 2026-05-23). Run pytest with **no
+> env-file** so it defaults to `stock_trader_test`. A guard in `tests/conftest.py` hard-refuses any target
+> DB whose name doesn't contain `test`.
 
-Most tests are pure-unit (no DB). The DB-backed tests use a dedicated
-`stock_trader_test` database — create it once (it is included in the
-[Setup](#setup) heredoc above, or run it standalone):
+Most tests are pure-unit. DB-backed tests use `stock_trader_test` (created by `install.sh`); the fixture
+builds the schema from ORM metadata and rolls back after each test, so no migration is needed there.
 
-```bash
-sudo -u postgres psql -c "CREATE DATABASE stock_trader_test OWNER stockdevuser;"
-```
+---
 
-No migration is needed: the `db_engine` fixture (`tests/conftest.py`) builds the
-schema from the ORM metadata (`Base.metadata.create_all`) on each session and the
-`session` fixture rolls back after every test. Override the connection with
-`DATABASE_URL` if your local Postgres differs from the
-`stockdevuser:stockdevpass@localhost:5432` default. Without the database, those
-tests error on connection while the pure-unit tests still pass.
+## DB schema changes
 
-## DB Schema Changes
-
-Always generate an Alembic migration and review before applying:
+Always generate an Alembic migration and review it before applying (autogenerate can pick up drift from
+the partitioned `ohlcv_1d_yXXXX` tables — strip unrelated ops):
 
 ```bash
-alembic revision --autogenerate -m "description"
-alembic upgrade head
+uv run --env-file devenv alembic revision --autogenerate -m "description"
+uv run --env-file devenv alembic upgrade head
 ```
+
+---
+
+## More
+
+- **[CLAUDE.md](CLAUDE.md)** — architecture, signs catalogue, exit rules, trading philosophy, the
+  fill-order-null methodology.
+- **`docs/analysis/`** — research write-ups (confluence & RegimeSign backlogs, benchmarks).
+- **Sign/strategy debates** — run `/sign-debate <topic>` from Claude Code; rubric in
+  `docs/evaluation_criteria.md`.
