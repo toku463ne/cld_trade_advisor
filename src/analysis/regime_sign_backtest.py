@@ -153,7 +153,23 @@ class FyBacktestResult:
     sign_map:    dict[tuple[str, datetime.date], str]  # (stock, entry_date) → sign_type
 
 
-def run_fy(config: FyConfig) -> FyBacktestResult:
+@dataclass
+class FyCandidateSet:
+    """Pre-simulation candidate bundle for one FY (shared by run_fy + fill-order null)."""
+    config:       FyConfig
+    prior_sets:   list[str]
+    n_proposals:  int
+    candidates:   list[EntryCandidate]
+    sign_map:     dict[tuple[str, datetime.date], str]
+    stock_caches: dict[str, DataCache]
+    n225_cache:   DataCache | None
+
+
+def build_fy_candidates(config: FyConfig) -> FyCandidateSet:
+    """Build the deduped EntryCandidate list for one FY WITHOUT running the
+    simulation.  This is the exact candidate set ``run_fy`` feeds to
+    ``run_simulation``; the fill-order null reuses it so the null and the
+    shipped backtest share an identical candidate pool."""
     prior_sets = PRIOR_BENCH_SETS[config.stock_set]
     run_ids    = _load_run_ids(prior_sets)
     logger.info("── {} ── stock_set={} | prior={} | {} run_ids",
@@ -193,8 +209,8 @@ def run_fy(config: FyConfig) -> FyBacktestResult:
 
     if not all_proposals:
         logger.warning("  No proposals for {} — skipping simulation", config.label)
-        return FyBacktestResult(config=config, prior_sets=prior_sets,
-                                n_proposals=0, results=[], sign_map={})
+        return FyCandidateSet(config=config, prior_sets=prior_sets, n_proposals=0,
+                              candidates=[], sign_map={}, stock_caches={}, n225_cache=None)
 
     # ── Simulation caches (with 200-day lookback + ADX) ───────────────────
     n225_cache = _load_cache(_N225, config.start, config.end)
@@ -253,17 +269,30 @@ def run_fy(config: FyConfig) -> FyBacktestResult:
 
     logger.info("  {} candidates after dedup", len(candidates))
 
+    return FyCandidateSet(
+        config=config, prior_sets=prior_sets, n_proposals=len(all_proposals),
+        candidates=candidates, sign_map=sign_map,
+        stock_caches=stock_caches, n225_cache=n225_cache,
+    )
+
+
+def run_fy(config: FyConfig) -> FyBacktestResult:
+    cs = build_fy_candidates(config)
+    if not cs.candidates:
+        return FyBacktestResult(config=config, prior_sets=cs.prior_sets,
+                                n_proposals=0, results=[], sign_map={})
+
     # ── Run simulation ────────────────────────────────────────────────────
-    results = run_simulation(candidates, EXIT_RULE, stock_caches, config.end)
+    results = run_simulation(cs.candidates, EXIT_RULE, cs.stock_caches, config.end)
     mean_r  = statistics.mean(r.return_pct for r in results) if results else 0.0
     logger.info("  {} trades completed, mean_r={:+.2%}", len(results), mean_r)
 
     return FyBacktestResult(
         config      = config,
-        prior_sets  = prior_sets,
-        n_proposals = len(all_proposals),
+        prior_sets  = cs.prior_sets,
+        n_proposals = cs.n_proposals,
         results     = results,
-        sign_map    = sign_map,
+        sign_map    = cs.sign_map,
     )
 
 
