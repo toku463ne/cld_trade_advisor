@@ -1,21 +1,30 @@
 # RegimeSign Strategy — Improvement Backlog
 
-**Created:** 2026-05-29 · **Status:** research backlog, nothing committed · **Owner decision required per item**
+**Created:** 2026-05-29 · **Status:** items 1–4 RESOLVED, 5–7 low-prior untested (committed) · **Owner decision required per item**
 
-A prioritized list of the **untested** improvement levers for `RegimeSignStrategy` itself. Companion to
+A prioritized list of improvement levers for `RegimeSignStrategy` itself. Companion to
 `docs/analysis/confluence_improvement_backlog.md` (the sister strategy) and the benchmark write-up
 `docs/analysis/regime_sign_strategy.md`. Each item names its mechanism, the prior evidence, and the
-**binding test** it must clear. Do **one at a time**, each with a frozen pre-registration (no batch-running
+**binding test** it must clear. Done **one at a time**, each with a frozen pre-registration (no batch-running
 = multiple-comparisons p-hacking).
 
-> **Read this first.** Unlike the confluence backlog (where most items have been *run*), this backlog is
-> mostly **untested priors** — but RegimeSign already has a *long* graveyard of entry/sign/selection A/Bs
-> (see "Exhausted" below), almost all killed by the **n-thin trap** (~50 trades/FY can't separate arms on
-> per-trade bootstrap CI). Those rejects used the **wrong metric** (per-trade / per-FY bootstrap), but the
-> confluence work proves that re-testing such rules on the *correct* metric (the paired fill-order null)
-> does **not** revive them — fill-order luck dominates at this trade count. So the high-prior levers here
-> are the **non-selection** ones: sizing (weights), diversification (a genuinely uncorrelated stream),
-> and exit — the same axes that survived longest on confluence.
+> **BOTTOM LINE (2026-05-29).** RegimeSign **stays in the UI** (portfolio Sharpe ~+1.0, on par with
+> Confluence — `regime_sign_strategy.md`) but **no improvement lever cleared its binding gate.** Item 1
+> (oracle) showed the only headroom is on exit/weights; item 4 (selection) is dead on arrival; **item 2
+> (the EV sizing tilt — the sole confluence survivor) REJECTS** at the held-out cutoff-CV despite passing
+> three in-period nulls — it does NOT transfer to RegimeSign; item 3 (blend with Confluence) is a favourable
+> near-miss (operator call). Items 5–7 are low-prior by analogy to confluence rejects and untested.
+>
+> **The headline finding is the item-2 cross-strategy DIVERGENCE:** the identical neutral-trim mechanism
+> earned ACCEPT for Confluence (held-out Δ maxDD +4.51pp) but REJECTS for RegimeSign (held-out −0.38pp),
+> because RegimeSign's neutral cohort is a *no-edge coin-flip* (α≈0) rather than a *stably-worse* cohort.
+> Methodological lesson reinforced: Stage-0 trough + in-period paired nulls are necessary-but-not-sufficient;
+> the **held-out cutoff-CV is the decider** (cf. `feedback_probe_vs_canonical`, the GBT holdout-flip).
+>
+> RegimeSign also has a *long* graveyard of entry/sign/selection A/Bs (see "Exhausted"), almost all killed by
+> the **n-thin trap** (~50 trades/FY can't separate arms on per-trade bootstrap CI); the confluence work
+> proves re-testing them on the fill-order null does not revive them. The non-selection axes (weights /
+> diversification / exit) were the ones worth probing — and they were.
 
 ## Progress (as of 2026-05-29)
 
@@ -35,9 +44,17 @@ the bar, and more contention (universe expansion) does not either. (b) **Market-
 (entry or exit gates) fights the regime-inverse alpha** — both strategies earn their alpha in bear-regime
 recoveries (FY2024 is the canary), so anything that de-risks off a bearish market signal cuts the very
 returns it's trying to protect. (c) The **one surviving lever** across the entire confluence backlog was
-the **EV-conditional sizing tilt** (item 2) — tilt by *where forward EV differs* (the NEUTRAL-momentum
-weak spot), not by vol and not by market regime. This backlog's job is to find out which of those
-durable lessons transfer to RegimeSign and which RegimeSign-specific levers (item 3) are new.
+the **EV-conditional sizing tilt** (confluence item 2) — tilt by *where forward EV differs* (the
+NEUTRAL-momentum weak spot), not by vol and not by market regime.
+
+**NEW durable lesson, earned here (2026-05-29):** the EV-conditional sizing tilt **does NOT transfer to
+RegimeSign** — confluence item 2's ACCEPT was *strategy-specific*, not a universal sizing law. The tilt
+needs a *stably-worse* neutral cohort (confluence: neutral α +0.33%, a real but-lowest edge → the trim's
+drawdown mechanism is robust to cutoff shifts). RegimeSign's neutral cohort is a *no-edge coin-flip*
+(α ≈ 0, DR 49.8%); the in-period drawdown cut was the tercile band fitting this tape's drawdowns, and it
+**vanishes under the held-out cutoff-CV**. So a clean β-stripped Stage-0 trough + three in-period paired
+nulls are NOT sufficient evidence for a regime-keyed sizing rule — only the **held-out cutoff cross-
+validation** separates a forward-stable drawdown mechanism from in-period contamination.
 
 ## Baseline (the thing we're trying to improve)
 
@@ -217,7 +234,7 @@ harder — half a 1-lot name = 0 lots = a SKIP, the bimodal "skip cheap / half-s
 sister strategies share the same NEUTRAL-trim rule, the Daily-tab banner already built for confluence
 (`_sizing_regime_banner`, `src/portfolio/sizing.py`) covers RegimeSign rows too.
 
-### 3. Blend RegimeSign + Confluence into one capital-aware book  *(⬜ untested — strongest NEW, RegimeSign-specific idea)*
+### 3. Blend RegimeSign + Confluence into one capital-aware book  *(🟠 Stage 0 PASS + Stage 1 NEAR-MISS 2026-05-29 — operator call)*
 **The most interesting lever, and one confluence's backlog could not have:** we now have **two strategies
 that each score ~+1.0 fill-order-null portfolio Sharpe** and surface *different cohorts* (RegimeSign =
 sign-ranked Kumo/ADX entries; Confluence = ≥3-bullish-sign agreement). Confluence's item 6 (uncorrelated
@@ -364,11 +381,36 @@ CI too wide at ~50 trades/FY) — and the confluence work shows re-testing them 
 - **Universe expansion:** REFUTED as a selection unblocker (CLAUDE.md / `project_jquants_pead_universe`).
 - **2-bar fill:** a manual-execution realism constraint (opening auction), not an optimization knob.
 
+## Status / conclusion (2026-05-29)
+
+| # | Lever | Axis | Verdict |
+|---|---|---|---|
+| 1 | Oracle-ceiling | diagnostic | ✅ done — EXIT-only headroom (+3.89); SELECTION negligible (+0.35) |
+| 2 | EV sizing tilt (neutral trim) | weights | ⛔ **REJECT** — fails held-out cutoff-CV (in-period contamination; does NOT transfer from confluence) |
+| 3 | Blend with Confluence | portfolio | 🟠 near-miss — ρ 0.554, blend Sharpe +1.22 vs +1.11, Δ +0.111 P=0.905 (fails strict gate); maxDD cut; **operator call** |
+| 4 | `min_dr` / selection | selection | ⛔ dead on arrival (item 1) |
+| 5 | Exit (regime/alpha) | exit | ⬜ untested — has the headroom but causal-rule capture record is poor |
+| 6 | 6→8 slots | capacity | ⬜ untested — low prior |
+| 7 | Vol-target sizing | weights | ⬜ untested — low prior |
+
+**Net:** RegimeSign **stays in the UI** on its standalone merit (portfolio Sharpe ~+1.0). **No lever cleared
+its binding gate.** The only positive-leaning result is **item 3 (blend)** — a favourable risk-asymmetry
+near-miss that's an operator call (drawdown cut vs the cost of a 12-name manual book). Item 2's REJECT is the
+substantive finding: the confluence sizing-tilt **does not transfer**, and the reason is mechanistic
+(no-edge vs stably-worse neutral cohort), not noise. Items 5–7 remain untested but low-prior; pursue only
+with a specific new hypothesis, not as a sweep.
+
+**The most valuable output is methodological:** on a fresh strategy, three in-period paired nulls (fill-
+order, phase+order, integer-lot) all PASSED a lever that the held-out cutoff-CV then KILLED. Any future
+regime-keyed sizing proposal must run the held-out cutoff cross-validation — the in-period nulls are
+necessary but not sufficient.
+
 ## Discipline
 
 One pre-reg at a time, frozen gate, binding = the **paired fill-order null on the capital-aware 6-slot
-book** (per-trade / single-order / per-FY-bootstrap point estimates do NOT decide — they are what produced
-the entire graveyard above). Held-out FY(s); no iteration. **Run order:** item 1 (diagnostic) → item 3
-Stage 0 (ρ check, decisive and cheap, also answers the keep-both-in-UI question) → item 2 (the highest-prior
-*improvement*). Items 4–7 only if item 1 surprises. Program map: `docs/analysis/20260528_new_directions.md`;
-companion backlog: `docs/analysis/confluence_improvement_backlog.md`.
+book** + (for any regime-keyed / cutoff-based rule) the **held-out cutoff cross-validation** (per-trade /
+single-order / per-FY-bootstrap / in-period point estimates do NOT decide — they are what produced the
+entire graveyard above). Held-out FY(s); no iteration. **Run order taken:** item 1 (diagnostic) → item 3
+Stage 0/1 (blend) → item 2 (Stage 0 → 3 in-period nulls → cutoff-CV REJECT). Program map:
+`docs/analysis/20260528_new_directions.md`; companion backlog:
+`docs/analysis/confluence_improvement_backlog.md`.
