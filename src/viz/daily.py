@@ -2133,7 +2133,7 @@ def layout() -> html.Div:
                                     {"label": "RegimeSign", "value": "regime"},
                                     {"label": "Confluence", "value": "confluence"},
                                 ],
-                                value="both",
+                                value="confluence",
                                 inline=True,
                                 inputStyle={"marginRight": "4px"},
                                 labelStyle={"marginRight": "12px", "color": TEXT,
