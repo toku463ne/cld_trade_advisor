@@ -22,7 +22,7 @@ A prioritized list of the **untested** improvement levers for `RegimeSignStrateg
 | # | Lever | Axis | Status |
 |---|---|---|---|
 | 1 | Oracle-ceiling probe (per-axis headroom) | diagnostic | ✅ **DONE (2026-05-29)** — **EXIT is the only axis with headroom (+3.89 Sharpe), SELECTION negligible (+0.35)**; drawdown is exit-driven (maxDD −23%→−6% under perfect exit). Reprioritizes: item 4 dead, item 2 is the cleanest shot |
-| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ⬜ **untested — HIGHEST PRIOR** (sole confluence survivor; item-1 confirms weights/exit is where the room is) |
+| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | 🟡 **Stage 0 PASS (2026-05-29)** — NEUTRAL trough replicates & DEEPER than confluence (neutral α −0.03%/DR 49.8% vs bear α +1.14%, bull +1.52%); alpha≈0 ⇒ closer to SKIP than trim. Escalate to Stage 1 portfolio null |
 | 3 | **Blend RegimeSign + Confluence** | portfolio | 🟠 **Stage 1 NEAR-MISS (2026-05-29)** — capital-alloc null: BLEND Sharpe +1.22 vs Confluence +1.11, **Δ +0.111 P=0.905 CI [−0.081,+0.292]** FAILS strict gate; but band shifts up + **maxDD −20% vs −23%/−30%** (capacity-null profile). Operator call; 12-name burden ⇒ I'd not auto-adopt |
 | 4 | `min_dr` cutoff sweep | selection/ranking | ⛔ **DEAD on arrival** (item 1: oracle SELECTION headroom only +0.35; tight null band p95 +1.19) — don't spend a pre-reg |
 | 5 | Regime-conditional / β-stripped **exit** | exit | ⬜ **untested** — item 1 shows this axis HAS the headroom (+3.89) but capture track record is poor (asym/time40 REJECT); low prior on a *causal* rule |
@@ -86,7 +86,25 @@ TimeStop40 reject) — the −23% DD is beta-driven once a real rule is used. So
 tilt)** is the cleanest remaining shot (a per-entry weight, not a market-regime exit gate, so it dodges
 both the regime-inverse trap and the realizable-exit graveyard). **No binding gate** (diagnostic).
 
-### 2. Regime-conditional EV sizing tilt — trim neutral-momentum entries  *(⬜ untested — HIGHEST PRIOR; adapt `confluence_evtilt_null.py` + `confluence_evtilt_phase_null.py`)*
+### 2. Regime-conditional EV sizing tilt — trim neutral-momentum entries  *(🟡 Stage 0 PASS 2026-05-29 — `regime_sign_evtilt_stage0.py`; Stage 1 pending)*
+
+**STAGE 0 RESULT — PASS, the NEUTRAL trough replicates and is DEEPER than confluence.** Cap-free
+candidate-level β-stripped EV by N225 60-bar momentum tercile, FY2019–2025 (1,631 trades; global cutoffs
+bear ≤ −1.01% < neutral ≤ +6.54% < bull):
+
+| tercile | n | DR (win%) | raw mean_r | avg β | alpha | α DR |
+|---|---|---|---|---|---|---|
+| bearish | 545 | 58.3% | +2.71% | 0.71 | +1.14% | 54.3% |
+| **neutral** | 546 | **49.8%** | **+0.26%** | 0.67 | **−0.03%** | 49.1% |
+| bullish | 540 | 62.4% | +2.89% | 0.60 | +1.52% | 57.6% |
+
+NEUTRAL is the weak spot on BOTH raw and alpha — the same non-monotone "middle is mush" shape as confluence,
+but **deeper**: neutral alpha is ≈0 (−0.03%) with **win rate 49.8% (below 50%)**, vs confluence's still-
+positive neutral (α +0.33%). Because neutral alpha ≈ 0, trimming/skipping loses ~nothing in alpha → the live
+rule is closer to a **SKIP** than confluence's "trim-not-skip." It dodges the regime-inverse trap (bearish
++1.14% α and bullish +1.52% α both stay full; only the dead middle is cut). **Escalate to Stage 1.** Caveat:
+per-trade/cap-free signal — must clear the PORTFOLIO null before anything ships.
+
 **The sole confluence backlog survivor — test whether it transfers.** On confluence, EV is non-monotone
 in N225 60-bar momentum (NEUTRAL is the β-stripped EV weak spot: raw +0.52% / α +0.33% vs bullish
 +3.31%/+1.20%, bearish +1.31%/+0.57%); trimming NEUTRAL-momentum entries to τ=0.5 (keep slot filled, bull/
