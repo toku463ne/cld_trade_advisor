@@ -23,7 +23,7 @@ A prioritized list of the **untested** improvement levers for `RegimeSignStrateg
 |---|---|---|---|
 | 1 | Oracle-ceiling probe (per-axis headroom) | diagnostic | ⬜ **untested** — run first to prioritize selection vs exit vs sizing |
 | 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ⬜ **untested — HIGHEST PRIOR** (the sole confluence survivor; does it transfer?) |
-| 3 | **Blend RegimeSign + Confluence** | portfolio | 🟡 **Stage 0 PASS (2026-05-29)** — daily-return ρ **+0.554**, trade overlap 0.3%; both ~+1.0 Sharpe → real diversification, escalate to Stage 1 (capital-allocation null, NOT merged-pool) |
+| 3 | **Blend RegimeSign + Confluence** | portfolio | 🟠 **Stage 1 NEAR-MISS (2026-05-29)** — capital-alloc null: BLEND Sharpe +1.22 vs Confluence +1.11, **Δ +0.111 P=0.905 CI [−0.081,+0.292]** FAILS strict gate; but band shifts up + **maxDD −20% vs −23%/−30%** (capacity-null profile). Operator call; 12-name burden ⇒ I'd not auto-adopt |
 | 4 | `min_dr` cutoff sweep | selection/ranking | ⬜ **untested** but low prior (selection axis → fill-order null) |
 | 5 | Regime-conditional / β-stripped **exit** | exit | ⬜ **untested** but low prior (confluence items 3+7 both REJECT) |
 | 6 | 6→8 slot sweep | capacity | ⬜ **untested** but low prior (confluence item 5 REJECT, manual-burden) |
@@ -128,6 +128,36 @@ daily-return blend) vs all-in on the better single book. **Binding:** paired fil
 slots (3 vs 6) → less within-book diversification, which partly offsets the cross-book gain — the net is
 what the null must settle; (b) running both is a heavier manual workflow (two candidate sources, more
 names); (c) corr-cap must treat any name shared across books as one logical bet (CLAUDE.md).
+
+**STAGE 1 RESULT — NEAR-MISS, FAILS the strict gate (2026-05-29, `regime_sign_confluence_blend_stage1.py`).**
+K=200 paired fill-order null. BLEND = two half-capital 6-slot books (daily return 0.5·reg + 0.5·conf) —
+chosen because it preserves **total capital AND total beta exposure** (each book's 1 high-corr slot at 1/6,
+halved → two 1/12 ≈ one 1/6), so it is a pure capital-allocation test, not a beta-up trade.
+
+| arm | Sharpe (mean) | return | maxDD |
+|---|---|---|---|
+| Confluence (single, better) | +1.106 | 254% | −23% |
+| RegimeSign (single) | +1.033 | 223% | −30% |
+| **BLEND 50/50** | **+1.217** | 245% | **−20%** |
+
+- **Δ Sharpe BLEND − Confluence(better) = +0.111, P(Δ>0)=0.905, 95% CI [−0.081, +0.292]** → **FAILS** the
+  binding gate (need P≥0.95 AND CI-lo>0). Δ vs RegimeSign +0.184 (P=0.960, CI-lo −0.021, also grazes 0).
+- Deterministic (entry-date order): BLEND +1.179 vs Confluence +1.073 (Δ +0.106), maxDD **−19% vs −25%**.
+- Per-FY deterministic: blend wins **5/6** measurable FYs (FY2021 +0.69, FY2023 +0.50, **FY2025 OOS +0.40**,
+  FY2020 +0.17, FY2024 +0.03), loses FY2022 (−0.22). **FY2019 = −1.01** (Confluence had no trades that year,
+  so the blend inherits RegimeSign's loss year — the cost of diversifying into a sometimes-idle stream).
+- Matches the Stage-0 variance prediction (~+1.13) and a touch better (maxDD also improves).
+
+**INTERPRETATION — operator call, lean DON'T auto-adopt.** This is the *exact* decision profile as the
+4→6 capacity null that WAS shipped (P=0.865, CI grazed 0, adopted on risk-asymmetry): the whole Sharpe band
+shifts up **and** maxDD shrinks — favorable on both axes, mechanism-consistent (ρ=0.55). P falls short of
+0.95 only because the gate is "beat the *better* book" and RegimeSign is the weaker stream. **But two things
+weaken adoption vs the capacity ship:** (a) **operational cost is real** — the blend holds up to **12 names
+at ~¥167k each vs 6 at ~¥333k** (not a one-line constant; meaningful manual かぶミニ burden); (b) FY2019 shows
+the diversification cost when one stream sits out. **The cleanest realized benefit is the drawdown cut
+(−25%→−19%), not the Sharpe.** Recommend: document as a validated near-miss; KEEP BOTH books in the UI
+(already the verdict); offer the 50/50 split as an *optional* lower-drawdown allocation, not a default.
+_Corrected-design rationale below._
 
 ### 4. `min_dr` cutoff sweep  *(⬜ untested — low prior, selection axis)*
 RegimeSign excludes (sign, kumo) cells with historical DR ≤ `MIN_DR=0.52` from the ranking
