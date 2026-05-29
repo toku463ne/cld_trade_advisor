@@ -7,5 +7,5 @@ DATA_SOURCE=yfinance
 # SECURITY: this file is git-tracked. Do NOT commit a real key here. Inject it
 # locally instead, e.g.  `export JQUANTS_API_KEY=...`  before running the collector
 # (JQuantsClient reads os.environ).
-JQUANTS_API_KEY=
+JQUANTS_API_KEY=""
 # JQUANTS_BASE_URL=https://api.jquants.com/v2
