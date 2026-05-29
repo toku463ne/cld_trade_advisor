@@ -52,7 +52,7 @@ from src.portfolio.crud import (
     register_position,
 )
 from src.portfolio.sizing import (
-    DEFAULT_SLOTS, LOT_SHARES, N225_MOM_BARS, neutral_trim_lots,
+    DEFAULT_BUDGET, DEFAULT_SLOTS, LOT_SHARES, N225_MOM_BARS, neutral_trim_lots,
     n225_momentum_regime, recommended_lots,
 )
 from src.indicators.corr_regime import CorrRegime
@@ -3010,6 +3010,8 @@ def register_callbacks() -> None:
         default_dir = "short" if row.get("sign") in short_signs else "long"
         # Recommended units = lots × 100, lot-aware against the active account's budget
         # (equal-yen 6-slot, single 100-sh lot must fit budget/6). 0 lots → unaffordable.
+        # Falls back to the ¥2M live-plan default when the account has no budget set, so
+        # Units is always a sizing-aware figure rather than the static layout default.
         rec_units: int | object = no_update
         budget = None
         if account_id is not None:
@@ -3019,6 +3021,9 @@ def register_callbacks() -> None:
                     budget = float(acct.budget) if acct and acct.budget else None
             except Exception:
                 budget = None
+        budget_is_default = budget is None
+        if budget_is_default:
+            budget = float(DEFAULT_BUDGET)
         lot_hint = ""
         if budget and price:
             lots = recommended_lots(budget, float(price), DEFAULT_SLOTS)
@@ -3027,9 +3032,10 @@ def register_callbacks() -> None:
                 lot_hint = (f"  ·  ⚠ unaffordable @ ¥{budget:,.0f}/{DEFAULT_SLOTS} "
                             f"(1 lot > slot) — slot would stay empty")
             else:
+                budget_src = "default ¥2M" if budget_is_default else "account"
                 lot_hint = (f"  ·  rec {lots} lot{'s' if lots != 1 else ''} "
                             f"({rec_units} sh, ¥{lots*LOT_SHARES*float(price):,.0f} "
-                            f"of ¥{budget/DEFAULT_SLOTS:,.0f} slot)")
+                            f"of ¥{budget/DEFAULT_SLOTS:,.0f} slot, {budget_src})")
                 # Conditional-EV sizing tilt (drawdown guideline, item 2): trim NEUTRAL
                 # N225-60bar-momentum entries to ~half lots; keep bull/bear full. Bimodal
                 # under integer lots — a 1-lot name rounds to 0 = SKIP. Confluence only

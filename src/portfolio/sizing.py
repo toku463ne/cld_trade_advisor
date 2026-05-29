@@ -16,6 +16,7 @@ from __future__ import annotations
 
 LOT_SHARES = 100        # 単元株: one lot = 100 shares
 DEFAULT_SLOTS = 6       # production book: 1 high-corr + 5 low-corr (_MAX_HIGH/_MAX_LOW_CORR)
+DEFAULT_BUDGET = 2_000_000   # ¥ fallback when the active account has no budget set (live plan)
 
 
 def recommended_lots(budget: float, price: float, n_slots: int = DEFAULT_SLOTS,
