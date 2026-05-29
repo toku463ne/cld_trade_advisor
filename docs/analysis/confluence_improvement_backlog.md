@@ -17,7 +17,7 @@ a frozen pre-registration (no batch-running = multiple-comparisons p-hacking).
 | 4 | Vol-target / risk-parity slot sizing | weights | ⛔ **REJECT** — inverse-vol mildly HURTS; EW already ≈ risk-parity on a high-β correlated book |
 | 5 | 6→8 slots | capacity | open (cheap, low prior) |
 | 6 | Confluence + uncorrelated overlay | portfolio | ⛔ **REJECT** — TSMOM sleeve is long-equity beta (ρ +0.61), not uncorrelated in-window; blend dilutes Sharpe, maxDD worse |
-| 7 | Per-stock **β-stripped alpha stop** | exit (idiosyncratic) | open — the untested exit quadrant (return lever, not drawdown) |
+| 7 | Per-stock **β-stripped alpha stop** | exit (idiosyncratic) | ⛔ **REJECT** — all variants lose Sharpe/CAGR, whipsaw ~50%; exit 2×2 now fully settled |
 
 **META-PATTERN (durable, earned across items 3 + the TSMOM entry gate):** anything that de-risks the
 book off the **MARKET regime** fails — both the TSMOM *entry* gate (`confluence_tsmom_gate_probe`) and
@@ -52,11 +52,13 @@ Capital-aware 6-slot ¥2M book, FY2018–2025 (most recent stitched run):
   t=1.39) **and regime-inverse** (`project_confluence_market_neutral`). So most of the 13% is "long
   Japan equities at β≈0.7"; harvestable alpha is thin.
 
-**Theme:** entry/selection/exit are exhausted, **market-regime risk-shaping is closed** (item 3 + TSMOM
-entry gate, see meta-pattern), and **single-index diversification is closed too** (item 6 REJECT — the
-TSMOM overlay is long-equity beta, not uncorrelated, in this window). The only surviving headroom is
-**weights-axis EV-conditional sizing** (item 2, the winner; pure-risk sizing item 4 is dead) — not raw
-alpha, not market-regime gates, not an overlay. Remaining-open: items 5 (6→8 slots) and 7 (alpha stop).
+**Theme:** entry/selection/exit are exhausted (the **exit 2×2 is now fully settled** — item 7's per-stock
+alpha stop REJECT closes the last cell), **market-regime risk-shaping is closed** (item 3 + TSMOM entry
+gate, see meta-pattern), and **single-index diversification is closed too** (item 6 REJECT — the TSMOM
+overlay is long-equity beta, not uncorrelated, in this window). The **sole surviving lever in the entire
+backlog** is **weights-axis EV-conditional sizing** (item 2, the winner; pure-risk sizing item 4 is dead)
+— not raw alpha, not market-regime gates, not an overlay, not an exit. **Only item 5 (6→8 slots, cheap /
+low-prior) remains untested.**
 
 **Realizable ceiling:** every ex-ante rule tried lands inside the fill-order null band (Sharpe median
 0.89, p5 0.60, **p95 1.20**); the shipped book (+0.88) is a *median* draw. p95 is luck, not edge. So
@@ -262,13 +264,35 @@ overlay** (`docs/analysis/20260528_tsmom_overlay.md` — halves index maxDD over
 confluence-only. *NOTE: TSMOM is tail-insurance, not alpha (drags in bull/chop) — judge net portfolio
 risk-adjusted improvement, sized as an overlay.*
 
-### 7. Per-stock β-stripped ALPHA stop — idiosyncratic exit  *(the untested exit quadrant; 2026-05-28)*
-The tested exit space is two cells of a 2×2; one is open:
+### 7. Per-stock β-stripped ALPHA stop — idiosyncratic exit  *(⛔ DONE 2026-05-29 — REJECT, `confluence_alpha_stop_probe.py`, pre-reg `confluence_alpha_stop_preregistration.md`)*
+**RESULT — REJECT (no escalation), the predicted failure mode.** The last open cell of the exit 2×2 is now
+closed:
 
 | | raw-price | β-stripped (alpha) |
 |---|---|---|
-| **per-stock** | exhausted (ZsTpSl ≈ best; ~14 raw-price variants benchmarked, CI [−2.89,+4.74]) | **OPEN — untested on confluence** |
+| **per-stock** | exhausted (ZsTpSl ≈ best; ~14 raw-price variants, CI [−2.89,+4.74]) | ⛔ **REJECT (this probe)** |
 | **market-regime** | — | ⛔ REJECT (item 3, regime-inverse trap) |
+
+Post-hoc exit override on the ¥2M 6-slot baseline (401 trades, FY2018–2025): exit at the earlier of ZsTpSl
+or a per-stock β-stripped cumulative-alpha stop (β = trailing 60-bar vs ^N225, pre-entry). Six variants —
+LEVEL `α_cum ≤ −θ` (θ∈{5,8,12}%) and TRAIL `α_cum ≤ peak−X` (X∈{5,8,12}%):
+
+| variant | Sharpe | CAGR | maxDD | nStop | whip% | Δ Sharpe |
+|---|---|---|---|---|---|---|
+| baseline | 0.88 | 12.9% | −21.8% | — | — | — |
+| lvl05 | 0.70 | 7.6% | −24.1% | 154 | 47% | −0.18 |
+| lvl12 (lightest) | 0.81 | 11.4% | −21.8% | 34 | 53% | −0.07 |
+| trl05 | 0.75 | 7.5% | −20.1% | 226 | 52% | −0.13 |
+| trl08 | 0.66 | 7.7% | −28.1% | 133 | 45% | −0.22 |
+
+**Every variant LOSES Sharpe (−0.07..−0.22) AND CAGR (−1.5..−5.4pp); whipsaw ~45–53% (a coin flip — half
+the stops cut names that recovered, exactly the PEAD-sleeve prior); maxDD mostly WORSE** (confirms the
+caveat — the −22% DD is beta-driven, an alpha stop cannot touch it). **MECHANISM (per-FY):** the stops
+crater **FY2019** (the sole sustained bear, base −0.09 → −0.98/−1.15) and hurt the post-COVID **FY2020**
+recovery (2.10 → 0.79) — they churn breakout **pullbacks that recover**. Lighter stops (lvl12, 34 fires)
+approach a no-op (Δ −0.07) but still whip 53% / lose return; heavier stops churn more. **No operating point
+helps → no escalation.** With this, the exit 2×2 is **fully settled** and the only backlog survivor is the
+conditional-EV sizing tilt (item 2). _Original framing below._
 
 Idea: exit a held name on its own **β-stripped cumulative-alpha** erosion (level stop < −X%, or alpha-
 trailing stop X% below the alpha peak), β from a pre-entry window. **STRUCTURAL FACT:** `ExitContext`
