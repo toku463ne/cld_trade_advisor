@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from src.portfolio.sizing import (
+    NEUTRAL_TILT_TAU, n225_momentum_regime, neutral_trim_lots,
     position_notional, position_weight, recommended_lots,
 )
 
@@ -42,3 +43,35 @@ def test_notional_and_weight():
     assert position_weight(3, 1000, _BUDGET) == pytest.approx(0.15)
     assert position_weight(0, 1000, _BUDGET) == 0.0
     assert position_weight(3, 1000, 0) == 0.0
+
+
+# ── Conditional-EV sizing tilt (backlog item 2) ───────────────────────────────
+
+@pytest.mark.parametrize("mom,regime", [
+    (None, None),
+    (-0.05, "bear"),       # mom <= -0.1%
+    (-0.001, "bear"),      # boundary: exactly -0.1% is bear
+    (0.0, "neutral"),
+    (0.04, "neutral"),
+    (0.081, "neutral"),    # boundary: exactly +8.1% is neutral
+    (0.10, "bull"),        # > +8.1%
+])
+def test_n225_momentum_regime(mom, regime):
+    assert n225_momentum_regime(mom) == regime
+
+
+@pytest.mark.parametrize("base_lots,regime,expected", [
+    (4, "neutral", 2),     # half-size an expensive name
+    (3, "neutral", 1),     # floor(1.5) = 1
+    (1, "neutral", 0),     # bimodal: a cheap 1-lot name rounds to 0 = SKIP
+    (4, "bull", 4),        # bull/bear unchanged
+    (4, "bear", 4),
+    (4, None, 4),          # unknown regime → full lots
+    (0, "neutral", 0),
+])
+def test_neutral_trim_lots(base_lots, regime, expected):
+    assert neutral_trim_lots(base_lots, regime) == expected
+
+
+def test_neutral_trim_tau_is_half():
+    assert NEUTRAL_TILT_TAU == 0.5

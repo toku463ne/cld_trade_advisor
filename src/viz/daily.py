@@ -51,7 +51,10 @@ from src.portfolio.crud import (
     get_open_positions,
     register_position,
 )
-from src.portfolio.sizing import DEFAULT_SLOTS, LOT_SHARES, recommended_lots
+from src.portfolio.sizing import (
+    DEFAULT_SLOTS, LOT_SHARES, N225_MOM_BARS, neutral_trim_lots,
+    n225_momentum_regime, recommended_lots,
+)
 from src.indicators.corr_regime import CorrRegime
 from src.indicators.rev_n_regime import RevNRegime
 from src.indicators.sma_regime import SMARegime
@@ -80,6 +83,39 @@ _CHART_BARS    = 160    # bars shown in chart (extra loaded for SMA warmup)
 # would incorrectly include the NEXT trading day's bar (Jan 6 23:59 UTC
 # = Jan 7 08:59 JST → Jan 7's bar gets pulled in).
 _JST           = datetime.timezone(datetime.timedelta(hours=9))
+
+# ── Conditional-EV sizing-tilt regime (confluence item 2; /sign-debate ACCEPT 2026-05-29) ──
+# Trailing-60-bar ^N225 momentum drives the NEUTRAL-regime half-lot guideline surfaced in the
+# Register panel. Cached per as-of date (cheap, one symbol) so row clicks don't reload.
+_N225_MOM_CACHE: dict[str, float | None] = {}
+
+
+def _n225_mom60(as_of: datetime.date) -> float | None:
+    """Trailing-60-bar ^N225 momentum as of *as_of* (close/close[-60] − 1); None if thin."""
+    key = as_of.isoformat()
+    if key in _N225_MOM_CACHE:
+        return _N225_MOM_CACHE[key]
+    mom: float | None = None
+    try:
+        start_dt = datetime.datetime.combine(
+            as_of - datetime.timedelta(days=160), datetime.time.min, tzinfo=datetime.timezone.utc)
+        end_dt = datetime.datetime.combine(as_of, datetime.time.max, tzinfo=datetime.timezone.utc)
+        with get_session() as session:
+            cache = DataCache("^N225", _GRAN)
+            cache.load(session, start_dt, end_dt)
+        by_date: dict[datetime.date, float] = {}
+        for b in cache.bars:
+            d = b.dt.date()
+            if d <= as_of:
+                by_date[d] = b.close          # last bar per date wins
+        series = [by_date[d] for d in sorted(by_date)]
+        if len(series) > N225_MOM_BARS and series[-1 - N225_MOM_BARS]:
+            mom = series[-1] / series[-1 - N225_MOM_BARS] - 1.0
+    except Exception:
+        logger.exception("n225 momentum compute failed for {}", as_of)
+        mom = None
+    _N225_MOM_CACHE[key] = mom
+    return mom
 
 # Signs hidden from the Daily-tab proposals table.  Production ranking
 # is unchanged — the strategy still proposes them — but the table drops
@@ -2958,6 +2994,26 @@ def register_callbacks() -> None:
                 lot_hint = (f"  ·  rec {lots} lot{'s' if lots != 1 else ''} "
                             f"({rec_units} sh, ¥{lots*LOT_SHARES*float(price):,.0f} "
                             f"of ¥{budget/DEFAULT_SLOTS:,.0f} slot)")
+                # Conditional-EV sizing tilt (drawdown guideline, item 2): trim NEUTRAL
+                # N225-60bar-momentum entries to ~half lots; keep bull/bear full. Bimodal
+                # under integer lots — a 1-lot name rounds to 0 = SKIP. Confluence only
+                # (the certified cohort); other strategies are unaffected.
+                if row.get("strat", "confluence") == "confluence":
+                    mom = _n225_mom60(as_of)
+                    regime = n225_momentum_regime(mom)
+                    momtxt = f"{mom*100:+.1f}%" if mom is not None else "n/a"
+                    if regime == "neutral":
+                        tilt = neutral_trim_lots(lots, regime)
+                        if tilt == 0:
+                            lot_hint += (f"  ·  ⚠ NEUTRAL N225 (60bar {momtxt}) → consider SKIP "
+                                         f"(half-trim of 1 lot = 0; drawdown guideline)")
+                        else:
+                            rec_units = tilt * LOT_SHARES
+                            lot_hint += (f"  ·  NEUTRAL N225 (60bar {momtxt}) → half-size to "
+                                         f"{tilt} lot{'s' if tilt != 1 else ''} ({rec_units} sh; "
+                                         f"drawdown guideline)")
+                    elif regime:
+                        lot_hint += f"  ·  {regime.upper()} N225 (60bar {momtxt}) → full size"
         label = (
             f"{row['stock']}  ·  {row['sign']}  ·  "
             f"corr={row['corr']}  kumo={row['kumo']}  "

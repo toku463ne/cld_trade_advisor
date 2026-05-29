@@ -7,14 +7,14 @@ opposed to universe-expansion / selection-rule work, which is exhausted). Each i
 mechanism, the prior evidence, and the **binding test** it must clear. Do **one at a time**, each with
 a frozen pre-registration (no batch-running = multiple-comparisons p-hacking).
 
-## Progress (as of 2026-05-28)
+## Progress (as of 2026-05-29)
 
 | # | Lever | Axis | Status |
 |---|---|---|---|
 | 1 | Oracle-ceiling probe | diagnostic | ✅ **done** — exit is the headroom axis; drawdown is exit-driven |
-| 2 | Regime-conditional **sizing tilt** (neutral-momentum trim) | weights | **OPEN — most untapped, cleanest next** |
+| 2 | Regime-conditional **sizing tilt** (neutral-momentum trim) | weights | ✅ **PASS (operator call)** — first lever to clear BOTH binding nulls (fill-order + phase); a drawdown lever (−4pp), thin Sharpe edge |
 | 3 | Regime-conditional **exit** | exit (market regime) | ⛔ **REJECT** — regime-inverse trap; no clean drawdown win |
-| 4 | Vol-target / risk-parity slot sizing | weights | open |
+| 4 | Vol-target / risk-parity slot sizing | weights | ⛔ **REJECT** — inverse-vol mildly HURTS; EW already ≈ risk-parity on a high-β correlated book |
 | 5 | 6→8 slots | capacity | open (cheap, low prior) |
 | 6 | Confluence + uncorrelated overlay | portfolio | open (structural, biggest risk-adjusted) |
 | 7 | Per-stock **β-stripped alpha stop** | exit (idiosyncratic) | open — the untested exit quadrant (return lever, not drawdown) |
@@ -24,9 +24,22 @@ book off the **MARKET regime** fails — both the TSMOM *entry* gate (`confluenc
 the regime-conditional *exit* (item 3) died the same way, cutting into the **bear-regime recovery where
 confluence's alpha lives** (regime-INVERSE alpha; FY2024 is the canary). The drawdown is exit-driven
 (oracle) but only capturable by **per-stock** peak timing, which ZsTpSl already approximates. → The live
-levers are now the **weights axes** (sizing, items 2/4) and **diversification** (item 6), NOT
+levers are now **diversification** (item 6) and the **conditional-EV** sizing tilt (item 2), NOT
 market-regime conditioning. Item 2 is the cleanest remaining shot because it keys off the **NEUTRAL**
 momentum regime (the EV weak spot), *not* bear — so it does not fight the regime-inverse alpha.
+
+**UPDATE 2026-05-29 — the weights axis splits: pure-risk sizing (item 4) DEAD, conditional-EV sizing
+(item 2) is the WINNER.** (a) Inverse-vol / risk-parity slot weighting (item 4) *mildly hurts* (Δ Sharpe
+−0.044, P=0.21; cuts return −41pp, maxDD flat) — on a high-β (~0.7) **positively-correlated** long book
+equal-weight is **already ≈ risk-parity** and the higher-vol names carry the return. (b) But the
+**conditional-EV tilt (item 2) — trim NEUTRAL-momentum entries — PASSES both binding nulls** (fill-order
+Δ +0.120 P=1.00; phase+order Δ +0.123 P=0.99, 8/8 phases positive), cutting maxDD −4pp. **Lesson: the
+right sizing axis is EV-conditional (tilt by where forward EV actually differs), NOT risk-conditional
+(tilt by vol).** And it survives where every market-REGIME *gate* died (items 3 / TSMOM) precisely because
+it trims NEUTRAL while keeping bear full → preserves the regime-inverse bear-recovery alpha. After a
+month of rejects across selection / exit / market-regime / pure-risk-sizing, the **conditional-EV weights
+tilt is the one surviving improvement** — a drawdown lever with a thin Sharpe tailwind, pending operator
+sign-off (CI-lo +0.007 thin, OOS flat, lot-granularity untested).
 
 ## Baseline (the thing we're trying to improve)
 
@@ -73,13 +86,78 @@ regimes is the lever most likely to **cut the −22% drawdown** — a *risk* win
 **drawdown reduction**, so its binding test should weight maxDD, not just Sharpe. Items 2 (sizing tilt)
 and 4 (vol-target) remain the return/risk axes the oracle did *not* measure (weights, not selection/exit).
 
-### 2. Regime-conditional sizing tilt — trim neutral-momentum entries  *(most untapped)*
-`project_confluence_phase_regime`: EV is non-monotone in N225 60-bar momentum — **NEUTRAL is the weak
-spot** (raw +0.52% / α +0.33% vs bullish +3.31%/+1.20%, bearish +1.31%/+0.57%), survives β-strip. **Trim
-(not skip)** weight on neutral-regime entries; keep bull/bear full. Different axis than the rejected
+### 2. Regime-conditional sizing tilt — trim neutral-momentum entries  *(✅ DONE 2026-05-29 — PASS, operator call. `confluence_evtilt_null.py` + `confluence_evtilt_phase_null.py`, pre-reg `confluence_evtilt_sizing_preregistration.md`)*
+**RESULT — the first backlog lever to clear BOTH binding nulls.** Trim neutral-N225-60bar-momentum
+entries to τ=0.5 weight (keep slot filled, bull/bear full); frozen tercile cutoffs from the prior pooled
+run (bear ≤ −0.1% < neutral ≤ +8.1% < bull). Both arms applied to the SAME fills per shuffle (perfect
+pairing — only the weight differs).
+
+| null | EW Sharpe | TILT-DL Sharpe | Δ Sharpe | P(Δ>0) | 95% CI | Δ maxDD |
+|---|---|---|---|---|---|---|
+| fill-order (K=200) | 0.911 / −27.3% | 1.031 / −23.2% | +0.120 | **1.000** | [+0.037,+0.207] | +4.14pp (100%) |
+| **phase+order (200 worlds)** | 0.878 / −27.2% | 1.001 / −23.0% | **+0.123** | **0.990** | **[+0.007,+0.262]** | +4.17pp (100%) |
+
+- **Clears the gate in BOTH nulls** — including the combined phase+order null that the standing CLAUDE.md
+  caveat names as the binding test for a regime-keyed rule (the fill-order null pairs only on within-day
+  order → blind to regime-timing luck; the phase null sweeps start offset → trims DIFFERENT neutral
+  periods). Per-offset deterministic Δ is **positive at 8/8 start phases** (+0.087..+0.223) — regime-
+  timing luck would have made some phases negative. It did not.
+- **Clears the 95% CI where the shipped 6-slot capacity null did NOT** (capacity was P=0.865, CI included
+  0, adopted on risk-asymmetry; this is P=0.99, CI-lo +0.007 clears). By the project's own bar this is a
+  *stronger* statistical case than a rule already in production.
+- **Primarily a DRAWDOWN lever** (−27%→−23%, +4pp, rock-solid 100% across both nulls); the Sharpe gain is
+  real but **thin** (CI-lo grazes 0 in the wider band) and **concentrated in the weak FYs** (FY2021 +0.38,
+  FY2022 +0.28; strong FYs ~flat; **OOS FY2025 −0.024**, flat-negative — but FY2025 is bull-heavy with
+  little neutral exposure to trim, so the rule is ~inactive, not failing). τ monotone (0.25→+0.173 >
+  0.5→+0.120 > 0.75→+0.061) — coherent dose-response, not a tuned point.
+- **Why it escapes the item-3 trap:** it trims the **NEUTRAL** regime (the β-stripped EV weak spot), keeping
+  **bull AND bear full** → it does NOT cut the bear-regime recovery where the regime-inverse alpha lives
+  (the mechanism that killed the market-regime exit + TSMOM entry gate). Structurally distinct.
+
+**LOT-GRANULARITY CHECK (2026-05-29, `confluence_evtilt_lots_null.py`) — caveat (3) RESOLVED: realizable.**
+On the realistic integer-lot budget book (¥2M / 6 slots / 100-sh lots, affordability skip + cash drag,
+mirrors `confluence_benchmark.py` bw path), "trim neutral to τ=0.5" = buy `floor(0.5·base_lots)` lots.
+Granularity bite is real — 50% of neutral names (mean base_lots 3.15) round to **0 lots**, so realized
+τ_eff = 0.394 (deeper than nominal) — but the edge SURVIVES: EW-LOT Sharpe 0.916/maxDD −21.1% → TILT-LOT
+1.042/−17.0%, paired Δ Sharpe **+0.126, P(Δ>0)=0.980, CI [+0.005,+0.252]**, Δ maxDD **+4.13pp shallower
+in 99.5%** of shuffles, **Δ return FLAT (+0.5pp)** = pure risk improvement at zero return cost on the real
+book. (OOS FY2025 Δ −0.114, worse than idealized — the aggressive trim cashes working neutral names in a
+bull year = the insurance premium it recoups in FY2021/FY2022.)
+
+**CUTOFF CROSS-VALIDATION (2026-05-29, `confluence_evtilt_cutoffcv_null.py`) — the in-period-cutoff caveat
+RESOLVED.** The `/sign-debate` judge initially DEFERred (the maxDD claim is load-bearing yet the cutoffs
+were fit in-period on the tape containing the FY2021/FY2022 drawdowns; the per-FY edge concentrates there).
+Pre-registered falsifier: re-derive terciles on **train FY2018–22**, freeze, score the integer-lot null on
+**held-out FY2023–25**. Result: train cutoffs = bear ≤ −1.64% < neutral ≤ +4.06% < bull (**materially
+different** from the in-period −0.10%/+8.10% → genuine OOS cutoff test). Held-out **Δ maxDD +4.51pp
+shallower (−17.3%→−12.8%), P(shallower)=0.995** (gate ≥+2pp & ≥90% → PASS); **Δ Sharpe +0.128 ≥ 0** (gate
+PASS) but CI [−0.107,+0.401] wide / not significant (3 FYs, 35 neutral fills); Δ return −5.3pp (insurance
+premium). **The drawdown edge is FORWARD-STABLE, not cutoff overfit.**
+
+**`/sign-debate` VERDICT: ACCEPT (confidence M)** — adopt as a live manual sizing GUIDELINE, scoped strictly
+as a **DRAWDOWN lever**: drawdown claim accepted (significant, OOS-stable); **no Sharpe-improvement claim**
+(held-out CI wide); **no return claim** (held-out −5.3pp). **Binding surfacing condition:** integer rounding
+makes the real instruction **BIMODAL** — "in a NEUTRAL N225-60bar regime, **SKIP cheap neutral-regime names
+entirely, HALF-SIZE expensive ones**; buys ~4.5pp shallower drawdown at a ~5pp return cost (held-out n=35,
+Sharpe not significant)" — the guideline text must say *that*, not "buy half lots." The live book is manual
+so there is NO exit_simulator constant to flip — adoption = surfacing the N225-60bar regime + the bimodal
+half-lot recommendation in the Daily tab / live plan. **Forward falsifier:** if FY2026 (first true
+post-adoption OOS year) closes with tilt-lot maxDD ≤ EW-lot maxDD (Δ ≤ 0), withdraw the guideline.
+
+**REMAINING CAVEATS:** (1) the Sharpe tailwind is real in-sample but NOT significant out-of-sample — this is
+a drawdown-for-return TRADE (~−5pp return for ~4.5pp shallower DD), not a free lunch. (2) the edge
+concentrates in weak/drawdown FYs (insurance premium; flat-to-negative in calm/bull years). This is the
+strongest, most-validated lever the backlog has produced (clears fill-order + phase + integer-lot + held-out
+cutoff-CV nulls) — the weights axis (item 2) is the survivor where selection, exit, market-regime, and
+pure-risk sizing (item 4) all died. **Implementation (Daily-tab + live-plan text) is user-authorized work,
+NOT yet done.**
+
+_(original) `project_confluence_phase_regime`: EV is non-monotone in N225 60-bar momentum — **NEUTRAL is
+the weak spot** (raw +0.52% / α +0.33% vs bullish +3.31%/+1.20%, bearish +1.31%/+0.57%), survives β-strip.
+**Trim (not skip)** weight on neutral-regime entries; keep bull/bear full. Different axis than the rejected
 selection rules (changes weights, not which names fill slots) → not pre-killed by the fill-order null.
 **Binding:** paired fill-order null on the capital-aware 6-slot book (P(ΔSharpe>0)≥0.95 AND CI-lo>0),
-OOS-stable, no effect-size floor.
+OOS-stable, no effect-size floor._
 
 ### 3. Regime-conditional exit — bull vs bear  *(⛔ DONE 2026-05-28 — REJECT, `confluence_regime_exit_probe.py`)*
 **RESULT:** exit each trade at the earlier of ZsTpSl or the first N225-bear bar (sweep: sma50/sma100/
@@ -103,12 +181,39 @@ reduction, not return** (oracle item 1: drawdown is exit-driven, maxDD −22%→
 but causal exit swaps don't beat ZsTpSl on Sharpe) → the binding test should weight **maxDD / CDaR**,
 not just Sharpe. *Build note: AdxTrail needs `_add_adx()` or it degenerates to TimeStop(40).*
 
-### 4. Volatility-target / risk-parity slot sizing vs equal-weight
-Book is equal-weight (deployed-capital) across slots; corr-diversification is enforced in the live UI
-for risk but a formal vol-target / risk-parity slot sizing was never **backtested**. Weight slots
-inverse to recent vol (or to equalize risk contribution). Goal: Sharpe-via-lower-vol / smaller maxDD,
-not higher return. **Binding:** paired fill-order null on portfolio Sharpe + maxDD. *Caveat: integer-lot
-granularity at ¥2M/6 slots limits weight precision (`sizing.recommended_lots`).*
+### 4. Volatility-target / risk-parity slot sizing vs equal-weight  *(⛔ DONE 2026-05-29 — REJECT, `confluence_voltarget_null.py`)*
+**RESULT:** K=200 paired fill-order null, FY2018–2025, 6-slot equal-weight idealized book. Both
+re-weighting arms were applied to the **same fills per shuffle** (perfect pairing — only the slot
+weight differs), trailing-20-bar entry vol, no lookahead. Pre-reg:
+`confluence_voltarget_sizing_preregistration.md`.
+
+| arm | Sharpe (mean) | ret | maxDD | Δ Sharpe vs EW | P(Δ>0) | 95% CI |
+|---|---|---|---|---|---|---|
+| EW (baseline) | 0.911 | +254% | −27.3% | — | — | — |
+| **IV-RP** (inverse-vol risk-parity, same gross) | 0.868 | +213% | −27.4% | **−0.044** | **0.205** | [−0.134, +0.067] |
+| VT (vol-target, gross-scaled, diag) | 0.846 | +212% | −26.6% | −0.065 | 0.155 | [−0.171, +0.054] |
+
+**Gate FAILED hard** (need P≥0.95 AND CI-lo>0): IV-RP Δ Sharpe is **negative**, P(Δ>0)=0.205, CI
+straddles 0; maxDD unchanged (−0.09pp). Not merely "within noise" — inverse-vol **mildly HURTS**:
+it cuts return −41pp (P(Δret>0)=0.075) while barely touching portfolio vol/DD. VT (gross-scaled
+deleverage) shaves maxDD a hair (+0.75pp) but also loses Sharpe → a pure leverage trade, not edge.
+(OOS FY2025 *alone* leaned + for both arms, +0.13/+0.16, but the pooled verdict is the binding one.)
+
+**MECHANISM (durable):** on a **high-β (≈0.7), positively-correlated long book**, the higher-vol
+confluence breakouts carry **more of the return**, and because the held names co-move, down-weighting
+them by single-name vol sacrifices return **without** a compensating portfolio-variance reduction
+(single-name vol dispersion ≠ portfolio vol when ρ is high). **Equal-weight is already ≈ risk-parity**
+for correlated names (similar risk contribution per name). So the weights-axis risk-shaping that *isn't*
+market-regime-conditioned still fails — for a different reason than items 3/TSMOM (correlation, not the
+regime-inverse trap). **Sizing as a pure risk knob is closed; the remaining live levers are diversification
+(item 6, add an uncorrelated stream) and the conditional-EV sizing tilt (item 2, which keys off the
+NEUTRAL-momentum EV weak spot — a different premise than de-risking by vol).**
+
+_(original) Book is equal-weight (deployed-capital) across slots; corr-diversification is enforced in
+the live UI for risk but a formal vol-target / risk-parity slot sizing was never **backtested**. Weight
+slots inverse to recent vol (or to equalize risk contribution). Goal: Sharpe-via-lower-vol / smaller
+maxDD, not higher return. **Binding:** paired fill-order null on portfolio Sharpe + maxDD. Caveat:
+integer-lot granularity at ¥2M/6 slots limits weight precision (`sizing.recommended_lots`)._
 
 ### 5. 6→8 slot sweep  *(cheap, low prior)*
 4→6 shipped (capacity null Sharpe 1.02 vs 0.89, Δ+0.137, CI grazed 0; adopted on risk-asymmetry). 6→8
