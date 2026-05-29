@@ -22,7 +22,7 @@ A prioritized list of the **untested** improvement levers for `RegimeSignStrateg
 | # | Lever | Axis | Status |
 |---|---|---|---|
 | 1 | Oracle-ceiling probe (per-axis headroom) | diagnostic | ✅ **DONE (2026-05-29)** — **EXIT is the only axis with headroom (+3.89 Sharpe), SELECTION negligible (+0.35)**; drawdown is exit-driven (maxDD −23%→−6% under perfect exit). Reprioritizes: item 4 dead, item 2 is the cleanest shot |
-| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ✅ **Stage 1 BOTH NULLS PASS (2026-05-29)** — fill-order Δ +0.074 (CI-lo +0.009) AND phase+order **Δ +0.123, P=1.000, CI [+0.031,+0.194], 8/8 phases**; **maxDD −31%→−26% (+4.8pp, 100%)**. Validated DRAWDOWN lever (= confluence's accepted item 2; CI-lo cleaner). Remaining: integer-lot + cutoff-CV, then operator call |
+| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ✅ **fill-order + phase + integer-lot ALL PASS (2026-05-29)** — phase Δ +0.123 (CI [+0.031,+0.194], 8/8); **integer-lot Δ +0.084, P=0.975, CI [+0.001,+0.164]**, **maxDD cut +3.5–4.8pp (100%)**. Validated **DRAWDOWN guideline** (NO Sharpe/return claim — CI-lo grazes 0, OOS FY2025 −0.175). Remaining: cutoff-CV, then operator call |
 | 3 | **Blend RegimeSign + Confluence** | portfolio | 🟠 **Stage 1 NEAR-MISS (2026-05-29)** — capital-alloc null: BLEND Sharpe +1.22 vs Confluence +1.11, **Δ +0.111 P=0.905 CI [−0.081,+0.292]** FAILS strict gate; but band shifts up + **maxDD −20% vs −23%/−30%** (capacity-null profile). Operator call; 12-name burden ⇒ I'd not auto-adopt |
 | 4 | `min_dr` cutoff sweep | selection/ranking | ⛔ **DEAD on arrival** (item 1: oracle SELECTION headroom only +0.35; tight null band p95 +1.19) — don't spend a pre-reg |
 | 5 | Regime-conditional / β-stripped **exit** | exit | ⬜ **untested** — item 1 shows this axis HAS the headroom (+3.89) but capture track record is poor (asym/time40 REJECT); low prior on a *causal* rule |
@@ -149,6 +149,30 @@ before adoption** (the two confluence applied next): **integer-lot realizability
 adoption path is the SAME Daily-tab N225-60bar banner + bimodal hint already built for confluence
 (`src/portfolio/sizing.py`, `_sizing_regime_banner`), extended to RegimeSign rows (cutoffs differ:
 RegimeSign −1.01%/+6.54% vs confluence −0.1%/+8.1%).
+
+**STAGE 1 — integer-lot null: SURVIVES (2026-05-29, `regime_sign_evtilt_lots_null.py`).** Realistic ¥2M /
+6-slot / 100-share-lot budget book (affordability skip + cash drag), trim neutral = `floor(0.5·base_lots)`.
+Granularity bite: neutral mean base_lots 3.73, **32% (34/107) round to 0 lots**, realized τ_eff = 0.429
+(less bite than confluence's 0.394 — RegimeSign names cheaper).
+
+| arm | Sharpe | maxDD | return |
+|---|---|---|---|
+| EW-LOT | 1.039 | −23.8% | 151% |
+| **TILT-LOT** | **1.123** | **−20.3%** | 133% |
+
+- **Δ Sharpe +0.084, P(Δ>0)=0.975 (195/200), 95% CI [+0.001, +0.164] → GATE PASS** (CI-lo +0.001 just
+  clears — the consistent thinning +0.009 fill-order → +0.001 lot).
+- **Δ maxDD +3.49pp shallower, P=1.000** — the robust, bankable win.
+- Δ return −18pp; **OOS FY2025 Δ Sharpe −0.175, P=0.000** (every shuffle negative — worse than confluence's
+  −0.114; the bull-year insurance premium is heavier for RegimeSign).
+
+**VERDICT — three of four nulls passed; it is a realizable DRAWDOWN guideline, NOT a Sharpe/return claim.**
+The drawdown cut (~3.5pp on the integer-lot book, 100% of shuffles) is solid and bankable; the Sharpe edge
+clears only marginally (CI-lo +0.001) and the bull-year cost is real (OOS −0.175, return −18pp). Same
+landing as confluence's accepted item 2 — adopt-as-drawdown-guideline — but with a thinner Sharpe margin and
+a steeper bull-year insurance premium. **Last gate: held-out cutoff cross-validation** (train FYs → freeze
+terciles → score held-out; confluence confirmed the DRAWDOWN claim there while Sharpe stayed insignificant
+OOS). Then operator / sign-debate adoption call.
 
 **The sole confluence backlog survivor — test whether it transfers.** On confluence, EV is non-monotone
 in N225 60-bar momentum (NEUTRAL is the β-stripped EV weak spot: raw +0.52% / α +0.33% vs bullish
