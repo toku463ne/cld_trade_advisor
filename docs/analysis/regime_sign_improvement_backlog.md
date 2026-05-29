@@ -22,7 +22,7 @@ A prioritized list of the **untested** improvement levers for `RegimeSignStrateg
 | # | Lever | Axis | Status |
 |---|---|---|---|
 | 1 | Oracle-ceiling probe (per-axis headroom) | diagnostic | ✅ **DONE (2026-05-29)** — **EXIT is the only axis with headroom (+3.89 Sharpe), SELECTION negligible (+0.35)**; drawdown is exit-driven (maxDD −23%→−6% under perfect exit). Reprioritizes: item 4 dead, item 2 is the cleanest shot |
-| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ✅ **fill-order + phase + integer-lot ALL PASS (2026-05-29)** — phase Δ +0.123 (CI [+0.031,+0.194], 8/8); **integer-lot Δ +0.084, P=0.975, CI [+0.001,+0.164]**, **maxDD cut +3.5–4.8pp (100%)**. Validated **DRAWDOWN guideline** (NO Sharpe/return claim — CI-lo grazes 0, OOS FY2025 −0.175). Remaining: cutoff-CV, then operator call |
+| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ⛔ **REJECT — fails held-out cutoff-CV (2026-05-29)**. 3 in-period nulls passed (phase Δ +0.123, integer-lot +0.084, maxDD −3.5/4.8pp) but with train-FY2019–22 cutoffs the **held-out FY2023–25 Δ maxDD −0.38pp (WORSE), Δ Sharpe +0.025 P=0.62**. Drawdown cut was in-period cutoff contamination. DIVERGES from confluence (which PASSED). Do NOT adopt |
 | 3 | **Blend RegimeSign + Confluence** | portfolio | 🟠 **Stage 1 NEAR-MISS (2026-05-29)** — capital-alloc null: BLEND Sharpe +1.22 vs Confluence +1.11, **Δ +0.111 P=0.905 CI [−0.081,+0.292]** FAILS strict gate; but band shifts up + **maxDD −20% vs −23%/−30%** (capacity-null profile). Operator call; 12-name burden ⇒ I'd not auto-adopt |
 | 4 | `min_dr` cutoff sweep | selection/ranking | ⛔ **DEAD on arrival** (item 1: oracle SELECTION headroom only +0.35; tight null band p95 +1.19) — don't spend a pre-reg |
 | 5 | Regime-conditional / β-stripped **exit** | exit | ⬜ **untested** — item 1 shows this axis HAS the headroom (+3.89) but capture track record is poor (asym/time40 REJECT); low prior on a *causal* rule |
@@ -86,7 +86,32 @@ TimeStop40 reject) — the −23% DD is beta-driven once a real rule is used. So
 tilt)** is the cleanest remaining shot (a per-entry weight, not a market-regime exit gate, so it dodges
 both the regime-inverse trap and the realizable-exit graveyard). **No binding gate** (diagnostic).
 
-### 2. Regime-conditional EV sizing tilt — trim neutral-momentum entries  *(🟡 Stage 0 PASS 2026-05-29 — `regime_sign_evtilt_stage0.py`; Stage 1 pending)*
+### 2. Regime-conditional EV sizing tilt — trim neutral-momentum entries  *(⛔ REJECT 2026-05-29 — fails held-out cutoff-CV)*
+
+**FINAL VERDICT — REJECT. The tilt cleared Stage 0 + three in-period nulls but FAILS the binding held-out
+cutoff cross-validation (`regime_sign_evtilt_cutoffcv_null.py`), which DECIDES.** Train-derived cutoffs
+(FY2019–22) = bear ≤ −2.55% < neutral ≤ +2.59% (materially narrower than the in-period −1.01%/+6.54% → a
+real OOS cutoff test). Scored on held-out FY2023–25, integer-lot ¥2M book, K=200:
+
+| arm | Sharpe | maxDD | return |
+|---|---|---|---|
+| EW-LOT | 1.580 | −13.0% | 76% |
+| TILT-LOT | 1.605 | −13.4% | 65% |
+
+- **Δ maxDD −0.38pp (WORSE, not shallower), P(shallower) 0.470** → fails the load-bearing gate (need ≥+2pp).
+- Δ Sharpe +0.025, CI [−0.126, +0.173], P 0.625 → coin-flip. Δ return −11pp.
+
+**The −3.5/4.8pp drawdown cut in the three in-period nulls (fill-order, phase, integer-lot) was cutoff-axis
+in-period contamination** — the tercile band was effectively drawn around this tape's drawdown structure;
+with cutoffs that never saw FY2023–25 the cut vanishes. **This DIVERGES from confluence**, which PASSED the
+same gate (held-out Δ maxDD +4.51pp, P 0.995) and was ACCEPTED. Why the divergence: (1) RegimeSign's neutral
+cohort is a *no-edge coin-flip* (α ≈ 0, DR 49.8%) not a stably-worse cohort, so the label carries no
+drawdown mechanism when cutoffs shift; (2) held-out FY2023–25 is a high-Sharpe/shallow-DD regime (EW maxDD
+only −13%) with little drawdown to cut and a real return cost (−11pp). **Do NOT adopt the neutral-trim for
+RegimeSign; do NOT extend the confluence Daily-tab sizing hint to RegimeSign rows.** Lesson reinforced: the
+Stage-0 trough + in-period paired nulls are necessary-but-not-sufficient; the held-out cutoff-CV is the
+binding forward-stability test (cf. `feedback_probe_vs_canonical`, the GBT holdout-flip). _Stage 0 / Stage 1
+detail retained below for the record._
 
 **STAGE 0 RESULT — PASS, the NEUTRAL trough replicates and is DEEPER than confluence.** Cap-free
 candidate-level β-stripped EV by N225 60-bar momentum tercile, FY2019–2025 (1,631 trades; global cutoffs
