@@ -156,8 +156,17 @@ a drawdown-for-return TRADE (~−5pp return for ~4.5pp shallower DD), not a free
 concentrates in weak/drawdown FYs (insurance premium; flat-to-negative in calm/bull years). This is the
 strongest, most-validated lever the backlog has produced (clears fill-order + phase + integer-lot + held-out
 cutoff-CV nulls) — the weights axis (item 2) is the survivor where selection, exit, market-regime, and
-pure-risk sizing (item 4) all died. **Implementation (Daily-tab + live-plan text) is user-authorized work,
-NOT yet done.**
+pure-risk sizing (item 4) all died.
+
+**ADOPTED 2026-05-29 (Daily-tab surfacing).** `src/portfolio/sizing.py` carries the certified helpers
+(`n225_momentum_regime`, `neutral_trim_lots`, frozen cutoffs bear≤−0.1% / neutral≤+8.1%, τ=0.5). The
+Daily tab surfaces it two ways: (1) the **register box** already shows the per-proposal bimodal
+recommendation for confluence rows (SKIP a cheap 1-lot neutral name, half-size a ≥2-lot one, full size
+bull/bear) and adjusts `rec_units`; (2) a **standing sizing-regime banner** in the N225 regime card
+(`_sizing_regime_banner`) now shows today's ^N225 60-bar momentum + regime + the half-lot guideline on
+every Refresh, so the operator sees it without selecting a row. The live book is manual → there is no
+exit_simulator constant to flip. **Forward falsifier (live):** if FY2026 closes with tilt-lot maxDD ≤
+EW-lot maxDD (Δ ≤ 0), withdraw the guideline.
 
 _(original) `project_confluence_phase_regime`: EV is non-monotone in N225 60-bar momentum — **NEUTRAL is
 the weak spot** (raw +0.52% / α +0.33% vs bullish +3.31%/+1.20%, bearish +1.31%/+0.57%), survives β-strip.

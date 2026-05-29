@@ -1485,6 +1485,37 @@ def _regime_risk_panel(
     return html.Div(style={"marginTop": "2px"}, children=rows)
 
 
+def _sizing_regime_banner(mom: float | None) -> html.Div | None:
+    """Standing banner for the conditional-EV sizing tilt (confluence item 2).
+
+    Surfaces today's ^N225 trailing-60-bar momentum regime and the half-lot drawdown
+    guideline so the operator sees it without selecting a proposal. NEUTRAL → half-size
+    confluence entries (a cheap 1-lot name rounds to 0 = SKIP); bull/bear → full size.
+    Returns None when momentum is unavailable. See src.portfolio.sizing.
+    """
+    regime = n225_momentum_regime(mom)
+    if regime is None:
+        return None
+    momtxt = f"{mom * 100:+.1f}%"
+    if regime == "neutral":
+        color, bg = "#ff9800", "rgba(255,152,0,0.10)"
+        msg = ("HALF-SIZE confluence entries — cheap 1-lot names → SKIP "
+               "(integer-lot drawdown guideline)")
+    else:
+        color, bg = GREEN, "rgba(76,175,80,0.08)"
+        msg = "full size (confluence sizing tilt inactive outside the neutral tercile)"
+    return html.Div(
+        style={"marginTop": "8px", "padding": "6px 8px", "borderRadius": "4px",
+               "background": bg, "borderLeft": f"3px solid {color}", "fontSize": "12px"},
+        children=[
+            html.Span("Sizing: ", style={"color": MUTED}),
+            html.Span(f"{regime.upper()} N225", style={"color": color, "fontWeight": "700"}),
+            html.Span(f" (60-bar {momtxt})  →  ", style={"color": MUTED}),
+            html.Span(msg, style={"color": TEXT}),
+        ],
+    )
+
+
 def _regime_card(
     trade_date: datetime.date,
     regime: dict[str, Any] | None,
@@ -1492,6 +1523,7 @@ def _regime_card(
     revn_snap: dict[str, float | bool] | None = None,
     sma_snap:  dict[str, float | bool] | None = None,
     corr_snap: dict[str, float | bool] | None = None,
+    n225_mom:  float | None = None,
 ) -> list:
     if regime is None:
         return [
@@ -1543,6 +1575,9 @@ def _regime_card(
     panel = _regime_risk_panel(revn_snap, sma_snap, corr_snap)
     if panel is not None:
         children.append(panel)
+    sizing_banner = _sizing_regime_banner(n225_mom)
+    if sizing_banner is not None:
+        children.append(sizing_banner)
     return children
 
 
@@ -2732,7 +2767,8 @@ def register_callbacks() -> None:
         corr_snap = _snap_or_none(_get_corr_regime, "CorrRegime")
         n_shown = sum(1 for p in proposals if p.sign_type not in _HIDDEN_PROPOSAL_SIGNS)
         card   = _regime_card(target, regime, n_shown,
-                              revn_snap=revn_snap, sma_snap=sma_snap, corr_snap=corr_snap)
+                              revn_snap=revn_snap, sma_snap=sma_snap, corr_snap=corr_snap,
+                              n225_mom=_n225_mom60(target))
         ranking_evs = [e.ev for e in strategy._ranking.values()]
 
         def _frac_of(snap):
