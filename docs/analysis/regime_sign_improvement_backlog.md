@@ -21,11 +21,11 @@ A prioritized list of the **untested** improvement levers for `RegimeSignStrateg
 
 | # | Lever | Axis | Status |
 |---|---|---|---|
-| 1 | Oracle-ceiling probe (per-axis headroom) | diagnostic | ⬜ **untested** — run first to prioritize selection vs exit vs sizing |
-| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ⬜ **untested — HIGHEST PRIOR** (the sole confluence survivor; does it transfer?) |
+| 1 | Oracle-ceiling probe (per-axis headroom) | diagnostic | ✅ **DONE (2026-05-29)** — **EXIT is the only axis with headroom (+3.89 Sharpe), SELECTION negligible (+0.35)**; drawdown is exit-driven (maxDD −23%→−6% under perfect exit). Reprioritizes: item 4 dead, item 2 is the cleanest shot |
+| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ⬜ **untested — HIGHEST PRIOR** (sole confluence survivor; item-1 confirms weights/exit is where the room is) |
 | 3 | **Blend RegimeSign + Confluence** | portfolio | 🟠 **Stage 1 NEAR-MISS (2026-05-29)** — capital-alloc null: BLEND Sharpe +1.22 vs Confluence +1.11, **Δ +0.111 P=0.905 CI [−0.081,+0.292]** FAILS strict gate; but band shifts up + **maxDD −20% vs −23%/−30%** (capacity-null profile). Operator call; 12-name burden ⇒ I'd not auto-adopt |
-| 4 | `min_dr` cutoff sweep | selection/ranking | ⬜ **untested** but low prior (selection axis → fill-order null) |
-| 5 | Regime-conditional / β-stripped **exit** | exit | ⬜ **untested** but low prior (confluence items 3+7 both REJECT) |
+| 4 | `min_dr` cutoff sweep | selection/ranking | ⛔ **DEAD on arrival** (item 1: oracle SELECTION headroom only +0.35; tight null band p95 +1.19) — don't spend a pre-reg |
+| 5 | Regime-conditional / β-stripped **exit** | exit | ⬜ **untested** — item 1 shows this axis HAS the headroom (+3.89) but capture track record is poor (asym/time40 REJECT); low prior on a *causal* rule |
 | 6 | 6→8 slot sweep | capacity | ⬜ **untested** but low prior (confluence item 5 REJECT, manual-burden) |
 | 7 | Vol-target / risk-parity slot sizing | weights | ⬜ **untested** but low prior (confluence item 4 REJECT) |
 
@@ -60,15 +60,31 @@ not edge. This is a *strong* prior that **selection/ranking tweaks (item 4) are 
 
 ## Backlog (priority order)
 
-### 1. Oracle-ceiling probe — quantify per-axis headroom  *(⬜ untested — adapt `confluence_oracle_ceiling_probe.py`)*
-Run the same perfect-foresight upper-bound probe (oracle SELECTION / oracle EXIT-within-hold / oracle
-EXIT+60bar / oracle BOTH) on the RegimeSign 6-slot book to learn **which axis has headroom** before
-spending pre-registrations. On confluence this showed EXIT timing is the largest-headroom axis (+3.46
-Sharpe) and that the drawdown is almost entirely exit-driven (maxDD −22%→−6% under perfect exit), while
-SELECTION headroom (+1.97) is real but un-capturable (fill-order null). **Expected RegimeSign result:**
-similar shape, but with a *tighter* selection null (sd 0.09 vs 0.18) the selection headroom is likely even
-less realizable. **Value:** pure diagnostic — reprioritizes items 2/5/7. **No binding gate** (it measures
-ceilings, doesn't propose a rule). Cheap; do it first.
+### 1. Oracle-ceiling probe — quantify per-axis headroom  *(✅ DONE 2026-05-29 — `regime_sign_oracle_ceiling_probe.py`)*
+Perfect-foresight upper bounds, capital-aware ¥2M 6-slot book, FY2019–2025:
+
+| book | Sharpe | CAGR | maxDD | Δ Sharpe |
+|---|---|---|---|---|
+| baseline (ZsTpSl, prod) | 1.03 | 14.4% | −23.0% | — |
+| oracle SELECTION | 1.38 | 19.5% | −23.0% | +0.35 |
+| **oracle EXIT (within hold)** | **4.92** | 59.4% | **−6.1%** | **+3.89** |
+| oracle EXIT (+60-bar) | 4.38 | 108.7% | −19.4% | +3.36 |
+| oracle BOTH | 4.87 | 60.0% | −6.3% | +3.84 |
+
+**Findings:** (a) baseline 1.03 = sanity-checks against the fill-order-null +1.03. (b) **EXIT timing is the
+only axis with material headroom (+3.89), and it dwarfs SELECTION (+0.35)** — RegimeSign's selection
+headroom is *even smaller* than confluence's (+1.97), consistent with its tighter null band (sd 0.09).
+(c) **The drawdown is almost entirely exit-driven** — perfect exit within the *same* hold windows collapses
+maxDD **−23.0% → −6.1%**; oracle selection leaves maxDD untouched (−23.0%). Same lesson as confluence
+(−21.8%→−6.4%).
+
+**Reprioritization:** (1) **item 4 (`min_dr` / any selection) is DEAD on arrival** — +0.35 oracle headroom,
+tight null (p95 +1.19) → not worth a pre-reg. (2) **The headroom is all on the EXIT/weights axis**, but the
++3.89 is perfect foresight and RegimeSign's *causal* exit swaps already failed (asym-exit OOS −2.89,
+TimeStop40 reject) — the −23% DD is beta-driven once a real rule is used. So the actionable read is **not**
+"swap the exit"; it is that the drawdown lever lives on exit/weights → **item 2 (EV-conditional sizing
+tilt)** is the cleanest remaining shot (a per-entry weight, not a market-regime exit gate, so it dodges
+both the regime-inverse trap and the realizable-exit graveyard). **No binding gate** (diagnostic).
 
 ### 2. Regime-conditional EV sizing tilt — trim neutral-momentum entries  *(⬜ untested — HIGHEST PRIOR; adapt `confluence_evtilt_null.py` + `confluence_evtilt_phase_null.py`)*
 **The sole confluence backlog survivor — test whether it transfers.** On confluence, EV is non-monotone
