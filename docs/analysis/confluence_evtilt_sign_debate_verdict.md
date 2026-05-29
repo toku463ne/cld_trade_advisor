@@ -88,6 +88,18 @@ out of sample → withdraw. (Re-run `confluence_evtilt_lots_null.py` extended to
 
 ---
 
+## Follow-up A/B — floor (skip) vs take-1-lot (2026-05-29, `confluence_evtilt_floor_min1_ab.py`)
+
+Operator question: the bimodal rule SKIPS the mid-priced (¥1,667–3,333, base==1 lot) neutral names (~50% of
+neutral fills); since the source finding said "trim, not skip" (neutral EV is positive), is it better to
+still TAKE 1 lot for them? A 3-arm paired null (EW / FLOOR=skip / MIN1=take-1-lot; MIN1 differs from FLOOR
+ONLY on base==1 neutral names) answered: **KEEP FLOOR.** Taking 1 lot gives back ~half the drawdown benefit —
+FLOOR cuts maxDD +4.1pp/+4.5pp vs EW (full / held-out), MIN1 only +1.9pp/+1.6pp; MIN1 − FLOOR ΔmaxDD
+−2.27pp/−2.90pp (FLOOR shallower in 96–97% of shuffles), Δret +5.4pp/+1.0pp. MIN1's edge over EW is weak OOS
+(Sharpe +0.024, P=0.63). **The skip is load-bearing for the drawdown lever, not an artifact** — it is the
+deeper deleverage the τ dose-response rewards. MIN1 is only a milder, more return-friendly operating point.
+Shipped rule unchanged.
+
 ## Open questions / residual risk
 - Held-out **Sharpe is not significant** (3 FYs, 35 neutral fills) — only the maxDD claim is. Accepted on that basis.
 - The Sharpe gain is concentrated in weak/drawdown FYs; it is an insurance premium in calm/bull years (held-out
