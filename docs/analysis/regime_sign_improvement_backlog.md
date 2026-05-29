@@ -23,7 +23,7 @@ A prioritized list of the **untested** improvement levers for `RegimeSignStrateg
 |---|---|---|---|
 | 1 | Oracle-ceiling probe (per-axis headroom) | diagnostic | ⬜ **untested** — run first to prioritize selection vs exit vs sizing |
 | 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ⬜ **untested — HIGHEST PRIOR** (the sole confluence survivor; does it transfer?) |
-| 3 | **Blend RegimeSign + Confluence** into one book | portfolio | ⬜ **untested — strongest NEW idea** (two ~+1.0 books; if daily-return ρ is low this is *real* diversification, unlike the TSMOM overlay) |
+| 3 | **Blend RegimeSign + Confluence** | portfolio | 🟡 **Stage 0 PASS (2026-05-29)** — daily-return ρ **+0.554**, trade overlap 0.3%; both ~+1.0 Sharpe → real diversification, escalate to Stage 1 (capital-allocation null, NOT merged-pool) |
 | 4 | `min_dr` cutoff sweep | selection/ranking | ⬜ **untested** but low prior (selection axis → fill-order null) |
 | 5 | Regime-conditional / β-stripped **exit** | exit | ⬜ **untested** but low prior (confluence items 3+7 both REJECT) |
 | 6 | 6→8 slot sweep | capacity | ⬜ **untested** but low prior (confluence item 5 REJECT, manual-burden) |
@@ -97,18 +97,37 @@ overlay) REJECTED because the only breadth-immune candidate (TSMOM) turned out t
 (ρ +0.61) → it diluted rather than diversified. **A second equity strategy is also long-beta, so the same
 risk applies** — BUT if the two books' *daily-return* correlation is meaningfully below 1 (different entries,
 different exits firing on different days), a blended book gets a real diversification lift (Sharpe rises
-even between two equal-Sharpe correlated assets as long as ρ<1). **Stage 0 (cheap, decisive):** compute
-pooled ρ(regime_daily, confluence_daily) on the stitched 6-slot equity curves, FY2019–2025, and the
-overlap fraction (how often both fire on the same name/day). If ρ ≳ 0.85 the books are near-redundant →
-blending adds nothing (and the honest conclusion may be "run only the stronger one" — informs the
-keep/remove question). If ρ ≲ 0.7 there is diversification to harvest. **Stage 1 (if ρ low):** paired
-fill-order null on a *merged* candidate pool feeding ONE 6-slot book (both strategies' candidates compete
-for the same slots, deduped, corr-cap enforced) vs each strategy alone — binding gate P(ΔSharpe>0)≥0.95 AND
-CI-lo>0 vs the **better** single strategy, held-out-FY-stable. **Caveat:** a merged book changes the live
-workflow (one book, two candidate sources) and may concentrate if both fire on the same name — the corr-cap
-must treat shared names as one logical bet (CLAUDE.md). **This also directly answers "should both stay in
-the UI"**: if ρ is high they're redundant (drop one); if low they're complementary (keep both, consider
-blending).
+even between two equal-Sharpe correlated assets as long as ρ<1).
+
+**STAGE 0 RESULT — PASS (2026-05-29, `regime_sign_confluence_blend_stage0.py`).** Pooled
+ρ(regime_daily, confluence_daily) on the stitched deterministic 6-slot books, FY2019–FY2025 (1,706
+calendar days):
+
+| metric | RegimeSign | Confluence |
+|---|---|---|
+| standalone stitched Sharpe | +0.99 | +1.06 |
+| standalone stitched return | +207% | +209% |
+| active-day fraction | 99.9% | 84.9% |
+
+- **pooled ρ = +0.554** (≤ 0.70 gate → diversification available).
+- **candidate (stock,date) overlap Jaccard 2.4%; realized-trade overlap 0.3% (only 2 shared trades** of
+  357 reg / 306 conf). The two books pick **almost entirely different names** at near-identical Sharpe.
+- Variance math: equal-Sharpe (~1.0) assets at ρ=0.55, equal weight → blended Sharpe ≈ 1.0·√(2/(1+ρ)) ≈
+  **+1.13** (a ~+0.13 lift, comparable to the 4→6 capacity win). **Escalate to Stage 1.**
+- **Answers "keep both in UI": YES, complementary, not redundant** — confirms the keep verdict from
+  `regime_sign_strategy.md` on a second axis (low ρ + ~zero trade overlap).
+
+**STAGE 1 (corrected design).** The original "merged candidate pool → ONE 6-slot book" framing is the
+**wrong test** — merging pools into one 6-slot book is just a *selection* change (which 6 of a bigger pool
+fill), and selection dies on the fill-order null. The ρ<1 benefit is harvested only by **actually holding
+both streams**, i.e. a **capital-allocation** test (not a selection rule, so not pre-killed): split the
+same ¥2M across both strategies (3+3 slots, or two half-capital 6-slot books / interleaved equal-capital
+daily-return blend) vs all-in on the better single book. **Binding:** paired fill-order null shuffling
+*both* books' within-day fill orders, gate P(ΔSharpe>0)≥0.95 AND CI-lo>0 vs the **better** single book
+(Confluence +1.06), held-out-FY-stable. **Caveats:** (a) fixed total capital means each book runs at fewer
+slots (3 vs 6) → less within-book diversification, which partly offsets the cross-book gain — the net is
+what the null must settle; (b) running both is a heavier manual workflow (two candidate sources, more
+names); (c) corr-cap must treat any name shared across books as one logical bet (CLAUDE.md).
 
 ### 4. `min_dr` cutoff sweep  *(⬜ untested — low prior, selection axis)*
 RegimeSign excludes (sign, kumo) cells with historical DR ≤ `MIN_DR=0.52` from the ranking
