@@ -25,6 +25,8 @@ from src.analysis.sign_benchmark import compute_sign_code_hash
 from src.data.db import get_session
 from src.data.models import Ohlcv1d
 from src.maintenance.registry import all_valid_sign_names
+from src.portfolio.crud import create_account, list_accounts
+from src.portfolio.sizing import DEFAULT_BUDGET
 
 _OHLCV_MARKER = Path(__file__).resolve().parent.parent.parent / "data" / ".ohlcv_last_download"
 from src.viz.palette import (
@@ -69,6 +71,20 @@ def _load_stock_sets() -> list[dict]:
                 "n_stocks":    r.n_stocks,
             }
             for r in runs
+        ]
+
+
+def _load_accounts() -> list[dict]:
+    with get_session() as session:
+        accts = list_accounts(session, include_archived=True)
+        return [
+            {
+                "id":       a.id,
+                "name":     a.name,
+                "budget":   float(a.budget) if a.budget is not None else None,
+                "archived": a.archived,
+            }
+            for a in accts
         ]
 
 
@@ -272,6 +288,36 @@ def _sets_table(sets: list[dict]) -> html.Table:
     )
 
 
+def _accounts_table(accounts: list[dict]) -> html.Table:
+    rows = []
+    for a in accounts:
+        budget_txt = f"¥{a['budget']:,.0f}" if a["budget"] is not None else "—"
+        rows.append(html.Tr([
+            html.Td(str(a["id"]), style={**_S_TD, "fontFamily": "monospace",
+                                         "textAlign": "right"}),
+            html.Td(a["name"], style={**_S_TD, "fontFamily": "monospace"}),
+            html.Td(budget_txt, style={**_S_TD, "textAlign": "right"}),
+            html.Td("archived" if a["archived"] else "active",
+                    style={**_S_TD, "color": _MUTED if a["archived"] else _GREEN,
+                           "textAlign": "center"}),
+        ]))
+    if not rows:
+        rows = [html.Tr([html.Td("No accounts yet.", colSpan=4,
+                                 style={**_S_TD, "color": _MUTED})])]
+    return html.Table(
+        [
+            html.Thead(html.Tr([
+                html.Th("id",     style={**_S_TH, "textAlign": "right"}),
+                html.Th("name",   style=_S_TH),
+                html.Th("budget", style={**_S_TH, "textAlign": "right"}),
+                html.Th("status", style={**_S_TH, "textAlign": "center"}),
+            ])),
+            html.Tbody(rows),
+        ],
+        style={"borderCollapse": "collapse", "fontSize": "12px"},
+    )
+
+
 def _cluster_table(status: dict[str, int]) -> html.Table:
     """Table of cluster FY years with present/missing indicator."""
     rows = []
@@ -361,6 +407,47 @@ def layout() -> html.Div:
         html.H3("Maintenance",
                 style={"color": _ACCENT, "marginTop": "0", "marginBottom": "16px",
                        "fontSize": "18px"}),
+
+        # ── Accounts ────────────────────────────────────────────────────────
+        html.Div(style=_S_CARD, children=[
+            html.H2("Accounts", style=_S_H2),
+            html.P(
+                "Virtual accounts scope positions and reviewed candidates. "
+                "Budget is what the live book sizes each slot against "
+                "(recommended lots = floor((budget/6) / (100·price))).",
+                style={"fontSize": "12px", "color": _MUTED, "margin": "0 0 10px 0"},
+            ),
+            html.Div(id="maint-accounts", children=_accounts_table(_load_accounts())),
+            html.Div(style={"marginTop": "12px", "display": "flex", "alignItems": "flex-end",
+                            "gap": "10px", "flexWrap": "wrap"}, children=[
+                html.Div(children=[
+                    html.Div("Name (unique)", style={"fontSize": "11px", "color": _MUTED,
+                                                     "marginBottom": "4px"}),
+                    dcc.Input(id="maint-acct-name", type="text", placeholder="rakuten_live",
+                              style={"width": "160px", "background": _BG, "color": _TEXT,
+                                     "border": f"1px solid {_BORDER}", "borderRadius": "4px",
+                                     "padding": "5px 8px", "fontSize": "12px"}),
+                ]),
+                html.Div(children=[
+                    html.Div("Budget (¥)", style={"fontSize": "11px", "color": _MUTED,
+                                                  "marginBottom": "4px"}),
+                    dcc.Input(id="maint-acct-budget", type="number", value=DEFAULT_BUDGET, min=0,
+                              style={"width": "180px", "background": _BG, "color": _TEXT,
+                                     "border": f"1px solid {_BORDER}", "borderRadius": "4px",
+                                     "padding": "5px 8px", "fontSize": "12px"}),
+                ]),
+                html.Div(style={"flex": "1", "minWidth": "160px"}, children=[
+                    html.Div("Description (optional)", style={"fontSize": "11px", "color": _MUTED,
+                                                              "marginBottom": "4px"}),
+                    dcc.Input(id="maint-acct-desc", type="text", placeholder="",
+                              style={"width": "100%", "background": _BG, "color": _TEXT,
+                                     "border": f"1px solid {_BORDER}", "borderRadius": "4px",
+                                     "padding": "5px 8px", "fontSize": "12px"}),
+                ]),
+                html.Button("➕  Create Account", id="maint-acct-create-btn", style=_S_BTN),
+            ]),
+            html.Div(id="maint-acct-status", style={"fontSize": "12px", "marginTop": "8px"}),
+        ]),
 
         # ── Stock Sets ──────────────────────────────────────────────────────
         html.Div(style=_S_CARD, children=[
@@ -588,6 +675,36 @@ def _run_cluster_analysis(fiscal_years: list[str]) -> None:
 # ── Callbacks ──────────────────────────────────────────────────────────────────
 
 def register_callbacks() -> None:
+
+    @callback(
+        Output("maint-accounts",    "children"),
+        Output("maint-acct-status", "children"),
+        Output("maint-acct-name",   "value"),
+        Input("maint-acct-create-btn", "n_clicks"),
+        State("maint-acct-name",    "value"),
+        State("maint-acct-budget",  "value"),
+        State("maint-acct-desc",    "value"),
+        prevent_initial_call=True,
+    )
+    def _create_account(n: int | None, name: str | None, budget: float | None,
+                        desc: str | None) -> tuple:
+        name = (name or "").strip()
+        if not name:
+            return dash.no_update, html.Span("Name is required.", style={"color": _RED}), \
+                dash.no_update
+        try:
+            with get_session() as session:
+                acct = create_account(
+                    session, name=name,
+                    description=(desc or "").strip() or None,
+                    budget=float(budget) if budget else None,
+                )
+                acct_id = acct.id
+            msg = html.Span(f"Created account id={acct_id} ({name}).", style={"color": _GREEN})
+            return _accounts_table(_load_accounts()), msg, ""
+        except Exception as exc:
+            return dash.no_update, html.Span(f"Error: {exc}", style={"color": _RED}), \
+                dash.no_update
 
     @callback(
         Output("maint-interval", "disabled"),
