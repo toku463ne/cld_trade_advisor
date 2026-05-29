@@ -15,7 +15,7 @@ a frozen pre-registration (no batch-running = multiple-comparisons p-hacking).
 | 2 | Regime-conditional **sizing tilt** (neutral-momentum trim) | weights | ✅ **PASS (operator call)** — first lever to clear BOTH binding nulls (fill-order + phase); a drawdown lever (−4pp), thin Sharpe edge |
 | 3 | Regime-conditional **exit** | exit (market regime) | ⛔ **REJECT** — regime-inverse trap; no clean drawdown win |
 | 4 | Vol-target / risk-parity slot sizing | weights | ⛔ **REJECT** — inverse-vol mildly HURTS; EW already ≈ risk-parity on a high-β correlated book |
-| 5 | 6→8 slots | capacity | open (cheap, low prior) |
+| 5 | 6→8 slots | capacity | ⛔ **REJECT** — Δ +0.035 not separated (P=0.64); breadth NOT starved (fills 7.92/day) but diminishing diversification + return drag; capacity axis exhausted |
 | 6 | Confluence + uncorrelated overlay | portfolio | ⛔ **REJECT** — TSMOM sleeve is long-equity beta (ρ +0.61), not uncorrelated in-window; blend dilutes Sharpe, maxDD worse |
 | 7 | Per-stock **β-stripped alpha stop** | exit (idiosyncratic) | ⛔ **REJECT** — all variants lose Sharpe/CAGR, whipsaw ~50%; exit 2×2 now fully settled |
 
@@ -52,13 +52,14 @@ Capital-aware 6-slot ¥2M book, FY2018–2025 (most recent stitched run):
   t=1.39) **and regime-inverse** (`project_confluence_market_neutral`). So most of the 13% is "long
   Japan equities at β≈0.7"; harvestable alpha is thin.
 
-**Theme:** entry/selection/exit are exhausted (the **exit 2×2 is now fully settled** — item 7's per-stock
-alpha stop REJECT closes the last cell), **market-regime risk-shaping is closed** (item 3 + TSMOM entry
-gate, see meta-pattern), and **single-index diversification is closed too** (item 6 REJECT — the TSMOM
-overlay is long-equity beta, not uncorrelated, in this window). The **sole surviving lever in the entire
-backlog** is **weights-axis EV-conditional sizing** (item 2, the winner; pure-risk sizing item 4 is dead)
-— not raw alpha, not market-regime gates, not an overlay, not an exit. **Only item 5 (6→8 slots, cheap /
-low-prior) remains untested.**
+**Theme (backlog COMPLETE — all 7 items resolved):** entry/selection/exit are exhausted (the **exit 2×2
+is fully settled** — item 7 closed the last cell), **market-regime risk-shaping is closed** (item 3 +
+TSMOM entry gate, see meta-pattern), **single-index diversification is closed** (item 6 REJECT — TSMOM
+overlay is long-equity beta, not uncorrelated), and the **capacity axis is exhausted** (4→6 adopted, 6→8
+REJECT item 5 — diminishing diversification + return drag, breadth NOT the binding constraint). The **sole
+surviving lever across the entire backlog** is **weights-axis EV-conditional sizing** (item 2; pure-risk
+sizing item 4 is dead) — not raw alpha, not market-regime gates, not an overlay, not an exit, not more
+slots. The remaining work is **adopting item 2** (Daily-tab + live-plan surfacing, user-authorized).
 
 **Realizable ceiling:** every ex-ante rule tried lands inside the fill-order null band (Sharpe median
 0.89, p5 0.60, **p95 1.20**); the shipped book (+0.88) is a *median* draw. p95 is luck, not edge. So
@@ -221,7 +222,25 @@ slots inverse to recent vol (or to equalize risk contribution). Goal: Sharpe-via
 maxDD, not higher return. **Binding:** paired fill-order null on portfolio Sharpe + maxDD. Caveat:
 integer-lot granularity at ¥2M/6 slots limits weight precision (`sizing.recommended_lots`)._
 
-### 5. 6→8 slot sweep  *(cheap, low prior)*
+### 5. 6→8 slot sweep  *(⛔ DONE 2026-05-29 — REJECT, `confluence_capacity_8slot_null.py`, pre-reg `confluence_capacity_8slot_preregistration.md`)*
+**RESULT — REJECT, not separated.** K=200 paired capacity null (same machinery that shipped 4→6),
+`_MAX_LOW_CORR` 5→7, FY2018–2025:
+
+| config | Sharpe | ret | maxDD | mean held/day | trades |
+|---|---|---|---|---|---|
+| 6-slot (prod) | 0.911 | +254% | −27% | 5.99 | 413 |
+| 8-slot | 0.946 | +245% | −26% | 7.92 | 555 |
+
+Paired **Δ Sharpe +0.035, P(Δ>0)=0.635, CI [−0.152,+0.215]** (straddles 0); Δ return **−10pp**; Δ maxDD
++1.83pp shallower (P=0.785); OOS FY2025 Δ +0.216 (P=0.840, leans + but not binding). **The low prior
+(breadth starvation) was REFUTED** — the 8-slot book is *not* starved: it fills **7.92 names/day** and
+trades 34% more (555 vs 413), so there *are* enough low-corr names for 8 slots. The lever fails instead on
+**diminishing returns to diversification**: 6→8 adds only +0.035 Sharpe vs the **+0.137** that 4→6
+delivered, while dragging return −10pp — the book is already well-diversified and the marginal later-fill
+names are lower-quality. Unlike 4→6 (a reversible one-liner adopted on risk-asymmetry), 6→8 **raises the
+manual-execution burden** (live plan is 6 slots), so a near-miss is **not** adopted. **Keep 6 slots; the
+capacity axis is now exhausted** (4→6 adopted, 6→8 rejected). _Original framing below._
+
 4→6 shipped (capacity null Sharpe 1.02 vs 0.89, Δ+0.137, CI grazed 0; adopted on risk-asymmetry). 6→8
 never tested. **Low prior:** Stage-0 found only ~8 low-corr names/day → past ~6–8 slots breadth-starved
 (forced to add correlated names). Quick paired capacity null at `_MAX_LOW_CORR` 5→7 on the existing 225
