@@ -16,17 +16,19 @@ a frozen pre-registration (no batch-running = multiple-comparisons p-hacking).
 | 3 | Regime-conditional **exit** | exit (market regime) | ⛔ **REJECT** — regime-inverse trap; no clean drawdown win |
 | 4 | Vol-target / risk-parity slot sizing | weights | ⛔ **REJECT** — inverse-vol mildly HURTS; EW already ≈ risk-parity on a high-β correlated book |
 | 5 | 6→8 slots | capacity | open (cheap, low prior) |
-| 6 | Confluence + uncorrelated overlay | portfolio | open (structural, biggest risk-adjusted) |
+| 6 | Confluence + uncorrelated overlay | portfolio | ⛔ **REJECT** — TSMOM sleeve is long-equity beta (ρ +0.61), not uncorrelated in-window; blend dilutes Sharpe, maxDD worse |
 | 7 | Per-stock **β-stripped alpha stop** | exit (idiosyncratic) | open — the untested exit quadrant (return lever, not drawdown) |
 
 **META-PATTERN (durable, earned across items 3 + the TSMOM entry gate):** anything that de-risks the
 book off the **MARKET regime** fails — both the TSMOM *entry* gate (`confluence_tsmom_gate_probe`) and
 the regime-conditional *exit* (item 3) died the same way, cutting into the **bear-regime recovery where
 confluence's alpha lives** (regime-INVERSE alpha; FY2024 is the canary). The drawdown is exit-driven
-(oracle) but only capturable by **per-stock** peak timing, which ZsTpSl already approximates. → The live
-levers are now **diversification** (item 6) and the **conditional-EV** sizing tilt (item 2), NOT
-market-regime conditioning. Item 2 is the cleanest remaining shot because it keys off the **NEUTRAL**
-momentum regime (the EV weak spot), *not* bear — so it does not fight the regime-inverse alpha.
+(oracle) but only capturable by **per-stock** peak timing, which ZsTpSl already approximates. → The
+surviving lever is the **conditional-EV** sizing tilt (item 2), NOT market-regime conditioning and NOT a
+single-index diversification overlay (item 6 now REJECT — the only breadth-immune overlay candidate, the
+TSMOM sleeve, is long-equity beta in-window, ρ +0.61, so it dilutes rather than diversifies). Item 2 is
+the cleanest shot because it keys off the **NEUTRAL** momentum regime (the EV weak spot), *not* bear — so
+it does not fight the regime-inverse alpha.
 
 **UPDATE 2026-05-29 — the weights axis splits: pure-risk sizing (item 4) DEAD, conditional-EV sizing
 (item 2) is the WINNER.** (a) Inverse-vol / risk-parity slot weighting (item 4) *mildly hurts* (Δ Sharpe
@@ -50,9 +52,11 @@ Capital-aware 6-slot ¥2M book, FY2018–2025 (most recent stitched run):
   t=1.39) **and regime-inverse** (`project_confluence_market_neutral`). So most of the 13% is "long
   Japan equities at β≈0.7"; harvestable alpha is thin.
 
-**Theme:** entry/selection/exit are exhausted, and **market-regime risk-shaping is now closed too**
-(item 3 + TSMOM entry gate, see meta-pattern). The remaining headroom is **weights-axis risk-shaping**
-(sizing — items 2/4) and **portfolio diversification** (item 6) — not raw alpha, not market-regime gates.
+**Theme:** entry/selection/exit are exhausted, **market-regime risk-shaping is closed** (item 3 + TSMOM
+entry gate, see meta-pattern), and **single-index diversification is closed too** (item 6 REJECT — the
+TSMOM overlay is long-equity beta, not uncorrelated, in this window). The only surviving headroom is
+**weights-axis EV-conditional sizing** (item 2, the winner; pure-risk sizing item 4 is dead) — not raw
+alpha, not market-regime gates, not an overlay. Remaining-open: items 5 (6→8 slots) and 7 (alpha stop).
 
 **Realizable ceiling:** every ex-ante rule tried lands inside the fill-order null band (Sharpe median
 0.89, p5 0.60, **p95 1.20**); the shipped book (+0.88) is a *median* draw. p95 is luck, not edge. So
@@ -221,10 +225,38 @@ never tested. **Low prior:** Stage-0 found only ~8 low-corr names/day → past ~
 (forced to add correlated names). Quick paired capacity null at `_MAX_LOW_CORR` 5→7 on the existing 225
 book (no rebuild). Also raises manual-execution burden (live plan = 6 slots).
 
-### 6. Portfolio diversification — confluence + uncorrelated overlay  *(structural lever)*
-`project_confluence_buyhold_win`: the book only **ties** the equal-weight universe; its edge over the
-index is a drawdown cut, not alpha (~62% beta). The biggest risk-adjusted gain is pairing it with an
-**uncorrelated** stream, not optimizing the book. Candidate: the **TSMOM long/flat L=12 defensive
+### 6. Portfolio diversification — confluence + uncorrelated overlay  *(⛔ DONE 2026-05-29 — REJECT, `confluence_overlay_blend_null.py`, pre-reg `confluence_overlay_blend_preregistration.md`)*
+**RESULT — REJECT, both gates fail, exactly the pre-registered failure mode.** Blended the production
+6-slot book with a *parallel* TSMOM long/flat L=12 index sleeve (no-leverage fixed split, `f` of ¥2M to
+the sleeve), K=200 paired fill-order null. NOT the rejected entry-gate (this never changes which names
+confluence buys; it splits capital).
+
+| arm | Sharpe | ret | maxDD | Δ Sharpe vs conf | P(Δ>0) | 95% CI | Δ maxDD |
+|---|---|---|---|---|---|---|---|
+| confluence-only (f=0) | 0.911 | +254% | −27.3% | — | — | — | — |
+| **blend f=0.30 (primary)** | 0.830 | +177% | −27.9% | **−0.081** | **0.015** | [−0.156, −0.012] | **−0.61pp (worse)** |
+| blend f=0.20 | 0.865 | +201% | −27.6% | −0.046 | 0.015 | [−0.092, −0.004] | −0.24pp |
+| blend f=0.50 | 0.732 | +133% | −29.2% | −0.179 | 0.015 | [−0.323, −0.047] | −1.86pp |
+
+**CRUX (the whole thesis dies here): pooled ρ(confluence_daily, overlay_daily) = +0.605.** The TSMOM
+sleeve is **long-equity beta 70% of the time** → it co-moves with the ~0.7-beta book, so it is **NOT an
+uncorrelated stream in this window**. Standalone overlay Sharpe +0.37 / maxDD −39% (worse than the book).
+Blending therefore just **dilutes** toward a lower-Sharpe, in-window-correlated asset: monotone-worse in
+`f` (more overlay = lower Sharpe, larger return drag −53/−77/−121pp), and maxDD **worsens** (P(shallower)
+only 0.235). **Per-FY maxDD:** small cuts in calm/up FYs (FY2018 +3.3pp, FY2023 +1.9pp) but **WORSE in the
+years that matter** — FY2024 **−1.2pp** (the documented good-in-bearish year) and ~no-op on FY2019
+(+0.2pp on a −29% loss year, because TSMOM was *long going in*). **MECHANISM (durable):** the 41-yr TSMOM
+drawdown edge lives in *sustained* bears (1990s lost decades, GFC) **outside** FY2018–25; inside the
+window the index bears are V-recoveries (COVID) and chop (2022/2025) where TSMOM **whipsaws** and is long
+into the sharp legs → it protects nothing the β-0.7 book actually suffers. OOS FY2025 leans + (+0.074)
+but the pooled verdict binds and the blend loses badly overall. **Closes the single-index-TSMOM
+diversification-overlay lever.** (A genuinely *uncorrelated* stream — not long-equity-beta — could still
+diversify, but no such breadth-immune candidate is on the map; PEAD/value were breadth-killed.)
+_Original framing below._
+
+_(original)_ `project_confluence_buyhold_win`: the book only **ties** the equal-weight universe; its edge
+over the index is a drawdown cut, not alpha (~62% beta). The biggest risk-adjusted gain is pairing it with
+an **uncorrelated** stream, not optimizing the book. Candidate: the **TSMOM long/flat L=12 defensive
 overlay** (`docs/analysis/20260528_tsmom_overlay.md` — halves index maxDD over 41yr, breadth-immune,
 ~uncorrelated to single-name picking). Test blended (confluence + sized overlay) Sharpe/maxDD vs
 confluence-only. *NOTE: TSMOM is tail-insurance, not alpha (drags in bull/chop) — judge net portfolio
