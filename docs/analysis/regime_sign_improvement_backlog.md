@@ -22,7 +22,7 @@ A prioritized list of the **untested** improvement levers for `RegimeSignStrateg
 | # | Lever | Axis | Status |
 |---|---|---|---|
 | 1 | Oracle-ceiling probe (per-axis headroom) | diagnostic | ✅ **DONE (2026-05-29)** — **EXIT is the only axis with headroom (+3.89 Sharpe), SELECTION negligible (+0.35)**; drawdown is exit-driven (maxDD −23%→−6% under perfect exit). Reprioritizes: item 4 dead, item 2 is the cleanest shot |
-| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | 🟡 **Stage 1 fill-order PASS / OOS FAIL (2026-05-29)** — TILT-DL Δ Sharpe **+0.074, P=0.985, CI [+0.009,+0.126]** (GATE 1 PASS) + **maxDD −30%→−25.6% (+4.4pp, 100%)**; but OOS FY2025 −0.067 (GATE 3 FAIL). Drawdown lever, thinner than confluence. **Phase null pending = decisive** |
+| 2 | Regime-conditional **EV sizing tilt** (neutral-momentum trim) | weights | ✅ **Stage 1 BOTH NULLS PASS (2026-05-29)** — fill-order Δ +0.074 (CI-lo +0.009) AND phase+order **Δ +0.123, P=1.000, CI [+0.031,+0.194], 8/8 phases**; **maxDD −31%→−26% (+4.8pp, 100%)**. Validated DRAWDOWN lever (= confluence's accepted item 2; CI-lo cleaner). Remaining: integer-lot + cutoff-CV, then operator call |
 | 3 | **Blend RegimeSign + Confluence** | portfolio | 🟠 **Stage 1 NEAR-MISS (2026-05-29)** — capital-alloc null: BLEND Sharpe +1.22 vs Confluence +1.11, **Δ +0.111 P=0.905 CI [−0.081,+0.292]** FAILS strict gate; but band shifts up + **maxDD −20% vs −23%/−30%** (capacity-null profile). Operator call; 12-name burden ⇒ I'd not auto-adopt |
 | 4 | `min_dr` cutoff sweep | selection/ranking | ⛔ **DEAD on arrival** (item 1: oracle SELECTION headroom only +0.35; tight null band p95 +1.19) — don't spend a pre-reg |
 | 5 | Regime-conditional / β-stripped **exit** | exit | ⬜ **untested** — item 1 shows this axis HAS the headroom (+3.89) but capture track record is poor (asym/time40 REJECT); low prior on a *causal* rule |
@@ -125,11 +125,30 @@ not selection.
   (+0.100) but widest CI / lowest P (0.910) → **the portfolio null says TRIM (0.5–0.75) is more reliable
   than SKIP**, overriding Stage-0's α≈0 skip hint.
 
-**Read: a DRAWDOWN lever, thinner than confluence's** (Δ Sharpe +0.074 vs +0.120; CI-lo +0.009 barely
-clears). Same trajectory as the confluence item-2 that earned ACCEPT-as-guideline — but the fill-order null
-cannot see regime-timing luck, so the **START-PHASE null is the decisive binding test** (confluence passed
-it: Δ +0.123, P 0.990, 8/8 phases). Given RegimeSign's thinner edge + negative OOS, the phase null genuinely
-decides this one. **PENDING: `regime_sign_evtilt_phase_null` (start-offset × order worlds).**
+**STAGE 1 — combined phase+order null: SURVIVES (2026-05-29, `regime_sign_evtilt_phase_null.py`).** 8 start
+offsets (0..35 trading days) × 25 within-day shuffles = 200 worlds/FY; re-windows the SAME pool (drop
+candidates before cal[offset]) so different neutral periods get trimmed.
+
+| arm | Sharpe (mean) | maxDD |
+|---|---|---|
+| EW | 1.046 (sd 0.170) | −31.1% |
+| **TILT-DL** | **1.169** (sd 0.174) | **−26.3%** |
+
+- **Δ Sharpe +0.123, P(Δ>0)=1.000 (200/200), 95% CI [+0.031, +0.194] → PASS** in the wider band.
+- **Δ maxDD +4.84pp shallower, P=1.000.** Positive at **8/8 start phases** deterministically (+0.041..+0.194).
+- The phase+order Δ (+0.123) is STRONGER than the fill-order Δ (+0.074), and **CI-lo +0.031 clears more
+  cleanly than confluence's own phase null (+0.007)** → my earlier "thinner than confluence" read was an
+  artifact of the fill-order null alone; on the binding test they are on par.
+
+**VERDICT — item 2 clears BOTH binding nulls (fill-order + phase+order): a validated DRAWDOWN lever**
+(−31%→−26%, ~+4.8pp, 100% of worlds) with a real, modest Sharpe tailwind — the exact profile that earned
+confluence's item 2 an ACCEPT-as-guideline. Caveats identical to confluence: OOS FY2025 flat-negative in the
+fill-order null (insurance premium paid in bull years); tercile cutoffs are in-period. **Remaining gates
+before adoption** (the two confluence applied next): **integer-lot realizability** (¥2M/6 slots) and
+**held-out cutoff cross-validation** (train/freeze/score) — then operator / sign-debate call. Likely
+adoption path is the SAME Daily-tab N225-60bar banner + bimodal hint already built for confluence
+(`src/portfolio/sizing.py`, `_sizing_regime_banner`), extended to RegimeSign rows (cutoffs differ:
+RegimeSign −1.01%/+6.54% vs confluence −0.1%/+8.1%).
 
 **The sole confluence backlog survivor — test whether it transfers.** On confluence, EV is non-monotone
 in N225 60-bar momentum (NEUTRAL is the β-stripped EV weak spot: raw +0.52% / α +0.33% vs bullish
