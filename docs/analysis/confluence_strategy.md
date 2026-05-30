@@ -612,6 +612,39 @@ return for a marginal drawdown improvement. Band width is a knob (wider → drif
 deployed-capital null; narrower → toward the control) and does not change the verdict. Not shipped
 (decision-support only). See memory `project_confluence_corr_price_tiebreak.md`.
 
+### Q6 — reject brk_kumo_hi when price was over the kumo for n% of the last 60 days? (sign-logic gate)
+
+Operator: a `brk_kumo_hi` should mark a *fresh* stage change from below to above the cloud; if the
+stock already spent most of the last 60 days above the kumo, the "breakout" is chop on an
+already-above-cloud chart → reject it. Stage-0 probe (`brk_kumo_frac_over_stage0.py`): bucket K=1
+fires' forward +20-bar return by fraction of the prior 60 days above the cloud top (close>top and
+low>top). Pooled + FY2025 OOS.
+
+| frac over kumo (60d) | n | DR | mean ret | FY2025 OOS (DR / mean) |
+|---|---:|---:|---:|---:|
+| **0–20%** (fresh from below) | 2,980 | **47%** | **−0.23%** | 56% / +1.90% |
+| 20–40% | 1,774 | 53% | +0.90% | 66% / +3.37% |
+| 40–60% | 1,996 | **55%** | **+1.14%** | 69% / +4.29% |
+| 60–80% | 1,726 | 52% | +0.58% | 61% / +2.51% |
+| 80–100% (established) | 2,137 | 52% | +0.93% | 64% / +4.62% |
+
+**The gate is BACKWARDS.** The worst cohort is the *fresh-from-below* extreme (0–20%, the only
+negative-mean bucket, DR 47%); the already-established above-cloud fires (80–100%) are fine
+(+0.93%). Rejecting high-frac fires would delete winners and keep the losers. The strict
+"low>top" definition shows the identical shape.
+
+This is the **third inversion** of the "fresher breakout is better" intuition (with Q4
+days-under-kumo). The durable read: **`brk_kumo_hi` is a pullback-continuation signal, not a
+fresh-breakout-from-below signal** — an established-uptrend stock that dips to the cloud and
+reclaims it is a healthy buy; a first poke above the cloud after being below it is fighting a
+prior downtrend and is the weakest setup.
+
+**Verdict: REJECT.** The proposed gate is inverted, and the inverse direction (reject the
+fresh-from-below 0–20% bucket) fails the walk-forward check — that bucket is *positive* in FY2025
+OOS (+1.90%, DR 56%) — so it's a "trim the weakest" at best, not a clean reject, and would still
+face the portfolio null. Keep `brk_kumo_hi` as-is; heavy rebenchmark not run (Stage 0 gates it).
+See memory `project_brk_kumo_frac_over_reject.md`.
+
 ## What the data lesson is
 
 - Single-sign feature additions (str_hold candle / gap probe, brk_wall
@@ -653,6 +686,7 @@ deployed-capital null; narrower → toward the control) and does not change the 
 | `src/analysis/brk_kumo_days_under_stage0.py` | brk_kumo_hi days-under-kumo gate (Stage 0) — REJECT, non-monotone / too rare |
 | `src/analysis/confluence_deployed_capital_null.py` | prefer-most-expensive slot priority (budget book) — REJECT, exposure not alpha |
 | `src/analysis/confluence_corr_price_tiebreak_null.py` | price tie-break among similar-corr names — NOT separated, lean-expensive/avoid-cheapest |
+| `src/analysis/brk_kumo_frac_over_stage0.py` | brk_kumo_hi frac-over-kumo-60d gate (Stage 0) — REJECT, gate is backwards (pullback-continuation sign) |
 | `src/exit/exit_simulator.py` | `day_selector` hook (dynamic holding-aware ordering) |
 | `src/analysis/benchmark.md` § Confluence Strategy A/B | Canonical numbers |
 | `docs/analysis/probe_vs_canonical_lesson.md` | Methodology safeguard learned this cycle |
