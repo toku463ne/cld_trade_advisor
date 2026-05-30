@@ -545,6 +545,40 @@ breakout-confirm within the window, but still fill at the next open, not at the 
 it had the right directionality but is a momentum gate that would still face the portfolio
 fill-order null. See memory `project_confluence_limit_entry_reject.md`.
 
+### Q4 — tighten brk_kumo_hi: require N days under the kumo before the breakout? (sign-logic gate)
+
+Operator: many `brk_kumo_hi` fires are a price that only briefly poked under the cloud and
+popped back; require it to have been under the kumo for >N days first → fewer, cleaner fires,
+easing the 6-slot glut. The detector already exposes this as `gate_lookback=K` (K consecutive
+prior bars with low ≤ cloud top; production = K=1). Stage-0 probe
+(`brk_kumo_days_under_stage0.py`): for every K=1 fire, bucket forward +20-bar return (entry
+T+1 open) by run-length of prior days under the cloud. Pooled + FY2025 OOS.
+
+**days under cloud TOP (= the `gate_lookback` knob) — NON-MONOTONE, collapses at the long end:**
+
+| days under top | n | DR | mean ret |
+|---|---:|---:|---:|
+| 1 (production) | 2,628 | 52% | +0.71% |
+| 2–3 | 1,962 | 52% | +0.87% |
+| 4–7 | 1,488 | 54% | +1.14% |
+| **8+** | **4,535** | **50%** | **+0.21%** |
+
+The 8+ bucket is the **worst AND biggest** (43% of fires). Raising K pulls in the worst cohort:
+K≥4 pools to ~+0.44% < the K=1 baseline +0.58%. FY2025 OOS is flat across buckets (59–65%, just
+the bull-year tide) — no hidden separation.
+
+**days fully under cloud BOTTOM (the screenshot's "genuinely under") — TOO RARE:** 98% of fires
+(10,434/10,613) have ZERO prior days fully below the cloud bottom — `brk_kumo_hi` almost always
+breaks out from *inside* the cloud, not from below it. The one good sub-bucket (4–7 days fully
+under: +4.42%, DR 70%) is **n=23 pooled / n=3 OOS** — the small-cohort trap (cf. div_peer
+cluster-size n=7, N225-from-breadth n=25). Not actionable.
+
+**Verdict: REJECT, keep K=1.** The instinct (filter brief pokes) inverts in the data — long bases
+under the cloud break out *weaker* (heavy distribution zone), a quick reclaim is momentum. And the
+premise is already settled: thinning candidates at 6 slots is dominated by fill-order luck, and a
+per-fire EV gate would still face the portfolio null — here there isn't even a per-fire edge, so the
+heavy rebenchmark was not run. See memory `project_brk_kumo_days_under_reject.md`.
+
 ## What the data lesson is
 
 - Single-sign feature additions (str_hold candle / gap probe, brk_wall
@@ -583,6 +617,7 @@ fill-order null. See memory `project_confluence_limit_entry_reject.md`.
 | `src/analysis/confluence_sameday_null.py` | same-day-only PAIRED null — REJECT, keep windowed |
 | `src/analysis/confluence_sameday_priority_null.py` | same-day-priority ordering PAIRED null — REJECT |
 | `src/analysis/confluence_limit_entry_stage0.py` | 指値/逆指値 vs market-at-open entry (Stage 0) — REJECT, adverse selection |
+| `src/analysis/brk_kumo_days_under_stage0.py` | brk_kumo_hi days-under-kumo gate (Stage 0) — REJECT, non-monotone / too rare |
 | `src/exit/exit_simulator.py` | `day_selector` hook (dynamic holding-aware ordering) |
 | `src/analysis/benchmark.md` § Confluence Strategy A/B | Canonical numbers |
 | `docs/analysis/probe_vs_canonical_lesson.md` | Methodology safeguard learned this cycle |
