@@ -510,6 +510,41 @@ ahead of carried-only ones within each competition day, random tiebreak inside e
 Prioritize by **correlation / diversification** — the only axis with evidence. See memory
 `project_confluence_sameday_null_reject.md`.
 
+### Q3 — 指値/逆指値 entry instead of market-at-open? (entry-execution rule)
+
+Operator: replace the two-bar market fill (T+1 open) with a 指値 (buy-limit below) or 逆指値
+(buy-stop above) good for the sign's validity window — cheaper entry, skip names that gap
+away, and validity gives a few days to fill if price comes back. This is an **entry-execution**
+change (not selection), so it could in principle move the whole band — Stage-0 probe first
+(`confluence_limit_entry_stage0.py`): identical WINDOWED signals, common +20-bar exit (only
+entry varies), 5-day fill window, daily-bar fill convention (no intraday look-ahead),
+limit=stop=close[T]; non-fills counted as cash.
+
+| mode | fill% | cond. mean (filled) | **all-cand mean (cash=0)** |
+|---|---:|---:|---:|
+| MKT open[T+1] (production) | 100% | +0.98% | **+0.98%** |
+| LIM 指値 @ close[T] | 89% | +1.01% | **+0.90%** |
+| STOP 逆指値 @ close[T] | 91% | +0.91% | **+0.84%** |
+
+**Both lose to market-at-open.** Adverse-selection diagnostic — baseline (MKT) return of the
+candidates each mode FAILED to fill:
+
+- **LIM 指値 non-fills +3.94%** vs filled +0.61% → the buy-limit **skips the winners** (names
+  that ran up never return to the limit). The +0.03pp cheaper fill can't offset. The
+  "avoid opposite-side moves" intuition **backfires for a bullish signal** — the up-move away
+  from you is where the gains are.
+- **STOP 逆指値 non-fills −1.74%** vs filled +1.23% → breakout-confirmation correctly skips
+  **losers** (right directionality) but you pay *up* at the stop trigger, and that execution
+  cost eats the benefit (+0.84% all-in < +0.98%).
+- The validity window does its job (fill rate ~89–91% vs much less for a 1-day order) but
+  cannot rescue the selection problem.
+
+**Verdict: keep market-at-open.** Neither clears the Stage-0 gate → no Stage-1 portfolio null
+warranted. *Untried low-prior thread:* 逆指値 as a pure entry **filter** (skip if no
+breakout-confirm within the window, but still fill at the next open, not at the stop price) —
+it had the right directionality but is a momentum gate that would still face the portfolio
+fill-order null. See memory `project_confluence_limit_entry_reject.md`.
+
 ## What the data lesson is
 
 - Single-sign feature additions (str_hold candle / gap probe, brk_wall
@@ -547,6 +582,7 @@ Prioritize by **correlation / diversification** — the only axis with evidence.
 | `src/analysis/confluence_sameday_ab.py` | same-day-only vs windowed candidate gen (single-draw A/B) |
 | `src/analysis/confluence_sameday_null.py` | same-day-only PAIRED null — REJECT, keep windowed |
 | `src/analysis/confluence_sameday_priority_null.py` | same-day-priority ordering PAIRED null — REJECT |
+| `src/analysis/confluence_limit_entry_stage0.py` | 指値/逆指値 vs market-at-open entry (Stage 0) — REJECT, adverse selection |
 | `src/exit/exit_simulator.py` | `day_selector` hook (dynamic holding-aware ordering) |
 | `src/analysis/benchmark.md` § Confluence Strategy A/B | Canonical numbers |
 | `docs/analysis/probe_vs_canonical_lesson.md` | Methodology safeguard learned this cycle |
