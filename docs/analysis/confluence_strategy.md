@@ -645,6 +645,38 @@ OOS (+1.90%, DR 56%) — so it's a "trim the weakest" at best, not a clean rejec
 face the portfolio null. Keep `brk_kumo_hi` as-is; heavy rebenchmark not run (Stage 0 gates it).
 See memory `project_brk_kumo_frac_over_reject.md`.
 
+### Q7 — use the pullback-continuation read as a POSITIVE gate on brk_kumo_hi? (binding confluence null)
+
+Q4+Q6 established `brk_kumo_hi` is a pullback-continuation signal. Operator: turn that into a
+positive gate — keep `brk_kumo_hi` only when it's a genuine continuation (frac of prior 60d with
+close>cloud_top ≥ threshold), drop the fresh-from-below fires. Tested at the BINDING level (a
+sign-logic change is judged by the confluence A/B, per the `brk_sma` precedent):
+`confluence_brk_kumo_pullback_null.py` — paired fill-order null on the 6-slot book, all 10 signs
+shared, only `brk_kumo_hi`'s fires gated. G20 = drop frac<20%, G40 = drop frac<40%.
+
+| arm | Sharpe | band [p5,p95] | return | maxDD |
+|---|---:|---:|---:|---:|
+| BASE (ungated) | 0.81 | [0.57, 1.08] | +200% | −28% |
+| G20 (drop frac<20%) | 0.76 | [0.49, 1.05] | +176% | −30% |
+| G40 (drop frac<40%) | 0.71 | [0.43, 0.95] | +156% | −30% |
+
+| gate − BASE | Δ Sharpe | 95% CI | P(Δ>0) | Δ return |
+|---|---:|---:|---:|---:|
+| G20 | **−0.057** | [−0.478, +0.361] | 0.380 | −24pp |
+| G40 | **−0.105** | [−0.521, +0.372] | 0.300 | −44pp |
+
+**NOT separated, but leans NEGATIVE and gets monotonically worse with more gating** (Sharpe
+0.81→0.76→0.71, return down, DD slightly deeper). The gate fails *though the insight is correct*,
+for two compounding reasons: (1) the dropped fresh-from-below cohort still has **positive
+expectancy** (+1.90% FY2025 OOS, Q6) — cutting positive-EV trades removes return; (2) `brk_kumo_hi`
+is 1 of 10 confluence signs, so dropping its fires thins confluence-count contributions → fewer
+≥3 triggers → fewer slots fill → less return, no Sharpe gain (the 6-slot thinning wall). This is
+the exact **inverse** of the `brk_sma` change that *added* value to confluence.
+
+**Verdict: REJECT — keep `brk_kumo_hi` ungated.** Pullback-continuation is a useful *descriptive*
+read (for eyeballing a fire's quality on the Daily tab), **not** an actionable filter. See memory
+`project_brk_kumo_pullback_gate_reject.md`.
+
 ## What the data lesson is
 
 - Single-sign feature additions (str_hold candle / gap probe, brk_wall
@@ -687,6 +719,7 @@ See memory `project_brk_kumo_frac_over_reject.md`.
 | `src/analysis/confluence_deployed_capital_null.py` | prefer-most-expensive slot priority (budget book) — REJECT, exposure not alpha |
 | `src/analysis/confluence_corr_price_tiebreak_null.py` | price tie-break among similar-corr names — NOT separated, lean-expensive/avoid-cheapest |
 | `src/analysis/brk_kumo_frac_over_stage0.py` | brk_kumo_hi frac-over-kumo-60d gate (Stage 0) — REJECT, gate is backwards (pullback-continuation sign) |
+| `src/analysis/confluence_brk_kumo_pullback_null.py` | brk_kumo_hi pullback-continuation gate at confluence null — REJECT, leans negative |
 | `src/exit/exit_simulator.py` | `day_selector` hook (dynamic holding-aware ordering) |
 | `src/analysis/benchmark.md` § Confluence Strategy A/B | Canonical numbers |
 | `docs/analysis/probe_vs_canonical_lesson.md` | Methodology safeguard learned this cycle |
