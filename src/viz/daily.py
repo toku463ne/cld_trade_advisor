@@ -2232,14 +2232,15 @@ def layout() -> html.Div:
                                 labelStyle={"marginRight": "12px", "color": TEXT,
                                             "fontSize": "12px", "cursor": "pointer"},
                             ),
-                            # Default ON: show only proposals that fired on the
-                            # selected date (the backtest's entry day).  A no-fire
-                            # day then shows an empty table = "nothing to do today",
-                            # which is the faithful live workflow.
+                            # Default OFF (2026-05-30): show all currently-valid
+                            # proposals, not just those that fired on the selected
+                            # date.  Toggle ON to restrict to fresh fires (the
+                            # backtest's entry day) — a no-fire day then shows an
+                            # empty table = "nothing to do today".
                             dcc.Checklist(
                                 id="daily-fresh-only",
                                 options=[{"label": " Fresh fires only", "value": "fresh"}],
-                                value=["fresh"],
+                                value=[],
                                 inline=True,
                                 inputStyle={"marginRight": "4px"},
                                 labelStyle={"color": GREEN, "fontSize": "12px",
