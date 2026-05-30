@@ -1672,6 +1672,99 @@ def _slot_corr(
     return out
 
 
+# Tie-break weight for the diversification ordering score. Small on purpose: the
+# ordering is diversification-FIRST; the deployed-capital ("expensive") term only
+# breaks ties between equally-uncorrelated candidates and is an EXPOSURE nudge, not
+# an alpha claim — see docs/analysis/confluence_strategy.md Q5
+# (project_confluence_corr_price_tiebreak / _deployed_capital_reject).
+_DIV_TIEBREAK_EPS = 0.05
+
+
+def _diversification_order(
+    rows:       list[dict[str, Any]],
+    account_id: int | None,
+    as_of:      datetime.date,
+    budget:     float,
+    window:     int = 20,
+) -> list[dict[str, Any]]:
+    """Order candidate rows by a diversification score (decision-support only).
+
+    ``score = (1 − max_i |ρ20(candidate, holding_i)|) + ε · deployed_capital_fraction``
+
+    - Primary term: ``1 − max |ρ20| to current holdings`` — a candidate uncorrelated
+      with everything held scores ~1 (fill first); one redundant with a slot already
+      owned scores ~0. This is the only slot-ordering axis with supporting evidence
+      (corr-greedy diversification; see confluence_strategy.md §selection). With NO
+      holdings it falls back to ``1 − |corr_n225|`` (prefer low index-correlation).
+    - Tie-break (ε small): deployed-capital fraction — the "expensive" lean. An
+      EXPOSURE nudge between equally-diversifying names, **not** a return claim; the
+      paired null left it inside fill-order noise (Q5).
+
+    This is NOT expected to raise backtest Sharpe (no ordering rule beats the fill-order
+    null at ~40 trades/yr); it operationalises the diversification heuristic for the
+    operator. Annotates each row with ``div_score`` / ``div_max_corr``. Best-effort:
+    on any failure the input order is preserved unchanged.
+    """
+    if not rows:
+        return rows
+    try:
+        end_dt   = datetime.datetime.combine(as_of, datetime.time.max, tzinfo=_JST)
+        start_dt = end_dt - datetime.timedelta(days=window * 5 + 90)
+        held_ser: dict[str, pd.Series] = {}
+        if account_id is not None:
+            with get_session() as session:
+                positions = get_open_positions(session, account_id=account_id)
+                for code in sorted({p.stock_code for p in positions}):
+                    c = DataCache(code, _GRAN)
+                    c.load(session, start_dt, end_dt)
+                    if c.bars:
+                        held_ser[code] = pd.Series({b.dt.date(): b.close for b in c.bars})
+
+        for r in rows:
+            code   = r["stock"]
+            others = {h: s for h, s in held_ser.items() if h != code}
+            max_corr: float | None = None
+            if others:
+                with get_session() as session:
+                    cand = DataCache(code, _GRAN)
+                    cand.load(session, start_dt, end_dt)
+                if cand.bars:
+                    cand_ser = pd.Series({b.dt.date(): b.close for b in cand.bars})
+                    cm = compute_moving_corr(cand_ser, others, window=window)
+                    vals: list[float] = []
+                    for h in others:
+                        s = cm.get(h)
+                        if s is None or s.empty:
+                            continue
+                        s = s[s.index <= as_of].dropna()
+                        if not s.empty:
+                            vals.append(abs(float(s.iloc[-1])))
+                    if vals:
+                        max_corr = max(vals)
+            if max_corr is not None:
+                div = 1.0 - max_corr
+            else:                                   # no holdings → low-index-corr first
+                cn  = r.get("corr_n225")
+                div = (1.0 - abs(cn)) if cn is not None else 0.5
+
+            deployed_frac = 0.0
+            try:
+                price = get_latest_price(code)
+                if price and budget:
+                    lots = recommended_lots(budget, float(price), DEFAULT_SLOTS)
+                    deployed_frac = lots * LOT_SHARES * float(price) / budget
+            except Exception:
+                deployed_frac = 0.0
+
+            r["div_max_corr"] = round(max_corr, 3) if max_corr is not None else None
+            r["div_score"]    = round(div + _DIV_TIEBREAK_EPS * deployed_frac, 4)
+
+        rows.sort(key=lambda r: (-r.get("div_score", 0.0), r["stock"]))
+    except Exception as exc:
+        logger.warning("_diversification_order failed: {}", exc)
+    return rows
+
+
 def _exit_advice(
     stock_code: str,
     entry_date: datetime.date,
@@ -2168,6 +2261,7 @@ def layout() -> html.Div:
                                     {"name": "Stock",     "id": "stock"},
                                     {"name": "Sign",      "id": "sign"},
                                     {"name": "Corr",      "id": "corr"},
+                                    {"name": "Div",       "id": "div"},
                                     {"name": "Kumo",      "id": "kumo"},
                                     {"name": "DR%",       "id": "dr_pct"},
                                     {"name": "EV",        "id": "ev"},
@@ -2790,11 +2884,13 @@ def register_callbacks() -> None:
         Input("daily-proposals-store-raw", "data"),
         Input("daily-strategy-switch", "value"),
         Input("daily-fresh-only", "value"),
+        Input("active-account-id", "data"),
         State("daily-date", "date"),
     )
     def filter_proposals_by_strategy(
         raw_data: str | None, strat: str | None,
-        fresh_only: list | None, date_str: str | None,
+        fresh_only: list | None, account_id: int | None,
+        date_str: str | None,
     ) -> tuple:
         """Derive the displayed store from the raw store + strategy + freshness.
 
@@ -2805,6 +2901,12 @@ def register_callbacks() -> None:
         backtest's entry day), so carried-over rows in the validity window are
         hidden and a no-fire day shows nothing.  Resetting selected_rows avoids
         a stale selection pointing past the end of a now-shorter list.
+
+        Final ordering is the diversification score (``_diversification_order``):
+        candidates least correlated with what the active account already holds come
+        first, since at 6 slots picking by diversification — not predicted return —
+        is the only supported selection axis (confluence_strategy.md). Reordering the
+        STORE (not just the table) keeps every selection handler's index aligned.
         """
         if not raw_data:
             return raw_data, []
@@ -2814,6 +2916,18 @@ def register_callbacks() -> None:
         if fresh_only and "fresh" in fresh_only:
             as_of = (date_str or "")[:10]
             rows = [r for r in rows if r.get("fired_at") == as_of]
+        if rows and date_str:
+            try:
+                as_of_d = datetime.date.fromisoformat(date_str[:10])
+                budget = float(DEFAULT_BUDGET)
+                if account_id is not None:
+                    with get_session() as session:
+                        acct = get_account(session, account_id)
+                    if acct and acct.budget:
+                        budget = float(acct.budget)
+                rows = _diversification_order(rows, account_id, as_of_d, budget)
+            except Exception as exc:
+                logger.warning("diversification ordering skipped: {}", exc)
         return json.dumps(rows), []
 
     @callback(
@@ -2853,6 +2967,8 @@ def register_callbacks() -> None:
                 "stock":     r["stock"],
                 "sign":      r["sign"],
                 "corr":      r["corr"],
+                "div":       (f"{r['div_score']:.2f}" if r.get("div_score") is not None
+                              else "—"),
                 "kumo":      r["kumo"],
                 "dr_pct":    f"{r['dr']:.1%}",
                 "ev":        f"{r['ev']:+.4f}",

@@ -321,6 +321,15 @@ adoption objections resolved:
   the chart title / fired annotation (`_fmt_sign_label`).
 - **slot-corr diversification panel** — ρ(20) of each candidate vs every open
   position (`_slot_corr`); red ≥0.6, green ≤0.3. This is the picking rule.
+- **diversification ordering score** (2026-05-30, `_diversification_order`) — the
+  Daily candidate table is now *ordered* by `score = (1 − max|ρ20 to holdings|) +
+  0.05·deployed_capital_fraction`: least-correlated-to-holdings first (fallback
+  `1 − |corr_n225|` when no holdings), with the "expensive" deployed-capital lean as a
+  small tie-break. New **Div** column surfaces it. Distilled from Q1–Q7 — only the
+  diversification term (and a tiny exposure tie-break) earned weight; the same-day,
+  count, entry-execution and brk_kumo terms are zero/negative. Decision-support, **not**
+  a Sharpe claim (no ordering rule beats the fill-order null at ~40 trades/yr). See
+  memory `project_daily_diversification_order.md`.
 - **Per-position exit advice** — ADX-trail HOLD/EXIT verdict + bars held +
   distance-to-TP/SL + ZigZag-exit flag in each position card (`_exit_advice`,
   mirrors `adx_trail_d8.0`).
