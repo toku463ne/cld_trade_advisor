@@ -579,6 +579,39 @@ premise is already settled: thinning candidates at 6 slots is dominated by fill-
 per-fire EV gate would still face the portfolio null — here there isn't even a per-fire edge, so the
 heavy rebenchmark was not run. See memory `project_brk_kumo_days_under_reject.md`.
 
+### Q5 — price as a tie-break among similar-correlation candidates? (corr-primary + price secondary)
+
+Operator: keep correlation/diversification as the PRIMARY slot pick; only when candidates have
+*similar* correlation-to-holdings, break the tie by price (deployed capital = lots×100×price) —
+test BOTH expensive and cheapest. (Distinct from the rejected pure deployed-capital priority of
+`confluence_deployed_capital_null.py`, which discards the corr pick entirely → dead coin flip p45.)
+
+`confluence_corr_price_tiebreak_null.py`: corr-greedy primary (least max-|corr|-to-held, the
+`confluence_slot_order` day_selector) binned to corr band 0.15; within a band the tie-break is
+random (control) / high-deployed (EXPENSIVE) / low-deployed (CHEAPEST). Budget ¥2M 6-slot book.
+EXPENSIVE/CHEAPEST are deterministic (one book each); RANDOM = K=200 control.
+
+| tie-break | Sharpe | vs random null | return | maxDD |
+|---|---:|---:|---:|---:|
+| random (control) | 0.91 | [p5 0.68, p95 1.14] | +170% | −21% |
+| **prefer EXPENSIVE** | **0.98** | **p70** (P(Δ>0)=0.695, +26pp) | +197% | −22% |
+| **prefer CHEAPEST** | **0.84** | **p31** (P(Δ>0)=0.310, −33pp) | +138% | −20% |
+
+**NOT separated** — neither direction clears p95. But there's a consistent *direction*
+(expensive > random > cheap), and it is the **same exposure / cash-drag axis**, not alpha:
+expensive = more deployed → more fully invested → +26pp return AND deeper DD (−22 vs −20);
+cheapest = more cash drag → less return, shallower DD. The Sharpe move (0.90→0.98) is within
+fill-order luck — the same "best lead but not significant" as corr-greedy itself (p73). Routing
+price as a *tie-break* (rather than a pure priority) makes the lean visible because it preserves
+the corr pick and only acts within similar-corr bins.
+
+**Guidance: if you must break a corr-tie, lean EXPENSIVE and AVOID CHEAPEST — but expect no real
+edge.** What you are choosing is *exposure* (expensive = more invested = more return + more DD),
+not alpha. Cheapest is the one to actively avoid: it systematically under-deploys, giving up
+return for a marginal drawdown improvement. Band width is a knob (wider → drifts toward the dead
+deployed-capital null; narrower → toward the control) and does not change the verdict. Not shipped
+(decision-support only). See memory `project_confluence_corr_price_tiebreak.md`.
+
 ## What the data lesson is
 
 - Single-sign feature additions (str_hold candle / gap probe, brk_wall
@@ -618,6 +651,8 @@ heavy rebenchmark was not run. See memory `project_brk_kumo_days_under_reject.md
 | `src/analysis/confluence_sameday_priority_null.py` | same-day-priority ordering PAIRED null — REJECT |
 | `src/analysis/confluence_limit_entry_stage0.py` | 指値/逆指値 vs market-at-open entry (Stage 0) — REJECT, adverse selection |
 | `src/analysis/brk_kumo_days_under_stage0.py` | brk_kumo_hi days-under-kumo gate (Stage 0) — REJECT, non-monotone / too rare |
+| `src/analysis/confluence_deployed_capital_null.py` | prefer-most-expensive slot priority (budget book) — REJECT, exposure not alpha |
+| `src/analysis/confluence_corr_price_tiebreak_null.py` | price tie-break among similar-corr names — NOT separated, lean-expensive/avoid-cheapest |
 | `src/exit/exit_simulator.py` | `day_selector` hook (dynamic holding-aware ordering) |
 | `src/analysis/benchmark.md` § Confluence Strategy A/B | Canonical numbers |
 | `docs/analysis/probe_vs_canonical_lesson.md` | Methodology safeguard learned this cycle |
