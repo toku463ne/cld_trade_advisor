@@ -462,6 +462,54 @@ trades/yr. **Exit *and* selection are now both exhausted; capacity (6-slot) is t
 only intervention that moved the whole band.** (Build note: `AdxTrail` needs
 `_add_adx` on the caches or it silently degenerates to `TimeStop(40)`.)
 
+## 2026-05-30 — same-day confluence revisited (two paired nulls, both REJECT)
+
+Operator revisited the validity-window choice with two distinct questions. The v1
+"same-day" reject (§Three iterations) was a *structural-rarity* argument on the per-fire
+proxy; these are the **binding capital-aware paired-null** versions on the current 10-sign
+6-slot book. Both come back NOT separated.
+
+### Q1 — generate candidates from same-day fires only? (candidate-generation rule)
+
+Force every sign's `valid_bars = 0`, so a fire counts toward the ≥3 gate **only on its fire
+date** (`confluence_sameday_ab.py` single draw → `confluence_sameday_null.py` paired null,
+K=200, same seed both arms):
+
+| arm | Sharpe mean | band [p5,p95] | sd | ret | maxDD |
+|---|---:|---:|---:|---:|---:|
+| WINDOWED (production) | +0.91 | [0.65, 1.18] | 0.16 | +254% | −27% |
+| SAMEDAY (valid_bars=0) | +0.86 | [0.72, 1.02] | 0.09 | +167% | −24% |
+
+- Paired **Δ Sharpe −0.048**, 95% CI **[−0.388, +0.338]**, **P(Δ>0)=0.37** — NOT separated,
+  point estimate leans *negative*.
+- The single-draw A/B had *flipped sign* between books (ew +0.72→+0.88 but budget +0.88→+0.83)
+  and per-FY year to year — the fill-order-luck fingerprint; pairing it out reverses the "+0.16".
+- SAMEDAY sheds ~17% of trades (409→338) → **−87pp stitched return** (P(Δ>0)=0.155) for no
+  Sharpe. Its tighter band / shallower DD (+3.6pp) is the *fewer-candidates → less order
+  sensitivity* effect, **not alpha**. **Verdict: keep WINDOWED.**
+
+### Q2 — among WINDOWED candidates, PRIORITIZE same-day ones for the 6 slots? (ordering rule)
+
+Same pool, promote sameday-qualifying candidates (≥3 signs fired that exact `entry_date`)
+ahead of carried-only ones within each competition day, random tiebreak inside each tier
+(`confluence_sameday_priority_null.py`, K=200 paired):
+
+| arm | Sharpe mean | band [p5,p95] | ret | maxDD |
+|---|---:|---:|---:|---:|
+| random fill (null) | +0.91 | [0.65, 1.18] | +254% | −27% |
+| sameday-priority | +0.92 | [0.67, 1.17] | +255% | −27% |
+
+- Pool is only **9% sameday-qualifying / 91% carried** (1,030 / 10,940). Paired **Δ Sharpe
+  +0.007**, 95% CI **[−0.274, +0.249]**, **P(Δ>0)=0.53** — coin flip.
+- Same PEAD-score-booster mechanism: most days have no sameday candidate to promote, and when
+  they do, reordering rarely changes *which 6 names* fill. Joins RS-rank / corr-greedy /
+  prefer_b0 / ADX-priority / PEAD-vote-booster in the selection-rule graveyard.
+
+**Picking guidance (unchanged, now reinforced):** do **not** prioritize by sameday-freshness
+*or* by bullish-sign count (production's current sort key, itself unverified vs random fill).
+Prioritize by **correlation / diversification** — the only axis with evidence. See memory
+`project_confluence_sameday_null_reject.md`.
+
 ## What the data lesson is
 
 - Single-sign feature additions (str_hold candle / gap probe, brk_wall
@@ -496,6 +544,9 @@ only intervention that moved the whole band.** (Build note: `AdxTrail` needs
 | `src/analysis/confluence_adx_priority_null.py` | ADX-priority PAIRED null — decisive REJECT |
 | `src/analysis/confluence_exit_ab.py` | exit-rule A/B (adx_d8/time40 vs ZsTpSl) — REJECT |
 | `src/analysis/confluence_bearish_select.py` | prefer-fewest-bearish (REJECT, parked) |
+| `src/analysis/confluence_sameday_ab.py` | same-day-only vs windowed candidate gen (single-draw A/B) |
+| `src/analysis/confluence_sameday_null.py` | same-day-only PAIRED null — REJECT, keep windowed |
+| `src/analysis/confluence_sameday_priority_null.py` | same-day-priority ordering PAIRED null — REJECT |
 | `src/exit/exit_simulator.py` | `day_selector` hook (dynamic holding-aware ordering) |
 | `src/analysis/benchmark.md` § Confluence Strategy A/B | Canonical numbers |
 | `docs/analysis/probe_vs_canonical_lesson.md` | Methodology safeguard learned this cycle |
