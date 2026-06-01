@@ -11,6 +11,7 @@ import json
 import math
 import os
 import threading
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -83,6 +84,36 @@ _CHART_BARS    = 160    # bars shown in chart (extra loaded for SMA warmup)
 # would incorrectly include the NEXT trading day's bar (Jan 6 23:59 UTC
 # = Jan 7 08:59 JST → Jan 7's bar gets pulled in).
 _JST           = datetime.timezone(datetime.timedelta(hours=9))
+
+# ── Candidate risk-scan prompt (Copy button → paste into a Claude chat) ──────────
+# Single source of truth = docs/candidate_risk_scan_prompt.md; we extract the fenced
+# code block and truncate at the "CANDIDATES:" line so live candidates can be appended.
+# Decision-support only (event risk + shared-factor correlation), NOT a buy/skip call.
+_RISK_SCAN_DOC = Path(__file__).resolve().parents[2] / "docs" / "candidate_risk_scan_prompt.md"
+
+
+def _load_risk_scan_prompt() -> str:
+    """Return the prompt template, ending at the 'CANDIDATES:' label (placeholder
+    line dropped).  Empty string if the docs file is missing/malformed."""
+    try:
+        text = _RISK_SCAN_DOC.read_text(encoding="utf-8")
+    except OSError:
+        logger.warning("risk-scan prompt doc not found at {}", _RISK_SCAN_DOC)
+        return ""
+    parts = text.split("```")
+    if len(parts) < 3:
+        return ""
+    out: list[str] = []
+    for ln in parts[1].lstrip("\n").splitlines():
+        if ln.strip().startswith("CANDIDATES:"):
+            out.append("CANDIDATES:")
+            break
+        out.append(ln)
+    return "\n".join(out)
+
+
+_RISK_SCAN_PROMPT_TEMPLATE = _load_risk_scan_prompt()
+
 
 # ── Conditional-EV sizing-tilt regime (confluence item 2; /sign-debate ACCEPT 2026-05-29) ──
 # Trailing-60-bar ^N225 momentum drives the NEUTRAL-regime half-lot guideline surfaced in the
@@ -2249,6 +2280,28 @@ def layout() -> html.Div:
                         ],
                     ),
 
+                    # Copy candidates + risk-scan prompt → paste into a Claude chat
+                    # (event-risk + shared-factor scan; decision-support, not buy/skip).
+                    html.Div(
+                        style={"display": "flex", "alignItems": "center",
+                               "gap": "6px", "margin": "0 0 8px"},
+                        children=[
+                            dcc.Clipboard(
+                                id="daily-copy-prompt",
+                                content=_RISK_SCAN_PROMPT_TEMPLATE,
+                                title="Copy the displayed candidates + risk-scan "
+                                      "prompt for a Claude chat",
+                                style={"cursor": "pointer", "color": ACCENT,
+                                       "fontSize": "15px"},
+                            ),
+                            html.Span(
+                                "Copy candidates + risk-scan prompt",
+                                style={"color": MUTED, "fontSize": "11px",
+                                       "whiteSpace": "nowrap"},
+                            ),
+                        ],
+                    ),
+
                     # Loading spinner wraps the table
                     dcc.Loading(
                         id="daily-loading",
@@ -2990,6 +3043,30 @@ def register_callbacks() -> None:
             for r in rows
         ]
         return table_rows, tooltip_data
+
+    @callback(
+        Output("daily-copy-prompt", "content"),
+        Input("daily-proposals-store", "data"),
+    )
+    def update_copy_prompt(store_data: str | None) -> str:
+        """Append the displayed candidates (deduped by code) to the risk-scan
+        prompt template for the Copy button."""
+        if not _RISK_SCAN_PROMPT_TEMPLATE:
+            return ""
+        if not store_data:
+            return _RISK_SCAN_PROMPT_TEMPLATE
+        rows = json.loads(store_data)
+        seen: set[str] = set()
+        lines: list[str] = []
+        for r in rows:
+            code = r.get("stock")
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            lines.append(f"{code} {r.get('name') or ''}".rstrip())
+        if not lines:
+            return _RISK_SCAN_PROMPT_TEMPLATE
+        return _RISK_SCAN_PROMPT_TEMPLATE + "\n" + "\n".join(lines)
 
     @callback(
         Output("daily-factor-panel", "children"),
