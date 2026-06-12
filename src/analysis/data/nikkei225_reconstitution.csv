@@ -1,0 +1,65 @@
+# Nikkei 225 constituent changes 2019-2026 — hand-curated 2026-06-13 from primary sources.
+# announce_date = Nikkei Inc. press-release date (announcements come after the close);
+# effective_date = first calculation day under the new lineup (index funds execute the
+# forced rebalance flow at the CLOSE of effective_date - 1 business day).
+# tradable=0: leg not tradable post-event (delisting/holding-co conversion) or no usable
+# price history (new listing). Sources: indexes.nikkei.co.jp press PDFs (2019-09-04,
+# 2020-09-01, 2021-09-06, 2022-09-05, 2023-09-04, 2024-03-04, 2024-09-04, 2025-03-05),
+# Nikkei Asia announcements (2022-03-01, 2024-03-04, 2024-09-04), Bloomberg/kabutan/QUICK
+# (2023-03-03, 2025-09-08, 2025-10-27, 2026-03-05).
+# NOT yet included (TODO): 2025 NTT Data delisting -> Rohm addition (date unverified);
+# 2020 extraordinary additions (JPX / Nexon / Sharp for SonyFH / FamilyMart / Docomo
+# delistings); all pre-2019 events.
+event_id,event_type,announce_date,effective_date,leg,code,name,tradable,note
+2019_oct,review,2019-09-04,2019-10-01,add,2413.T,M3,1,
+2019_oct,review,2019-09-04,2019-10-01,delete,9681.T,Tokyo Dome,1,TOB by Mitsui Fudosan announced 2020-11 (after +60w)
+2020_oct,review,2020-09-01,2020-10-01,add,9434.T,SoftBank Corp,1,
+2020_oct,review,2020-09-01,2020-10-01,delete,4272.T,Nippon Kayaku,1,
+2021_oct,review,2021-09-06,2021-10-01,add,6861.T,Keyence,1,
+2021_oct,review,2021-09-06,2021-10-01,add,6981.T,Murata Manufacturing,1,
+2021_oct,review,2021-09-06,2021-10-01,add,7974.T,Nintendo,1,
+2021_oct,review,2021-09-06,2021-10-01,delete,3105.T,Nisshinbo HD,1,
+2021_oct,review,2021-09-06,2021-10-01,delete,5901.T,Toyo Seikan GHD,1,
+2021_oct,review,2021-09-06,2021-10-01,delete,9412.T,Sky Perfect JSAT,1,
+2022_mar,extraordinary,2022-03-01,2022-04-04,add,8591.T,Orix,1,prime-market restructuring
+2022_mar,extraordinary,2022-03-01,2022-04-04,delete,8303.T,Shinsei Bank,1,stayed listed (Standard); SBI-controlled - price may be TOB-pinned
+2022_oct,review,2022-09-05,2022-09-29,add,6594.T,Nidec,1,phased review leg 1
+2022_oct,review,2022-09-05,2022-09-29,delete,8355.T,Shizuoka Bank,0,delisted (holding-co conversion)
+2022_oct,review,2022-09-05,2022-10-03,add,6273.T,SMC,1,phased review leg 2
+2022_oct,review,2022-09-05,2022-10-03,add,7741.T,HOYA,1,phased review leg 2
+2022_oct,review,2022-09-05,2022-10-03,delete,3103.T,Unitika,1,
+2022_oct,review,2022-09-05,2022-10-03,delete,6703.T,OKI,1,
+2022_oct,review,2022-09-05,2022-10-04,add,5831.T,Shizuoka FG,0,new listing - no pre-event history
+2022_oct,review,2022-09-05,2022-10-04,delete,1333.T,Maruha Nichiro,1,
+2023_apr,review,2023-03-03,2023-04-03,add,4661.T,Oriental Land,1,
+2023_apr,review,2023-03-03,2023-04-03,add,6723.T,Renesas Electronics,1,
+2023_apr,review,2023-03-03,2023-04-03,add,9201.T,Japan Airlines,1,
+2023_apr,review,2023-03-03,2023-04-03,delete,3101.T,Toyobo,1,
+2023_apr,review,2023-03-03,2023-04-03,delete,5703.T,Nippon Light Metal HD,1,
+2023_apr,review,2023-03-03,2023-04-03,delete,5707.T,Toho Zinc,1,
+2023_oct,review,2023-09-04,2023-10-02,add,4385.T,Mercari,1,
+2023_oct,review,2023-09-04,2023-10-02,add,6920.T,Lasertec,1,
+2023_oct,review,2023-09-04,2023-10-02,add,9843.T,Nitori HD,1,
+2023_oct,review,2023-09-04,2023-10-02,delete,5202.T,Nippon Sheet Glass,1,
+2023_oct,review,2023-09-04,2023-10-02,delete,7003.T,Mitsui E&S,1,
+2023_oct,review,2023-09-04,2023-10-02,delete,8628.T,Matsui Securities,1,
+2024_apr,review,2024-03-04,2024-04-01,add,3092.T,ZOZO,1,
+2024_apr,review,2024-03-04,2024-04-01,add,6146.T,Disco,1,
+2024_apr,review,2024-03-04,2024-04-01,add,6526.T,Socionext,1,
+2024_apr,review,2024-03-04,2024-04-01,delete,2531.T,Takara HD,1,
+2024_apr,review,2024-03-04,2024-04-01,delete,5232.T,Sumitomo Osaka Cement,1,
+2024_apr,review,2024-03-04,2024-04-01,delete,5541.T,Pacific Metals,1,
+2024_oct,review,2024-09-04,2024-10-01,add,4307.T,Nomura Research Institute,1,
+2024_oct,review,2024-09-04,2024-10-01,add,7453.T,Ryohin Keikaku,1,
+2024_oct,review,2024-09-04,2024-10-01,delete,3863.T,Nippon Paper,1,
+2024_oct,review,2024-09-04,2024-10-01,delete,4631.T,DIC,1,
+2025_apr,review,2025-03-05,2025-04-01,add,6532.T,BayCurrent,1,
+2025_apr,review,2025-03-05,2025-04-01,delete,9301.T,Mitsubishi Logistics,1,
+2025_oct,review,2025-09-08,2025-10-01,add,3697.T,SHIFT,1,
+2025_oct,review,2025-09-08,2025-10-01,delete,7762.T,Citizen Watch,1,
+2025_nov,extraordinary,2025-10-27,2025-11-05,add,4062.T,Ibiden,1,Nidec special-attention removal
+2025_nov,extraordinary,2025-10-27,2025-11-05,delete,6594.T,Nidec,1,special-attention designation - tradable forced-sell deletion
+2026_apr,review,2026-03-05,2026-04-01,add,285A.T,Kioxia HD,1,listed 2024-12 - short beta window
+2026_apr,review,2026-03-05,2026-04-01,add,7532.T,Pan Pacific International HD,1,
+2026_apr,review,2026-03-05,2026-04-01,delete,6674.T,GS Yuasa,1,+60w incomplete as of 2026-06
+2026_apr,review,2026-03-05,2026-04-01,delete,6952.T,Casio Computer,1,+60w incomplete as of 2026-06
