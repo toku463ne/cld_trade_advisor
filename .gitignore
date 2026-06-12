@@ -229,3 +229,7 @@ __marimo__/
 
 # Claude Code runtime lock
 .claude/scheduled_tasks.lock
+
+# environment files with credentials — never commit (CLAUDE.md)
+devenv
+btenv
