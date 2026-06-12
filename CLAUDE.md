@@ -244,9 +244,15 @@ fill contention vs the 225's 31:1) and re-benchmarked; the Stage-1 null
   another expansion — that explanation is refuted.
 - **The confluence signs are large-cap-specific.** On mid/small-caps they *anti-select* (fire 12×
   more, pick underperformers). The equal-weight-universe tie is **structural**, not sample-size.
-- Contention-based harvests for a candidate-level edge (PEAD) are now **exhausted**: 6-slot
+- Contention-based harvests for a candidate-level edge (PEAD) are now **fully exhausted**: 6-slot
   reordering (rejected), standalone sleeve (rejected at deployable capital), universe expansion
-  (rejected). The only untried sanctioned path is **sizing**.
+  (rejected), and **sizing (rejected 2026-05-30)**. The sizing path — overweight confluence fills
+  whose stock had a recent up-revision — died at the *premise*: on the canonical 6-slot book the
+  PEAD-boosted cohort does **not** outperform plain (mean_r +1.19% vs +1.23%, spread −0.03pp; the
+  booster's +2.40/+1.45 does NOT replicate). The confluence gate already absorbs the PEAD signal,
+  so there is no cohort spread for sizing to harvest (in-sample look-ahead best-β Δ Sharpe −0.008).
+  See `src/analysis/confluence_pead_sizing_power.py` and memory `project_pead_sizing_reject.md`.
+  **Do not re-propose any PEAD-on-confluence harvest** (vote/booster/sleeve/expansion/sizing all dead).
 - The parked-rejects revival queue (prefer_b0, div_peer cluster-size, PEAD sleeve) that was gated
   on expansion passing is **shelved** — see memory `project_parked_rejects_revival_triage.md`.
 
