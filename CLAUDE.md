@@ -14,6 +14,7 @@ A system for proposing Japanese stock trade candidates, strategy backtesting, an
 |-------------|----------------------------------------------|-----------------|
 | `devenv`    | Development — daily data collection & coding | stock_trader_dev |
 | `btenv`     | Backtest analysis — read-heavy, isolated DB  | stock_trader_bt  |
+| `prodenv`   | Production — live real-money book & UI        | stock_trader_prod |
 
 - Never mix credentials between environments
 - Load the appropriate file explicitly:

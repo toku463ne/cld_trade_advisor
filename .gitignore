@@ -233,3 +233,4 @@ __marimo__/
 # environment files with credentials — never commit (CLAUDE.md)
 devenv
 btenv
+prodenv

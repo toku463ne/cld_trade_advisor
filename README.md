@@ -45,19 +45,68 @@ scripts/run_ui.sh 8080    # custom port
 
 ## Environment files
 
-The repo ships two env files; load the right one explicitly with `uv run --env-file <file>`.
+Each environment is one gitignored env file at the repo root; load the right one explicitly with
+`uv run --env-file <file>`. **Never mix credentials between environments.**
 
-| File     | Purpose                              | Database          |
-|----------|--------------------------------------|-------------------|
-| `devenv` | Daily collection, the UI, dev work   | `stock_trader_dev`|
-| `btenv`  | Backtest analysis (read-heavy)       | `stock_trader_bt` |
+| File      | Purpose                              | Database            | Provisioned by |
+|-----------|--------------------------------------|---------------------|----------------|
+| `devenv`  | Daily collection, the UI, dev work   | `stock_trader_dev`  | `scripts/install.sh` |
+| `btenv`   | Backtest analysis (read-heavy)       | `stock_trader_bt`   | `scripts/install.sh` |
+| `prodenv` | **Live real-money book & boot UI**   | `stock_trader_prod` | `scripts/install_prod.sh` |
 
-`stock_trader_test` is used only by the pytest suite.
+`stock_trader_test` is used only by the pytest suite (created by `install.sh`, no env file).
 
-The J-Quants API key is **not** committed. Inject it into your shell before running collectors that need it:
+The env files are **gitignored** — they never get committed. The local Postgres credentials below are
+non-secret dev passwords; the J-Quants API key is the one real secret, so don't paste it anywhere tracked.
+
+### Setup — `devenv` & `btenv`
+
+1. Create the two files at the repo root with these contents:
+
+   ```bash
+   # devenv
+   DATABASE_URL=postgresql://stockdevuser:stockdevpass@localhost:5432/stock_trader_dev
+   DATA_SOURCE=yfinance
+   JQUANTS_API_KEY="<your-jquants-key>"
+
+   # btenv
+   DATABASE_URL=postgresql://stockbtuser:stockbtpass@localhost:5432/stock_trader_bt
+   DATA_SOURCE=yfinance
+   ```
+
+2. Provision the roles, databases, and schema (idempotent — installs Postgres if absent):
+
+   ```bash
+   scripts/install.sh            # creates stockdevuser/stockbtuser, all 3 DBs, runs migrations
+   ```
+
+   The credentials in `install.sh` must match the `DATABASE_URL`s above. A fresh DB is empty — seed it
+   from a backup ([Recovery](#recovery)) or collect data ([Daily operation](#daily-operation)).
+
+### Setup — `prodenv` (live trading)
+
+Prod is a **separate database** so the real-money book can never be touched by anything pointed at the
+dev DB (`stock_trader_dev` was wiped twice — see [Testing](#testing)). The `prodenv` file ships with a
+generated DB password already filled in. Provision everything in one step:
 
 ```bash
-export JQUANTS_API_KEY=<your-key>   # JQuantsClient reads it from the environment
+bash scripts/install_prod.sh    # prompts for sudo password ONCE, then:
+                                #   1. creates stockproduser + stock_trader_prod, seeds from the
+                                #      latest dev dump, runs migrations
+                                #   2. (optional) clears the book → fresh "Production" account
+                                #   3. installs the systemd service that auto-starts the UI on boot
+```
+
+Run it from a **real terminal** (the password prompt needs a TTY). The individual steps live in
+`scripts/setup_prod_db.sh`, `scripts/reset_prod_book.sql`, and `scripts/install_ui_service.sh`; full
+details in **[docs/deploy.md](docs/deploy.md)**.
+
+After install, the UI auto-starts on every WSL boot at `http://localhost:8050` — pick the **Production**
+account in the selector. Keep prod data fresh by collecting against it too, and back it up daily:
+
+```bash
+uv run --env-file prodenv python -m src.data.collect ohlcv --stock-set medium   # alongside the dev collect
+( crontab -l 2>/dev/null; echo "35 18 * * * $PWD/scripts/backup_prod_db.sh >> $HOME/db_backups/backup.log 2>&1" ) | crontab -
 ```
 
 ---

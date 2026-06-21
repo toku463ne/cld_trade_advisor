@@ -1,0 +1,21 @@
+[Unit]
+Description=Trade Advisor UI (prod) — Dash web app on :8050
+# Order after Postgres and the network so DB connections succeed at boot.
+After=postgresql.service network-online.target
+Wants=postgresql.service network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/cld_trade_advisor
+Environment=HOME=/home/ubuntu
+Environment=PATH=/home/ubuntu/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Wait until Postgres actually accepts connections (After= only orders unit start,
+# not readiness). Retries for ~30s; if it never comes up, Restart= below covers it.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do pg_isready -h localhost -p 5432 -q && exit 0; sleep 1; done; exit 0'
+ExecStart=/home/ubuntu/.local/bin/uv run --env-file prodenv python -m src.viz.app 8050
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
