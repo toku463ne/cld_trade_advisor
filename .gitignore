@@ -234,3 +234,8 @@ __marimo__/
 devenv
 btenv
 prodenv
+
+# scanned pages of published/copyrighted books — never commit (notes live in docs/books/)
+# root-anchored so docs/books/ (extracted notes) stays tracked
+/books/
+
