@@ -191,7 +191,7 @@ The heart of the method. Each sign = a volume+price condition, read through the 
 - **Pattern:** VAP = a histogram of cumulative volume **per price level** (volume profile / 価格帯別出来高 — the conventional volume bar rotated 90° and decomposed by price). Up- vs down-volume can be color-split per band (p.17, p.80-85 Ch.9).
 - **Read:** **Heavy-volume price nodes (POC / HVN) = the strongest future support/resistance** (much business done there → takes substantial volume to break back through). Thin nodes (LVN) = price slices through easily. Volume concentrated in the lower price region → buying dominates; upper region → selling dominates.
 - **Entry/Stop/target:** Use HVN bands as natural S/R for entries, stops and targets; do NOT anchor a stop to a low-volume (weak) range. Grade each range by (a) accumulated volume and (b) dwell time (bars) — longer + above-average = the node that matters; benchmark every range against the chart's highest-volume range.
-- **Pages:** p.17, p.80-85. VAP *locates* zones; run conventional VPA *at* those zones to confirm. **Net-new** to this repo.
+- **Pages:** p.17, p.80-85. VAP *locates* zones; run conventional VPA *at* those zones to confirm. **Net-new** to this repo. **→ Stage-0 REJECT (2026-06-27):** on daily JP, HVN support is INVERTED (pullbacks into a high-volume node drift *worse* than into a thin node; node edge negative every horizon) and HVN resistance is nil — a heavy node behaves as absorption/overhang, not a floor. See `src/analysis/vap_node_sr_stage0.py` and memory `project_vap_node_sr_stage0_reject.md`.
 
 > **VPA vs VAP (p.17):** VPA reads the *linear* volume↔price relationship of a fully-formed bar (open→close). VAP reads *where within the price range* volume concentrated. Complementary; use both.
 
