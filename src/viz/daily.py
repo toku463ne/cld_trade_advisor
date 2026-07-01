@@ -1804,6 +1804,7 @@ def _exit_advice(
     tp:         float | None,
     sl:         float | None,
     direction:  str = "long",
+    entry_price: float | None = None,
     adx_drop:   float = 8.0,
     min_bars:   int = 5,
     max_bars:   int = 40,
@@ -1846,7 +1847,8 @@ def _exit_advice(
         if entry_idx is None or entry_idx >= len(dates) - 1:
             return {"bars_held": 0, "dist_tp": dist_tp, "dist_sl": dist_sl,
                     "adx_verdict": "HOLD", "adx_reason": "too few bars",
-                    "adx_peak": None, "adx_now": None, "zz_exit": False}
+                    "adx_peak": None, "adx_now": None, "zz_exit": False,
+                    "sl_trail": None, "sl_anchor": None, "sl_tightens": False}
         asof_idx = len(dates) - 1
         bars_held = asof_idx - entry_idx
 
@@ -1872,9 +1874,54 @@ def _exit_advice(
         zz_exit = any(p.direction == target_dir and p.bar_index > entry_idx
                       and p.bar_index + 5 <= asof_idx for p in peaks)
 
+        # ── Trailing-SL suggestion ──────────────────────────────────────────
+        # Chandelier trail in the system's native ZsTpSl volatility unit:
+        # anchor at the best price reached since entry (highest high for longs,
+        # lowest low for shorts) and offset by the same EWA(zs-leg) band, re-
+        # estimated as of today, that produced the static SL.  The level is
+        # always reported; ``sl_tightens`` flags whether it would move the
+        # stored stop the right way (raise for longs, lower for shorts) while
+        # staying on the correct side of the current price — the render shows a
+        # "raise/lower SL → X" call only then, else a greyed "trail SL X · hold".
+        # Decision-support, not a hard rule — adx_trail d8 (the benchmark's best
+        # point-estimate exit) is NOT significantly better than a static SL.
+        sl_trail: float | None = None
+        sl_anchor: float | None = None
+        sl_tightens: bool = False
+        if sl is not None:
+            try:
+                seg = bars[entry_idx:asof_idx + 1]
+                anchor = (max(t[1] for t in seg) if is_long
+                          else min(t[2] for t in seg))
+                _, sl_cand = compute_exit_levels(
+                    stock_code, float(anchor), as_of, direction=direction)
+                if sl_cand is not None:
+                    tightens = sl_cand > sl if is_long else sl_cand < sl
+                    safe_side = (cur is None
+                                 or (sl_cand < cur if is_long else sl_cand > cur))
+                    # Respect the operator's real fill: a trailing stop locks in
+                    # *gains*, so only prompt a raise (lower for shorts) when the
+                    # position is actually in profit vs the entered price. With
+                    # price at/under entry the entry-bar high can push the
+                    # chandelier above the stored stop, but there is no gain to
+                    # protect — surface the level as a greyed "hold" instead of a
+                    # call. Unknown fill → fall back to prior (ungated) behaviour.
+                    in_profit = (
+                        entry_price is None
+                        or (cur is not None
+                            and (cur > entry_price if is_long
+                                 else cur < entry_price))
+                    )
+                    sl_trail, sl_anchor = sl_cand, float(anchor)
+                    sl_tightens = bool(tightens and safe_side and in_profit)
+            except Exception as exc:
+                logger.warning("trailing-SL calc failed for {}: {}", stock_code, exc)
+
         return {"bars_held": bars_held, "dist_tp": dist_tp, "dist_sl": dist_sl,
                 "adx_verdict": verdict, "adx_reason": reason,
-                "adx_peak": adx_peak, "adx_now": adx_now, "zz_exit": zz_exit}
+                "adx_peak": adx_peak, "adx_now": adx_now, "zz_exit": zz_exit,
+                "sl_trail": sl_trail, "sl_anchor": sl_anchor,
+                "sl_tightens": sl_tightens}
     except Exception as exc:
         logger.warning("_exit_advice failed for {}: {}", stock_code, exc)
         return None
@@ -3690,6 +3737,7 @@ def register_callbacks() -> None:
             advice = _exit_advice(
                 r["stock"], r["entry_date"], as_of, cur,
                 r["tp"], r["sl"], r["direction"],
+                entry_price=r["entry_price"],
             )
             if cur is not None and r["entry_price"]:
                 # P&L direction-aware: short positions profit when price drops.
@@ -3742,6 +3790,20 @@ def register_callbacks() -> None:
                 if advice["zz_exit"]:
                     parts.append(html.Span("⚠ ZZ-high", style={"color": "#ff9800",
                                                                "fontWeight": "600"}))
+                # Trailing-SL suggestion: a discrete "raise/lower SL to X" call
+                # when the trail tightens the stored stop, else a greyed
+                # "trail SL X · hold" so the level is always visible.
+                trail = advice.get("sl_trail")
+                if trail is not None:
+                    if advice.get("sl_tightens"):
+                        arrow = "↑ raise" if r["direction"] != "short" else "↓ lower"
+                        parts.append(html.Span(
+                            f"{arrow} SL → {trail:,.0f} (from {sl_str})",
+                            style={"color": "#ff9800", "fontWeight": "600"}))
+                    else:
+                        parts.append(html.Span(
+                            f"trail SL {trail:,.0f} · hold",
+                            style={"color": MUTED}))
                 advice_block = html.Div(
                     style={"borderTop": f"1px dashed {BORDER}", "paddingTop": "4px",
                            "marginTop": "4px"},
@@ -3750,7 +3812,10 @@ def register_callbacks() -> None:
                                         "display": "flex", "gap": "12px",
                                         "flexWrap": "wrap"}, children=parts),
                         html.Div("adx_trail d8 = best point-estimate exit, not "
-                                 "significantly > TP/SL; ZZ-high = philosophy exit heads-up",
+                                 "significantly > TP/SL; ZZ-high = philosophy exit "
+                                 "heads-up; SL trail = chandelier in ZsTpSl band off "
+                                 "the peak since entry, prompted only while in profit "
+                                 "vs your fill (decision-support, tighten-only)",
                                  style={"color": MUTED, "fontSize": "9px",
                                         "fontStyle": "italic", "marginTop": "2px"}),
                     ],
