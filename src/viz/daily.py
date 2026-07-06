@@ -23,7 +23,7 @@ from plotly.subplots import make_subplots
 from sqlalchemy import select
 from ta.trend import ADXIndicator
 
-from src.analysis.models import SignBenchmarkRun
+from src.analysis.models import N225RegimeSnapshot, SignBenchmarkRun
 from src.data.db import get_session
 from src.data.models import Stock
 from src.indicators.bb import calc_bb
@@ -2167,8 +2167,31 @@ _S_CARD: dict[str, Any] = {
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 
+def _latest_data_date() -> str:
+    """Return the most recent N225 regime snapshot date as ``YYYY-MM-DD``.
+
+    The Daily tab defaults its date picker to this so the tab opens on the
+    latest trading day that actually has data, rather than the calendar date
+    (which has no bars/snapshot before today's collection has run — e.g. after
+    a market close but before yfinance publishes the day's bar).  Falls back to
+    the calendar date if the query fails or no snapshot exists.
+    """
+    try:
+        with get_session() as session:
+            latest = session.execute(
+                select(N225RegimeSnapshot.date)
+                .order_by(N225RegimeSnapshot.date.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+        if latest is not None:
+            return latest.isoformat()
+    except Exception as exc:  # pragma: no cover - defensive UI fallback
+        logger.warning("Could not resolve latest data date, using today: {}", exc)
+    return datetime.date.today().isoformat()
+
+
 def layout() -> html.Div:
-    today = datetime.date.today().isoformat()
+    today = _latest_data_date()
     return html.Div(
         style={"display": "flex", "height": "calc(100vh - 44px)", "overflow": "hidden"},
         children=[
