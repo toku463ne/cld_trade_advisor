@@ -1848,7 +1848,8 @@ def _exit_advice(
             return {"bars_held": 0, "dist_tp": dist_tp, "dist_sl": dist_sl,
                     "adx_verdict": "HOLD", "adx_reason": "too few bars",
                     "adx_peak": None, "adx_now": None, "zz_exit": False,
-                    "sl_trail": None, "sl_anchor": None, "sl_tightens": False}
+                    "sl_trail": None, "sl_anchor": None, "sl_tightens": False,
+                    "tp_trail": None, "tp_extends": False}
         asof_idx = len(dates) - 1
         bars_held = asof_idx - entry_idx
 
@@ -1885,43 +1886,62 @@ def _exit_advice(
         # "raise/lower SL → X" call only then, else a greyed "trail SL X · hold".
         # Decision-support, not a hard rule — adx_trail d8 (the benchmark's best
         # point-estimate exit) is NOT significantly better than a static SL.
+        #
+        # The same anchor + re-estimated band also yields a trailing *TP*: the
+        # profit target extends up (down for shorts) as the trade makes new
+        # highs, so a runner isn't capped at the entry-time TP.  Same gates as
+        # the SL trail (correct side of price, in-profit only) — it only ever
+        # loosens the target in the profit direction ("extend-only"), the mirror
+        # of the SL's "tighten-only".  Both come from one compute_exit_levels
+        # call (it returns TP and SL together).
         sl_trail: float | None = None
         sl_anchor: float | None = None
         sl_tightens: bool = False
-        if sl is not None:
+        tp_trail: float | None = None
+        tp_extends: bool = False
+        if sl is not None or tp is not None:
             try:
                 seg = bars[entry_idx:asof_idx + 1]
                 anchor = (max(t[1] for t in seg) if is_long
                           else min(t[2] for t in seg))
-                _, sl_cand = compute_exit_levels(
+                tp_cand, sl_cand = compute_exit_levels(
                     stock_code, float(anchor), as_of, direction=direction)
-                if sl_cand is not None:
+                # Respect the operator's real fill: a trail only acts on a live
+                # gain, so only prompt when the position is actually in profit
+                # vs the entered price. With price at/under entry the entry-bar
+                # high can push the chandelier past the stored levels, but there
+                # is no gain to protect/extend — surface a greyed "hold" instead
+                # of a call. Unknown fill → fall back to prior (ungated) behaviour.
+                in_profit = (
+                    entry_price is None
+                    or (cur is not None
+                        and (cur > entry_price if is_long
+                             else cur < entry_price))
+                )
+                if sl is not None and sl_cand is not None:
                     tightens = sl_cand > sl if is_long else sl_cand < sl
                     safe_side = (cur is None
                                  or (sl_cand < cur if is_long else sl_cand > cur))
-                    # Respect the operator's real fill: a trailing stop locks in
-                    # *gains*, so only prompt a raise (lower for shorts) when the
-                    # position is actually in profit vs the entered price. With
-                    # price at/under entry the entry-bar high can push the
-                    # chandelier above the stored stop, but there is no gain to
-                    # protect — surface the level as a greyed "hold" instead of a
-                    # call. Unknown fill → fall back to prior (ungated) behaviour.
-                    in_profit = (
-                        entry_price is None
-                        or (cur is not None
-                            and (cur > entry_price if is_long
-                                 else cur < entry_price))
-                    )
                     sl_trail, sl_anchor = sl_cand, float(anchor)
                     sl_tightens = bool(tightens and safe_side and in_profit)
+                if tp is not None and tp_cand is not None:
+                    # Extend the target only in the profit direction (raise for
+                    # longs, lower for shorts) and only when it stays beyond the
+                    # current price (a target already passed is meaningless).
+                    extends = tp_cand > tp if is_long else tp_cand < tp
+                    ahead = (cur is None
+                             or (tp_cand > cur if is_long else tp_cand < cur))
+                    tp_trail = tp_cand
+                    tp_extends = bool(extends and ahead and in_profit)
             except Exception as exc:
-                logger.warning("trailing-SL calc failed for {}: {}", stock_code, exc)
+                logger.warning("trailing TP/SL calc failed for {}: {}", stock_code, exc)
 
         return {"bars_held": bars_held, "dist_tp": dist_tp, "dist_sl": dist_sl,
                 "adx_verdict": verdict, "adx_reason": reason,
                 "adx_peak": adx_peak, "adx_now": adx_now, "zz_exit": zz_exit,
                 "sl_trail": sl_trail, "sl_anchor": sl_anchor,
-                "sl_tightens": sl_tightens}
+                "sl_tightens": sl_tightens,
+                "tp_trail": tp_trail, "tp_extends": tp_extends}
     except Exception as exc:
         logger.warning("_exit_advice failed for {}: {}", stock_code, exc)
         return None
@@ -3804,6 +3824,20 @@ def register_callbacks() -> None:
                         parts.append(html.Span(
                             f"trail SL {trail:,.0f} · hold",
                             style={"color": MUTED}))
+                # Trailing-TP suggestion: mirror of the SL trail — extend the
+                # profit target in the profit direction as the trade runs, else
+                # a greyed "trail TP X · hold" so the level is always visible.
+                tp_trail = advice.get("tp_trail")
+                if tp_trail is not None:
+                    if advice.get("tp_extends"):
+                        arrow = "↑ raise" if r["direction"] != "short" else "↓ lower"
+                        parts.append(html.Span(
+                            f"{arrow} TP → {tp_trail:,.0f} (from {tp_str})",
+                            style={"color": GREEN, "fontWeight": "600"}))
+                    else:
+                        parts.append(html.Span(
+                            f"trail TP {tp_trail:,.0f} · hold",
+                            style={"color": MUTED}))
                 advice_block = html.Div(
                     style={"borderTop": f"1px dashed {BORDER}", "paddingTop": "4px",
                            "marginTop": "4px"},
@@ -3813,9 +3847,10 @@ def register_callbacks() -> None:
                                         "flexWrap": "wrap"}, children=parts),
                         html.Div("adx_trail d8 = best point-estimate exit, not "
                                  "significantly > TP/SL; ZZ-high = philosophy exit "
-                                 "heads-up; SL trail = chandelier in ZsTpSl band off "
-                                 "the peak since entry, prompted only while in profit "
-                                 "vs your fill (decision-support, tighten-only)",
+                                 "heads-up; SL/TP trail = chandelier in ZsTpSl band "
+                                 "off the peak since entry, prompted only while in "
+                                 "profit vs your fill (decision-support; SL "
+                                 "tighten-only, TP extend-only — let a runner run)",
                                  style={"color": MUTED, "fontSize": "9px",
                                         "fontStyle": "italic", "marginTop": "2px"}),
                     ],
