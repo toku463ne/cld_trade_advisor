@@ -637,6 +637,38 @@ def close_position(
     return pos
 
 
+def update_position_levels(
+    session: Session,
+    position_id: int,
+    tp_price: float | None = None,
+    sl_price: float | None = None,
+) -> Position:
+    """Overwrite the stored TP/SL of an open position with broker-side values.
+
+    Trading is manual: when the operator changes TP/SL at the broker (e.g. SBI),
+    the stored levels go stale and the Daily-tab trailing suggestions drift off
+    the wrong base.  This syncs the DB to what the operator actually placed so
+    subsequent trail advice is measured against the live bracket.
+
+    A ``None`` argument leaves that level unchanged; pass a value to overwrite it.
+    Only valid while the position is ``open``.
+    """
+    pos = session.get(Position, position_id)
+    if pos is None:
+        raise ValueError(f"Position {position_id} not found")
+    if pos.status != "open":
+        raise ValueError(f"Position {position_id} is {pos.status}, not open")
+    old_tp, old_sl = pos.tp_price, pos.sl_price
+    if tp_price is not None:
+        pos.tp_price = tp_price
+    if sl_price is not None:
+        pos.sl_price = sl_price
+    session.flush()
+    logger.info("Updated levels position id={} {} TP {}→{} SL {}→{}",
+                pos.id, pos.stock_code, old_tp, pos.tp_price, old_sl, pos.sl_price)
+    return pos
+
+
 def create_memo(
     session: Session,
     memo_date: datetime.date,

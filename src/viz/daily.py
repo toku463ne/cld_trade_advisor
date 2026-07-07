@@ -46,6 +46,7 @@ from src.portfolio.crud import (
     register_review,
     set_account_budget,
     update_memo,
+    update_position_levels,
     compute_exit_levels,
     evaluate_position_as_of,
     get_latest_price,
@@ -3060,6 +3061,21 @@ def register_callbacks() -> None:
         if fresh_only and "fresh" in fresh_only:
             as_of = (date_str or "")[:10]
             rows = [r for r in rows if r.get("fired_at") == as_of]
+        # Hide candidates for stocks already held or ordered: a name with an
+        # active position is not a new slot (adding to it is not
+        # diversification — see the correlation/diversification selection rule).
+        # Drop them from the store so the table and every selection handler
+        # never surface them.
+        try:
+            with get_session() as session:
+                held_codes = {
+                    p.stock_code
+                    for p in get_active_positions(session, account_id=account_id)
+                }
+            if held_codes:
+                rows = [r for r in rows if r.get("stock") not in held_codes]
+        except Exception as exc:
+            logger.warning("held-position filter skipped: {}", exc)
         if rows and date_str:
             try:
                 as_of_d = datetime.date.fromisoformat(date_str[:10])
@@ -3868,14 +3884,6 @@ def register_callbacks() -> None:
                         html.Div(style={"color": MUTED, "fontSize": "11px",
                                         "display": "flex", "gap": "12px",
                                         "flexWrap": "wrap"}, children=parts),
-                        html.Div("adx_trail d8 = best point-estimate exit, not "
-                                 "significantly > TP/SL; ZZ-high = philosophy exit "
-                                 "heads-up; SL/TP trail = chandelier in ZsTpSl band "
-                                 "off the peak since entry, prompted only while in "
-                                 "profit vs your fill (decision-support; SL "
-                                 "tighten-only, TP extend-only — let a runner run)",
-                                 style={"color": MUTED, "fontSize": "9px",
-                                        "fontStyle": "italic", "marginTop": "2px"}),
                     ],
                 )
 
@@ -3939,6 +3947,57 @@ def register_callbacks() -> None:
                                 ),
                                 # Exit-advice row
                                 advice_block,
+                            ],
+                        ),
+                        # Edit TP/SL — sync the DB bracket to what the operator
+                        # actually placed at the broker (SBI).  Separate div so
+                        # clicks don't bubble to pos-card selection.  Pre-filled
+                        # with the stored levels; trail advice re-bases off these.
+                        html.Div(
+                            style={"marginTop": "6px", "display": "flex",
+                                   "gap": "6px", "alignItems": "center",
+                                   "justifyContent": "flex-end"},
+                            children=[
+                                html.Span("TP", style={"color": GREEN,
+                                                       "fontSize": "11px"}),
+                                dcc.Input(
+                                    id={"type": "edit-tp", "index": r["id"]},
+                                    type="number",
+                                    value=r["tp"],
+                                    debounce=True,
+                                    style={"width": "80px", "fontSize": "11px",
+                                           "padding": "3px 6px",
+                                           "background": BG, "color": TEXT,
+                                           "border": f"1px solid {BORDER}",
+                                           "borderRadius": "3px"},
+                                ),
+                                html.Span("SL", style={"color": RED,
+                                                       "fontSize": "11px"}),
+                                dcc.Input(
+                                    id={"type": "edit-sl", "index": r["id"]},
+                                    type="number",
+                                    value=r["sl"],
+                                    debounce=True,
+                                    style={"width": "80px", "fontSize": "11px",
+                                           "padding": "3px 6px",
+                                           "background": BG, "color": TEXT,
+                                           "border": f"1px solid {BORDER}",
+                                           "borderRadius": "3px"},
+                                ),
+                                html.Button(
+                                    "Update TP/SL",
+                                    id={"type": "update-levels-btn", "index": r["id"]},
+                                    n_clicks=0,
+                                    style={
+                                        "background": "transparent",
+                                        "color": ACCENT,
+                                        "border": f"1px solid {ACCENT}",
+                                        "borderRadius": "3px",
+                                        "padding": "2px 10px",
+                                        "cursor": "pointer",
+                                        "fontSize": "11px",
+                                    },
+                                ),
                             ],
                         ),
                         # Close button + reason dropdown — separate div so clicks don't bubble to pos-card.
@@ -4091,6 +4150,49 @@ def register_callbacks() -> None:
                 )
         except Exception as exc:
             logger.exception("close_position error for id={}", pos_id)
+        return refresh_positions(0, 0, account_id, date_str)
+
+    @callback(
+        Output("daily-positions-panel", "children", allow_duplicate=True),
+        Input({"type": "update-levels-btn", "index": ALL}, "n_clicks"),
+        State({"type": "edit-tp", "index": ALL}, "value"),
+        State({"type": "edit-tp", "index": ALL}, "id"),
+        State({"type": "edit-sl", "index": ALL}, "value"),
+        State({"type": "edit-sl", "index": ALL}, "id"),
+        State("active-account-id", "data"),
+        State("daily-date",         "date"),
+        prevent_initial_call=True,
+    )
+    def update_levels_btn(n_clicks_list: list[int],
+                          tps: list[float | None],
+                          tp_ids: list[dict],
+                          sls: list[float | None],
+                          sl_ids: list[dict],
+                          account_id: int | None,
+                          date_str:   str | None) -> list:
+        if not callback_context.triggered or not any(
+                n for n in (n_clicks_list or []) if n):
+            return no_update  # type: ignore[return-value]
+        pos_id = callback_context.triggered_id["index"]
+        new_tp: float | None = None
+        for tid, tv in zip(tp_ids, tps):
+            if tid.get("index") == pos_id:
+                new_tp = tv
+                break
+        new_sl: float | None = None
+        for sid, sv in zip(sl_ids, sls):
+            if sid.get("index") == pos_id:
+                new_sl = sv
+                break
+        try:
+            with get_session() as session:
+                update_position_levels(
+                    session, pos_id,
+                    tp_price = float(new_tp) if new_tp is not None else None,
+                    sl_price = float(new_sl) if new_sl is not None else None,
+                )
+        except Exception:
+            logger.exception("update_levels error for id={}", pos_id)
         return refresh_positions(0, 0, account_id, date_str)
 
     @callback(
