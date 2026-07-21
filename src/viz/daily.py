@@ -3666,6 +3666,7 @@ def register_callbacks() -> None:
                         "units":        p.units,
                         "tp":           float(p.tp_price) if p.tp_price else None,
                         "sl":           float(p.sl_price) if p.sl_price else None,
+                        "levels_updated_at": p.levels_updated_at,
                     }
                     for p in positions
                 ]
@@ -3792,6 +3793,7 @@ def register_callbacks() -> None:
                 tp_price   = r["tp"],
                 sl_price   = r["sl"],
                 direction  = r["direction"],
+                levels_updated_at = r["levels_updated_at"],
             )
             advice = _exit_advice(
                 r["stock"], r["entry_date"], as_of, cur,
@@ -4134,6 +4136,7 @@ def register_callbacks() -> None:
                     tp_price   = float(pos.tp_price) if pos.tp_price else None,
                     sl_price   = float(pos.sl_price) if pos.sl_price else None,
                     direction  = getattr(pos, "direction", "long"),
+                    levels_updated_at = pos.levels_updated_at,
                 )
                 if close_at_as_of is None:
                     logger.warning(

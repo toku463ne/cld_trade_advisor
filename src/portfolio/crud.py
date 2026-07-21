@@ -652,6 +652,11 @@ def update_position_levels(
 
     A ``None`` argument leaves that level unchanged; pass a value to overwrite it.
     Only valid while the position is ``open``.
+
+    Stamps ``levels_updated_at`` so the TP/SL hit sweep restarts from the next
+    session: a raised stop must not retroactively fire on bars that traded
+    through it while the old bracket was still in force.  Editing either leg
+    resets the window for both — the operator re-places the whole bracket.
     """
     pos = session.get(Position, position_id)
     if pos is None:
@@ -663,6 +668,8 @@ def update_position_levels(
         pos.tp_price = tp_price
     if sl_price is not None:
         pos.sl_price = sl_price
+    if tp_price is not None or sl_price is not None:
+        pos.levels_updated_at = datetime.date.today()
     session.flush()
     logger.info("Updated levels position id={} {} TP {}→{} SL {}→{}",
                 pos.id, pos.stock_code, old_tp, pos.tp_price, old_sl, pos.sl_price)
@@ -816,6 +823,7 @@ def evaluate_position_as_of(
     sl_price:   float | None,
     direction:  str = "long",
     gran:       str = "1d",
+    levels_updated_at: datetime.date | None = None,
 ) -> tuple[float | None, str, datetime.date | None]:
     """Evaluate an open position as of *as_of* date.
 
@@ -831,6 +839,14 @@ def evaluate_position_as_of(
 
     For ``direction="short"``: TP fires when ``low <= tp_price``
     (profit-direction inverted); SL fires when ``high >= sl_price``.
+
+    ``levels_updated_at`` is the date TP/SL were last overwritten by the
+    operator.  Hit-checking then starts at the **following** bar, because the
+    re-placed bracket is only live from the next session — without this, raising
+    a stop makes every earlier bar that traded below the new level fire a
+    spurious ``sl_hit`` (and the entry bar itself fires whenever the new stop is
+    above the entry price).  ``close_at_as_of`` is unaffected: it is always the
+    latest close in ``[entry_date, as_of]``.
 
     ``status`` is one of ``"tp_hit"``, ``"sl_hit"``, ``"hold"``.
     ``hit_date`` is the date of the first TP/SL hit, or None.
@@ -866,6 +882,9 @@ def evaluate_position_as_of(
         hi = float(r.high_price)
         lo = float(r.low_price)
         bar_date = r.ts.date() if hasattr(r.ts, "date") else r.ts
+        if levels_updated_at is not None and bar_date <= levels_updated_at:
+            # Bracket re-placed on/after this bar — it was not live yet.
+            continue
         if is_long:
             if tp_price is not None and hi >= tp_price:
                 status, hit_date = "tp_hit", bar_date

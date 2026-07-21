@@ -91,6 +91,13 @@ class Position(Base):
     tp_price: Mapped[float | None] = mapped_column(Numeric(precision=12, scale=2), nullable=True)
     sl_price: Mapped[float | None] = mapped_column(Numeric(precision=12, scale=2), nullable=True)
 
+    # Date the operator last overwrote TP/SL (see crud.update_position_levels).
+    # The TP/SL hit sweep only inspects bars *after* this date: a raised stop is
+    # live from the next session onward, so it must not retroactively "hit" on
+    # bars that traded through it while the old, looser bracket was in force.
+    # NULL (never edited) falls back to entry_date — the original behaviour.
+    levels_updated_at: Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
+
     status:      Mapped[str]                  = mapped_column(String(10), nullable=False, default="open")
     exit_date:   Mapped[datetime.date | None] = mapped_column(Date, nullable=True)
     exit_price:  Mapped[float | None]         = mapped_column(Numeric(precision=12, scale=2), nullable=True)
